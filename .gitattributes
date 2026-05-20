@@ -1,0 +1,19 @@
+﻿# Normalize line endings to LF on commit for all text files
+* text=auto eol=lf
+
+# Force CRLF for Windows-specific files
+*.ps1 text eol=crlf
+
+# Binary files - no line ending conversion
+*.pt binary
+*.pth binary
+*.ckpt binary
+*.npy binary
+*.npz binary
+*.h5 binary
+*.hdf5 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.zip binary
+*.pptx binary

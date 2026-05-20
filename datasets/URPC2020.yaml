@@ -1,0 +1,7 @@
+path: URPC2020 # relative to dataset root
+train: images/train
+val: images/val
+
+# Classes
+nc: 4
+names: ['holothurian', 'echinus', 'scallop', 'starfish']
