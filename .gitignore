@@ -1,3 +1,7 @@
+# === Secrets (Kaggle, etc.) ===
+.env
+.kaggle/
+
 # === Moi truong Python ===
 .venv/
 __pycache__/
@@ -25,9 +29,11 @@ datasets/URPC2020/
 *.npy
 *.npz
 
-# === Ket qua thi nghiem ===
+# === Ket qua thi nghiem & Moi truong ===
 results/
 !results/.gitkeep
+environments/
+
 
 # === Tai lieu & Bai bao noi bo ===
 .docs/
