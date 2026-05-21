@@ -34,6 +34,7 @@ usage() {
   echo "  --train-only       Bỏ setup/download/env-gen; chỉ chạy experiment scripts"
   echo "  --hfl-only         Chỉ run_hfl_experiments.sh"
   echo "  --kdl-only         Chỉ run_kdl_experiments.sh"
+  echo "  --skip-setup       Bỏ bước tạo venv + cài requirements"
   echo "  --skip-download    Bỏ bước tải dataset"
   echo "  --skip-env-gen     Bỏ generate_all_envs.py"
   echo "  --skip-train       Dừng sau setup/data/env (không train)"
@@ -49,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --train-only)   DO_SETUP=0; DO_DOWNLOAD=0; DO_ENV_GEN=0 ;;
     --hfl-only)     DO_KDL=0 ;;
     --kdl-only)     DO_HFL=0 ;;
+    --skip-setup)   DO_SETUP=0 ;;
     --skip-download) DO_DOWNLOAD=0 ;;
     --skip-env-gen)  DO_ENV_GEN=0 ;;
     --skip-train)    DO_HFL=0; DO_KDL=0 ;;

@@ -4,7 +4,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple
 
-from config.settings import NetworkConfig, AcousticChannelConfig, EnergyConfig, FedKDLConfig
+from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
 from federated_core.metrics import EnergyTracker, LatencyTracker, MetricsLogger
 from federated_core.hfl_rules import compute_mean_cluster_size, compute_q1_fog_distance
 
@@ -23,10 +23,10 @@ class BaseSimulator(ABC):
         self.topo_path = topo_path
         self.baseline = baseline
         
-        self.net_cfg = NetworkConfig()
-        self.ac_cfg = AcousticChannelConfig()
-        self.en_cfg = EnergyConfig()
-        self.fed_cfg = FedKDLConfig()
+        self.net_cfg = network_cfg
+        self.ac_cfg = acoustic_cfg
+        self.en_cfg = energy_cfg
+        self.fed_cfg = fed_cfg
 
         self._load_environment()
 

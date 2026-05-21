@@ -55,6 +55,9 @@ class FedKDLConfig:
     DATASET_2D: str = "URPC_2020"     # Kịch bản 2 & 3
     DATASETS_1D: List[str] = None
     
+    # Sensor sparsity ratio
+    RHO_S: float = 0.05
+    
     # HFL-Selective Parameters
     # Cụm chỉ hợp tác nếu size <= max(2, 0.75 * mean_size)
     COOP_THRESHOLD_MULTIPLIER: float = 0.75 

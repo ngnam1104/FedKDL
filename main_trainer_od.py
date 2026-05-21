@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from config.settings import NetworkConfig, AcousticChannelConfig, EnergyConfig, FedKDLConfig
+from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
 from tasks.detection_2d.simulator import Simulator2D
 from utils.log_export import build_experiment_bundle
 from utils.train_io import build_experiment_paths, run_trainer_with_artifacts
@@ -43,10 +43,6 @@ def main():
         print(f"[Error] Environment files not found.")
         sys.exit(1)
         
-    net_cfg = NetworkConfig()
-    ac_cfg  = AcousticChannelConfig()
-    en_cfg  = EnergyConfig()
-    fed_cfg = FedKDLConfig()
     
     if args.rounds is not None:
         fed_cfg.GLOBAL_ROUNDS = {"1D": args.rounds, "2D": args.rounds}
