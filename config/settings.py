@@ -3,7 +3,7 @@ settings.py
 Cấu hình tham số toàn cục cho hệ thống IoUT-FedKDL.
 Tích hợp tham số vật lý từ Omeke et al. 2026 và kiến trúc phân cấp của FedKDL.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple, List
 
 @dataclass
@@ -35,16 +35,20 @@ class AcousticChannelConfig:
 class EnergyConfig:
     """Ngân sách Sinh tồn và Tiêu hao Năng lượng"""
     E_INIT: float = 500.0             # Pin khởi tạo của mỗi thiết bị (Joules) 
-    E_COMP_EPOCH: float = 0.5         # Tiêu hao điện toán nội bộ (J/epoch - ước tính cho ARM)
+    EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-11, "2D": 2.0e-12}) # Tiêu hao năng lượng trên mỗi FLOP (1D: FP32, 2D: INT8)
+    F_CPU: float = 2.0e9              # Tần số CPU của AUV (Cycles/s hoặc FLOPs/s), ví dụ 2 GHz
     P_C_TX: float = 0.05              # Công suất tĩnh mạch phát vô tuyến (Watts) 
     P_C_RX: float = 0.03              # Công suất tĩnh mạch thu (Watts) 
     ETA_EA: float = 0.25              # Hiệu suất chuyển đổi điện-âm 
+
 
 @dataclass
 class FedKDLConfig:
     """Tham số Thuật toán Học liên kết & Đề xuất FedKDL"""
     # Baseline Parameters
-    GLOBAL_ROUNDS: int = 150          # Chu kỳ sống dự kiến cho ảnh 2D
+    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 30, "2D": 150}) # Chu kỳ sống dự kiến cho từng tác vụ
+    MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 2700.0, "2D": 2.175e9}) # 2D: YOLOv8n ở 320x320
+    FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2}) # Hệ số nhân: 1D (Full fine-tuning), 2D (LoRA)
     LOCAL_EPOCHS: int = 5             # Số vòng lặp SGD cục bộ 
     LOCAL_LR: float = 0.01            # Learning rate (Thêm vào cho Centralised & Worker)
     NON_IID_ALPHA: float = 0.1        # Phân phối Dirichlet cho Concept Drift/Data Skew
@@ -56,9 +60,11 @@ class FedKDLConfig:
     COOP_THRESHOLD_MULTIPLIER: float = 0.75 
     
     # KD-LoRA-INT8 Parameters
-    LORA_RANK: int = 4                # Cấu trúc Low-rank cho 2 C2f blocks cuối
-    QUANTIZATION_BITS: int = 8        # Affine Quantization từng tensor riêng biệt
-    TARGET_PAYLOAD_KB: float = 11.0   # S ≈ 11 KB (Khóa cứng kích thước gói tin)
+    # Kịch bản 1: LORA_RANK=4 → payload ~74KB  (LoRA 72KB + Head partial 2KB)
+    # Kịch bản 2: LORA_RANK=8 → payload ~146KB (LoRA 144KB + Head partial 2KB) ≈ 150KB target
+    LORA_RANK: int = 4                # r=4 (74KB) hoặc r=8 (146KB) — xem 2 kịch bản trên
+    QUANTIZATION_BITS: int = 8        # Affine Quantization từng tensor riêng biệt (INT8)
+    TARGET_PAYLOAD_KB: float = 150.0  # Target payload: 150KB (LoRA+Head partial INT8)
     
     # Deterministic Rules Thresholds
     BETA_EMD: float = 0.5             # Trọng số lai D_joint giữa Tri thức (EMD) và Địa lý

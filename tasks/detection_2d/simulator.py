@@ -1,0 +1,268 @@
+import os
+import gc
+import copy
+import yaml
+import torch
+import numpy as np
+from pathlib import Path
+from typing import Dict, Any, Tuple
+
+from federated_core.base_simulator import BaseSimulator
+from federated_core.workers import BaseWorker, BaseFogNode, BaseGateway
+from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
+from tasks.detection_2d.trainer import local_sgd_od, evaluate_od
+from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
+from tasks.detection_2d.knowledge_compression.concept_drift import ConceptDriftMonitor
+
+
+class SensorWorker2D(BaseWorker):
+    def __init__(self, sensor_id, client_yaml, battery_init):
+        super().__init__(sensor_id, battery_init)
+        self.client_yaml = client_yaml
+        
+        with open(self.client_yaml, 'r') as f:
+            c_cfg = yaml.safe_load(f)
+        with open(c_cfg['train'], 'r') as f:
+            self.n_samples = sum(1 for _ in f)
+
+    def train_and_get_payload(self, global_state, epochs, lr, device):
+        """
+        Train local SGD (Tier 1, KHÔNG dùng KD) và đóng gói payload INT8.
+        KD chỉ chạy tại Gateway (Tier 3) sau global aggregation.
+
+        Returns:
+            (payload_bytes, payload_kb, delta_norm)
+            payload_bytes: bytes đã nén INT8 để gửi qua kênh âm thanh
+            payload_kb: kích thước payload tính bằng KB
+            delta_norm: L2 norm của sự thay đổi trọng số (cho Lazy Filter)
+        """
+        if not self.alive:
+            return None, 0.0, 0.0
+
+        from config.settings import fed_cfg
+        local_student = StudentModel("yolo26n.pt", rank=fed_cfg.LORA_RANK)
+        local_student.load_trainable_state_dict(global_state)
+
+        new_state, delta_norm = local_sgd_od(
+            student_model=local_student,
+            client_yaml=self.client_yaml,
+            client_id=self.sensor_id,
+            epochs=epochs,
+            device=device,
+        )
+
+        # Pack toàn bộ new_state (LoRA + cv3.x.2) thành bytes INT8
+        payload_bytes, payload_kb = pack_payload(new_state)
+        print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB INT8 "
+              f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
+        return payload_bytes, payload_kb, delta_norm
+
+
+
+class FogNode2D(BaseFogNode):
+    def aggregate_intra_cluster(self, global_state_dict, payloads, sensor_n_samples, use_kd_lora_int8=True):
+        import torch
+        from tasks.detection_2d.knowledge_compression.int8_quantization import unpack_payload
+        
+        c_updates = []
+        for sid in self.cluster_members:
+            if sid in payloads:
+                if use_kd_lora_int8:
+                    state = unpack_payload(payloads[sid], global_state_dict)
+                else:
+                    state = payloads[sid]
+                c_updates.append(state)
+
+        if not c_updates:
+            import copy
+            self.intra_state_dict = copy.deepcopy(global_state_dict)
+            self.final_state_dict = copy.deepcopy(global_state_dict)
+            return
+
+        self.intra_state_dict = {}
+        for k in c_updates[0]:
+            self.intra_state_dict[k] = torch.stack([u[k].float() for u in c_updates]).mean(dim=0)
+            
+        import copy
+        self.final_state_dict = copy.deepcopy(self.intra_state_dict)
+
+
+class Simulator2D(BaseSimulator):
+    def __init__(
+        self,
+        topo_path: str,
+        data_path: str,
+        baseline: str,
+        test_yaml: str = "datasets/URPC2020.yaml",
+        student_ckpt: str = "yolo26n.pt",
+        teacher_ckpt: str = "yolo12l.pt",
+        device: str = "cpu",
+    ):
+        super().__init__(topo_path=topo_path, baseline=baseline, device=device)
+        self.test_yaml = test_yaml
+        self.task_key = "2D"
+        
+        # Load Data Partition
+        from utils.env_manager import EnvironmentManager
+        data_part = EnvironmentManager.load_data_partition(data_path)
+        
+        # Generate YAMLs
+        self.client_yamls = []
+        base_yaml_path = "datasets/URPC2020.yaml"
+        if not os.path.exists(base_yaml_path):
+            print(f"[Warning] Khong tim thay {base_yaml_path}. Su dung che do synthetic.")
+            for i in range(self.net_cfg.N_SENSORS):
+                self.client_yamls.append("coco8.yaml")
+        else:
+            with open(base_yaml_path, 'r') as f:
+                base_cfg = yaml.safe_load(f)
+            train_path = base_cfg.get('train', '')
+            if isinstance(train_path, str) and train_path.endswith('.txt'):
+                with open(train_path, 'r') as f:
+                    all_images = [line.strip() for line in f.readlines()]
+            else:
+                dataset_dir = Path(base_yaml_path).parent
+                img_dir = dataset_dir / train_path
+                all_images = [str(p) for p in img_dir.glob('**/*.jpg')]
+                
+            temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_SENSORS}_a{data_part.alpha}_s{data_part.seed}")
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            for sid, idx_list in data_part.client_data_indices.items():
+                c_images = [all_images[i] for i in idx_list]
+                txt_path = temp_dir / f"client_{sid}_train.txt"
+                with open(txt_path, 'w') as f:
+                    f.write("\n".join(c_images))
+                c_yaml_path = temp_dir / f"client_{sid}.yaml"
+                c_cfg = base_cfg.copy()
+                c_cfg['train'] = str(txt_path.absolute())
+                with open(c_yaml_path, 'w') as f:
+                    yaml.safe_dump(c_cfg, f)
+                self.client_yamls.append(str(c_yaml_path))
+
+        # Models
+        self.teacher = TeacherModel(teacher_ckpt)
+        self.global_student = StudentModel(student_ckpt, rank=self.fed_cfg.LORA_RANK)
+        
+        self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
+        
+        self.fog_model_bits = sum(t.numel() for t in self.gateway.global_state_dict.values()) * 32
+        
+        self._init_network()
+
+    def _init_network(self):
+        for s_id in range(self.net_cfg.N_SENSORS):
+            if s_id < len(self.client_yamls):
+                self.sensors[s_id] = SensorWorker2D(
+                    sensor_id=s_id,
+                    client_yaml=self.client_yamls[s_id],
+                    battery_init=self.en_cfg.E_INIT,
+                )
+
+        for m, members in self.clusters.items():
+            self.fogs[m] = FogNode2D(
+                fog_id=m,
+                cluster_members=members,
+            )
+
+    def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float]:
+        sensor = self.sensors[s_id]
+
+        payload, payload_kb, delta_norm = sensor.train_and_get_payload(
+            global_state=self.gateway.global_state_dict,
+            epochs=self.fed_cfg.LOCAL_EPOCHS,
+            lr=self.fed_cfg.LOCAL_LR,
+            device=self.device,
+        )
+
+        from physics_models.energy import e_tx, e_comp_dynamic
+        if payload is not None:
+            S_bits = len(payload) * 8  # payload luôn là bytes INT8
+
+            fog_id = self.association.get(s_id, 0)
+            link_key = ('sensor', s_id, 'fog', fog_id)
+            if link_key in self.G:
+                link = self.G[link_key]
+                e_tx_cost = e_tx(
+                    S_bits, link.R_bps, link.SL_min,
+                    self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
+                )
+
+                e_comp_cost = e_comp_dynamic(
+                    n_samples=sensor.n_samples,
+                    n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
+                    flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
+                    flop_multiplier=self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
+                    epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
+                )
+
+                if sensor.battery >= (e_tx_cost + e_comp_cost):
+                    return s_id, payload, 0.0, sensor.n_samples, e_tx_cost, e_comp_cost
+                else:
+                    sensor.alive = False
+
+        return s_id, None, 0.0, 0, 0.0, 0.0
+
+
+    def _aggregate_intra_fog(self, m: int, fog, payloads, sensor_n_samples) -> float:
+        fog.aggregate_intra_cluster(
+            global_state_dict=self.gateway.global_state_dict,
+            payloads=payloads,
+            sensor_n_samples=sensor_n_samples,
+            use_kd_lora_int8=True  # luôn dùng INT8 decode cho 2D
+        )
+        return 0.0
+
+    def _compute_payload_bits(self, payloads: Dict) -> float:
+        if not payloads:
+            return self.fog_model_bits
+        # payload luôn là bytes INT8
+        return np.mean([len(p) * 8 for p in payloads.values()])
+
+    def _compute_fog_model_bits(self) -> float:
+        return self.fog_model_bits
+
+    def _gateway_knowledge_distillation(self):
+        """
+        Gateway-side Knowledge Distillation (Tier 3).
+        Sau global aggregation, Gateway dùng Teacher (YOLO12l, GPU mạnh)
+        để distill vào global_student trên tập proxy data (coco8.yaml).
+
+        Chỉ chạy khi baseline == 'fedkdl'.
+        """
+        if self.baseline != 'fedkdl':
+            return
+
+        import os
+        from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
+
+        proxy_yaml = "coco8.yaml"  # Tập proxy nhỏ tại Gateway (co thể thay bằng URPC subset)
+        overrides = {
+            'model': "yolo26n.pt",
+            'data': proxy_yaml,
+            'epochs': 1,  # 1 epoch distill tại Gateway mỗi round
+            'batch': 8,
+            'device': self.device,
+            'project': 'runs/gateway_kd',
+            'name': 'global_kd',
+            'exist_ok': True,
+            'verbose': False,
+            'save': False,
+            'val': False,
+            'workers': 0,
+        }
+        trainer = KDDetectionTrainer(overrides=overrides)
+        trainer.kd_lambda = 1.0
+        trainer.set_teacher(self.teacher.yolo.model)
+        trainer.model = self.global_student.yolo.model
+        print(f"[Gateway KD] Distilling global model with Teacher on proxy data...")
+        trainer.train()
+        # Cập nhật global state dict sau KD
+        self.gateway.global_state_dict = self.global_student.trainable_state_dict()
+        print(f"[Gateway KD] Done.")
+
+    def evaluate(self) -> Dict[str, float]:
+        self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
+        map_score = evaluate_od(self.global_student, self.test_yaml, self.device)
+        return {'mAP': map_score}
+

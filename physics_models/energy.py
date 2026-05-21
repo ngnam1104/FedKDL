@@ -85,18 +85,22 @@ def e_rx(S_bits: float, R_bps: float,
 #  Năng lượng điện toán (Computation Energy)
 # ──────────────────────────────────────────────────────────────────────
 
-def e_comp_simple(n_local_epochs: int,
-                  e_per_epoch: float = 0.5) -> float:
+def e_comp_dynamic(n_samples: int,
+                   n_local_epochs: int,
+                   flops_per_sample: float,
+                   epsilon_op: float,
+                   flop_multiplier: float = 3.0) -> float:
     """
-    Năng lượng tính toán cục bộ (đơn giản hóa cho Scenario 1).
+    Năng lượng tính toán cục bộ dựa trên số lượng FLOPs (tường minh).
     
-    Dùng hằng số E_COMP_EPOCH = 0.5 J/epoch × E_local epochs.
-    Phù hợp cho autoencoder nhỏ ~1350 params trên ARM Cortex.
-
+    Phi_i = n_samples * n_local_epochs * flops_per_sample * flop_multiplier
+    E_comp = epsilon_op * Phi_i
+    
     Returns:
         E_comp in Joules.
     """
-    return n_local_epochs * e_per_epoch
+    total_flops = n_samples * n_local_epochs * flops_per_sample * flop_multiplier
+    return total_flops * epsilon_op
 
 
 def e_comp_full(n_samples: int, n_local_epochs: int,

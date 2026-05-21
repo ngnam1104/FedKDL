@@ -10,6 +10,6 @@ from physics_models.topology import (
     build_clusters, get_topology_stats,
 )
 from physics_models.energy import (
-    acoustic_power_watts, e_tx, e_rx, e_comp_simple, total_energy_round,
+    acoustic_power_watts, e_tx, e_rx, e_comp_dynamic, e_comp_full, total_energy_round,
 )
 from physics_models.latency import comm_delay, comp_delay_simple, round_delay

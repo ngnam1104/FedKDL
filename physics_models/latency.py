@@ -27,6 +27,19 @@ def comp_delay_simple(n_local_epochs: int,
     """
     return n_local_epochs * time_per_epoch
 
+def comp_delay_dynamic(n_samples: int,
+                       n_local_epochs: int,
+                       flops_per_sample: float,
+                       flop_multiplier: float = 1.0,
+                       f_cpu: float = 2.0e9) -> float:
+    """
+    Độ trễ tính toán cục bộ động.
+    T_comp = (samples * epochs * flops_per_sample * multiplier) / f_cpu
+    """
+    total_flops = n_samples * n_local_epochs * flops_per_sample * flop_multiplier
+    return total_flops / f_cpu
+
+
 
 def round_delay(
     sensor_delays: List[float],
