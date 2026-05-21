@@ -107,13 +107,13 @@ preflight() {
 setup_venv() {
   if [[ ! -d "$VENV_DIR" ]]; then
     log "Tạo venv: $PYTHON_BIN -m venv $VENV_DIR"
-    "$PYTHON_BIN" -m venv "$VENV_DIR"
+    "$PYTHON_BIN" -m venv "$VENV_DIR" || return 1
   else
     log "Venv đã tồn tại: $VENV_DIR"
   fi
   resolve_python
-  "$PYTHON" -m pip install --upgrade pip wheel
-  "$PYTHON" -m pip install -r requirements.txt
+  "$PYTHON" -m pip install --upgrade pip wheel || return 1
+  "$PYTHON" -m pip install -r requirements.txt || return 1
   # Hỗ trợ download URPC qua Kaggle (tùy chọn)
   "$PYTHON" -m pip install kagglehub 2>/dev/null || log "[Warn] kagglehub cài thất bại — URPC có thể cần tải tay"
   "$PYTHON" -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
@@ -175,7 +175,7 @@ check_datasets() {
 generate_envs() {
   resolve_python
   log "Sinh environments/ (topo + data partition)..."
-  "$PYTHON" utils/generate_all_envs.py
+  "$PYTHON" utils/generate_all_envs.py || return 1
   count_env_files
 }
 

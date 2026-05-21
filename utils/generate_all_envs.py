@@ -1,11 +1,17 @@
-﻿"""
+"""
 generate_all_envs.py
 Sinh truoc toan bo file Topology va Data Partition cho thu nghiem.
 Giai doan 5: Decoupled.
 """
 import os
+import sys
 import argparse
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from utils.env_manager import EnvironmentManager
 from config.settings import NetworkConfig, AcousticChannelConfig, FedKDLConfig
 
