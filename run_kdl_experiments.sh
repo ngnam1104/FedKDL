@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Scenario 2/3 (2D OD): grid train + plot.
-# Mỗi run: main_trainer_od.py tự lưu JSON (results/logs_kdl) + stdout log (results/train_logs/kdl).
+# Decoupled version to hit the 62-hour budget (~78 hours max).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,81 +18,88 @@ else
   PYTHON="${PYTHON:-python}"
 fi
 
-N_LIST=(50 100 150 200)
-DATASETS=(URPC)
-ALPHAS=(0.5 10000.0)
-SEEDS=(42 123 2024)
-
-# Danh sách baselines
-# Các cấu hình Ablation (Ablation Study):
-# fedkdl: Bản gốc (LoRA + Head, INT8, có KD)
-# fedkdl_r4: Bản gốc nhưng với 4 ranks (LoRA + Head, INT8, có KD)
-# full_param_kd: Truyền toàn bộ mô hình (INT8, có KD)
-# full_param_nokd: Truyền toàn bộ mô hình (INT8, không KD)
-# lora_head_kd_noint8: LoRA + Head (Float32, có KD)
-# head_kd_int8_nolora: Chỉ Head (INT8, có KD)
-# lora_head_int8_nokd: LoRA + Head (INT8, không KD)
-# Các FL Baselines: fedavg, fedprox, centralized
-BASELINES=(
-    "fedkdl"
-    "fedkdl_r4"
-    "full_param_kd"
-    "full_param_nokd"
-    "lora_head_kd_noint8"
-    "head_kd_int8_nolora"
-    "lora_head_int8_nokd"
-    "fedavg"
-    "fedprox"
-    "centralized"
-)
-
-ROUNDS=50
 OUT_DIR="results/logs_kdl"
 ENVS_DIR="environments"
 STDOUT_DIR="results/train_logs/kdl"
-
 mkdir -p "$OUT_DIR" "$STDOUT_DIR"
 export PYTHONIOENCODING=utf-8
 
-total=$(( ${#N_LIST[@]} * ${#DATASETS[@]} * ${#ALPHAS[@]} * ${#SEEDS[@]} * ${#BASELINES[@]} ))
-count=0
+# Sinh dữ liệu môi trường riêng cho mạng nhỏ (N=10, 15, 20)
+echo "[KDL] Generating topologies and data partitions for N=10, 15, 20..."
+"$PYTHON" utils/generate_all_envs.py --n 10 --dataset URPC
+"$PYTHON" utils/generate_all_envs.py --n 15 --dataset URPC
+"$PYTHON" utils/generate_all_envs.py --n 20 --dataset URPC
 
-for n in "${N_LIST[@]}"; do
-  for ds in "${DATASETS[@]}"; do
-    for alpha in "${ALPHAS[@]}"; do
-      for seed in "${SEEDS[@]}"; do
-        topo="${ENVS_DIR}/topo/N_${n}/topo_N${n}_seed${seed}.pkl"
-        alpha_str="${alpha//./p}"
-        data="${ENVS_DIR}/data/${ds}/N_${n}/data_N${n}_${ds}_a${alpha_str}_seed${seed}.pkl"
+# Cấu hình chung
+ROUNDS=20
+SEED=42
+DS="URPC"
 
-        if [[ ! -f "$topo" || ! -f "$data" ]]; then
-          echo "[Warning] Missing env: N=$n DS=$ds alpha=$alpha seed=$seed — run utils/generate_all_envs.py"
-          count=$(( count + ${#BASELINES[@]} ))
-          continue
-        fi
+# Hàm chạy chung để tránh lặp code
+# Usage: run_baseline N ALPHA BASELINE
+total_tasks=22
+current_task=0
 
-        for baseline in "${BASELINES[@]}"; do
-          count=$((count + 1))
-          log_json="${OUT_DIR}/log_N${n}_${ds}_a${alpha_str}_${baseline}_seed${seed}.json"
-          if [[ -f "$log_json" ]]; then
-            echo "[$count/$total] Overwriting existing JSON: $log_json"
-          fi
+run_baseline() {
+  local n=$1
+  local alpha=$2
+  local baseline=$3
 
-          echo "[$count/$total] OD | N=$n | DS=$ds | alpha=$alpha | seed=$seed | baseline=$baseline"
-          set +e
-          "$PYTHON" main_trainer_od.py \
-            --topo "$topo" --data "$data" \
-            --baseline "$baseline" --rounds "$ROUNDS" \
-            --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR"
-          rc=$?
-          set -e
-          if [[ $rc -ne 0 ]]; then
-            echo "[Error] Run failed (exit $rc). Check ${STDOUT_DIR}/log_N${n}_*.stdout.log"
-          fi
-        done
-      done
-    done
+  current_task=$((current_task + 1))
+  local topo="${ENVS_DIR}/2d/topo/N_${n}/topo_N${n}_seed${SEED}.pkl"
+  local alpha_str="${alpha//./p}"
+  local data="${ENVS_DIR}/2d/data/${DS}/N_${n}/data_N${n}_${DS}_a${alpha_str}_seed${SEED}.pkl"
+
+  if [[ ! -f "$topo" || ! -f "$data" ]]; then
+    echo "[Warning] Missing env: N=$n DS=$DS alpha=$alpha seed=$SEED"
+    return
+  fi
+
+  local log_json="${OUT_DIR}/log_N${n}_${DS}_a${alpha_str}_${baseline}_seed${SEED}.json"
+  if [[ -f "$log_json" ]]; then
+    echo "[$current_task/$total_tasks] Overwriting existing JSON: $log_json"
+  fi
+
+  echo "[$current_task/$total_tasks] OD | N=$n | alpha=$alpha | baseline=$baseline"
+  set +e
+  "$PYTHON" main_trainer_od.py \
+    --topo "$topo" --data "$data" \
+    --baseline "$baseline" --rounds "$ROUNDS" \
+    --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR"
+  local rc=$?
+  set -e
+  if [[ $rc -ne 0 ]]; then
+    echo "[Error] Run failed (exit $rc). Check ${STDOUT_DIR}/log_N${n}_*.stdout.log"
+  fi
+}
+
+echo ""
+echo "=== GROUP A: Ablation & Comparison ==="
+# N=10, Alpha=0.5, 10 baselines
+ALL_BASELINES=(
+  "fedkdl" "fedkdl_r4" "full_param_kd" "full_param_nokd" 
+  "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
+  "fedavg" "fedprox" "centralized"
+)
+for b in "${ALL_BASELINES[@]}"; do
+  run_baseline 10 0.5 "$b"
+done
+
+echo ""
+echo "=== GROUP B: Scalability ==="
+# N=15, 20 (N=10 đã có ở Group A), Alpha=0.5, 3 baselines
+MAIN_BASELINES=("fedkdl" "fedavg" "centralized")
+for n in 15 20; do
+  for b in "${MAIN_BASELINES[@]}"; do
+    run_baseline "$n" 0.5 "$b"
   done
+done
+
+echo ""
+echo "=== GROUP C: Heterogeneity ==="
+# N=10, Alpha=10000.0, 3 baselines
+for b in "${MAIN_BASELINES[@]}"; do
+  run_baseline 10 10000.0 "$b"
 done
 
 echo ""
@@ -102,6 +109,7 @@ echo "[KDL] Training done. Generating plots..."
 "$PYTHON" scripts/fedkdl/plot_heterogeneity.py
 "$PYTHON" scripts/fedkdl/eval_baselines.py --results-dir "$OUT_DIR"
 "$PYTHON" scripts/od/plot_ablation.py
+
 echo "[KDL] All done."
 echo "  JSON (plot):  $OUT_DIR/*.json"
 echo "  Stdout logs:  $STDOUT_DIR/*.stdout.log"

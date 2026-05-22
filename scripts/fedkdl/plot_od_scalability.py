@@ -26,7 +26,7 @@ def plot_scalability():
     map_data = defaultdict(lambda: defaultdict(list))
 
     # Cố định alpha để đánh giá scalability
-    target_alpha = "0p1"
+    target_alpha = "0p5"
     
     for f in log_files:
         with open(f, "r", encoding="utf-8") as file:

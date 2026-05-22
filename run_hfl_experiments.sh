@@ -24,7 +24,7 @@ ALPHAS=(0.5 10000.0)
 SEEDS=(42 123 2024)
 BASELINES=(hfl_selective hfl_nearest hfl_nocoop fedprox fedavg centralized)
 
-ROUNDS=30
+ROUNDS=50
 RHO_S=0.05
 OUT_DIR="results/logs"
 ENVS_DIR="environments"
@@ -36,13 +36,16 @@ export PYTHONIOENCODING=utf-8
 total=$(( ${#N_LIST[@]} * ${#DATASETS[@]} * ${#ALPHAS[@]} * ${#SEEDS[@]} * ${#BASELINES[@]} ))
 count=0
 
+echo "[HFL] Generating topologies and data partitions for 1D..."
+"$PYTHON" utils/generate_all_envs.py
+
 for n in "${N_LIST[@]}"; do
   for ds in "${DATASETS[@]}"; do
     for alpha in "${ALPHAS[@]}"; do
       for seed in "${SEEDS[@]}"; do
-        topo="${ENVS_DIR}/topo/N_${n}/topo_N${n}_seed${seed}.pkl"
+        topo="${ENVS_DIR}/1d/topo/N_${n}/topo_N${n}_seed${seed}.pkl"
         alpha_str="${alpha//./p}"
-        data="${ENVS_DIR}/data/${ds}/N_${n}/data_N${n}_${ds}_a${alpha_str}_seed${seed}.pkl"
+        data="${ENVS_DIR}/1d/data/${ds}/N_${n}/data_N${n}_${ds}_a${alpha_str}_seed${seed}.pkl"
 
         if [[ ! -f "$topo" || ! -f "$data" ]]; then
           echo "[Warning] Missing env: N=$n DS=$ds alpha=$alpha seed=$seed — run utils/generate_all_envs.py"

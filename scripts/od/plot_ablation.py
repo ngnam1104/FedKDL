@@ -39,8 +39,10 @@ def plot_ablation():
         baseline = meta.get("baseline")
         task = meta.get("task")
         
-        # Chỉ xét 2D
+        # Chỉ xét 2D, N=10, alpha=0p5
         if task != "2D": continue
+        if meta.get("N") != 10: continue
+        if meta.get("alpha") != "0p5": continue
         
         metrics = data.get("metrics", {})
         energy = data.get("energy_consumption", {})

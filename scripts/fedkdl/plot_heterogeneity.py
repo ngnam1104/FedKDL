@@ -23,10 +23,10 @@ def plot_heterogeneity():
     results = []
 
     # Map labels cho alpha
-    alpha_map = {"0p1": "Strong non-IID\n(alpha=0.1)", "10000p0": "Near-IID\n(alpha=10000)"}
+    alpha_map = {"0p5": "Strong non-IID\n(alpha=0.5)", "10000p0": "Near-IID\n(alpha=10000)"}
 
     # Chọn 1 scale cố định (VD: N=100)
-    target_N = 100
+    target_N = 10
     
     data_points = []
     
@@ -60,7 +60,7 @@ def plot_heterogeneity():
 
     os.makedirs("results/scenario3", exist_ok=True)
     
-    alphas = ["0p1", "10000p0"]
+    alphas = ["0p5", "10000p0"]
     baselines = ["baseline_od", "fedkdl"]
     
     labels = [alpha_map[a] for a in alphas]

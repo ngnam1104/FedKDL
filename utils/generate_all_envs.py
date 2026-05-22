@@ -22,15 +22,21 @@ def main():
     parser.add_argument('--dataset', type=str, help="Chi chay dataset nay (vd: SMD)")
     args = parser.parse_args()
 
-    N_LIST = [50, 100, 150, 200]
-    DATASETS = ['SMD', 'SMAP', 'MSL', 'URPC']
-    ALPHAS = [0.5, 10000.0]
-    SEEDS = [42, 123, 2024]
-    
+    if args.dataset == 'URPC':
+        DATASETS = ['URPC']
+        N_LIST = [10, 15, 20]
+        ALPHAS = [0.5, 10000.0]
+        SEEDS = [42, 123, 2024]
+        task_type = '2d'
+    else:
+        DATASETS = ['SMD', 'SMAP', 'MSL'] if not args.dataset else [args.dataset]
+        N_LIST = [50, 100, 150, 200]
+        ALPHAS = [0.5, 10000.0]
+        SEEDS = [42, 123, 2024]
+        task_type = '1d'
+
     if args.n:
         N_LIST = [args.n]
-    if args.dataset:
-        DATASETS = [args.dataset]
         
     os.makedirs(EnvironmentManager.ENVS_DIR, exist_ok=True)
     
@@ -44,14 +50,19 @@ def main():
     topo_count = 0
     for n in N_LIST:
         net_cfg.N_SENSORS = n
-        net_cfg.M_FOGS = max(5, n // 10)
+        
+        # Thiết lập Fog node theo yêu cầu: 3 cho 2D (URPC), 10 cho 1D
+        if len(DATASETS) == 1 and DATASETS[0] == 'URPC':
+            net_cfg.M_FOGS = 3
+        else:
+            net_cfg.M_FOGS = 10
         
         for seed in SEEDS:
-            topo_path = EnvironmentManager.topo_path(n, seed)
+            topo_path = EnvironmentManager.topo_path(task_type, n, seed)
             if not topo_path.exists():
                 if not args.dry_run:
                     topo = EnvironmentManager.generate_topology(net_cfg, ac_cfg, seed)
-                    EnvironmentManager.save_topology(topo)
+                    EnvironmentManager.save_topology(topo, task_type)
                 else:
                     print(f"  [dry-run] se sinh topo_N{n}_seed{seed}.pkl")
                 topo_count += 1
@@ -66,7 +77,7 @@ def main():
         for ds in DATASETS:
             for alpha in ALPHAS:
                 for seed in SEEDS:
-                    data_path = EnvironmentManager.data_path(n, ds, alpha, seed)
+                    data_path = EnvironmentManager.data_path(task_type, n, ds, alpha, seed)
                     if not data_path.exists():
                         if not args.dry_run:
                             if ds == 'URPC':
@@ -78,7 +89,7 @@ def main():
                                 data_part = EnvironmentManager.generate_data_partition(
                                     net_cfg, dataset_name=ds, alpha=alpha, seed=seed
                                 )
-                            EnvironmentManager.save_data_partition(data_part)
+                            EnvironmentManager.save_data_partition(data_part, task_type)
                         else:
                             print(f"  [dry-run] se sinh data_N{n}_{ds}_a{alpha}_seed{seed}.pkl")
                         data_count += 1

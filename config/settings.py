@@ -46,7 +46,7 @@ class EnergyConfig:
 class FedKDLConfig:
     """Tham số Thuật toán Học liên kết & Đề xuất FedKDL"""
     # Baseline Parameters
-    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 30, "2D": 150}) # Chu kỳ sống dự kiến cho từng tác vụ
+    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 100}) # Chu kỳ sống dự kiến cho từng tác vụ
     MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 2700.0, "2D": 2.175e9}) # 2D: YOLOv8n ở 320x320
     FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2}) # Hệ số nhân: 1D (Full fine-tuning), 2D (LoRA)
     LOCAL_EPOCHS: int = 5             # Số vòng lặp SGD cục bộ 

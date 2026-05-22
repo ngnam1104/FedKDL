@@ -57,13 +57,13 @@ class EnvironmentManager:
     ENVS_DIR = Path("environments")
 
     @staticmethod
-    def topo_path(N: int, seed: int) -> Path:
-        return EnvironmentManager.ENVS_DIR / "topo" / f"N_{N}" / f"topo_N{N}_seed{seed}.pkl"
+    def topo_path(task_type: str, N: int, seed: int) -> Path:
+        return EnvironmentManager.ENVS_DIR / task_type / "topo" / f"N_{N}" / f"topo_N{N}_seed{seed}.pkl"
 
     @staticmethod
-    def data_path(N: int, dataset: str, alpha: float, seed: int) -> Path:
+    def data_path(task_type: str, N: int, dataset: str, alpha: float, seed: int) -> Path:
         alpha_str = str(alpha).replace(".", "p")
-        return EnvironmentManager.ENVS_DIR / "data" / dataset / f"N_{N}" / f"data_N{N}_{dataset}_a{alpha_str}_seed{seed}.pkl"
+        return EnvironmentManager.ENVS_DIR / task_type / "data" / dataset / f"N_{N}" / f"data_N{N}_{dataset}_a{alpha_str}_seed{seed}.pkl"
 
     # --- TOPOLOGY ---
     @classmethod
@@ -99,8 +99,8 @@ class EnvironmentManager:
         )
 
     @classmethod
-    def save_topology(cls, topo: TopologySnapshot):
-        path = cls.topo_path(topo.N, topo.seed)
+    def save_topology(cls, topo: TopologySnapshot, task_type: str):
+        path = cls.topo_path(task_type, topo.N, topo.seed)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             pickle.dump(topo, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -146,8 +146,8 @@ class EnvironmentManager:
         )
 
     @classmethod
-    def save_data_partition(cls, data_part: DataPartitionSnapshot):
-        path = cls.data_path(data_part.N, data_part.dataset_name, data_part.alpha, data_part.seed)
+    def save_data_partition(cls, data_part: DataPartitionSnapshot, task_type: str):
+        path = cls.data_path(task_type, data_part.N, data_part.dataset_name, data_part.alpha, data_part.seed)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             pickle.dump(data_part, f, protocol=pickle.HIGHEST_PROTOCOL)
