@@ -101,15 +101,15 @@ def save_json_result(
 
 
 def print_artifact_summary(paths: ExperimentPaths, *, extra: Optional[dict] = None) -> None:
-    """In rõ 2 artifact sau khi train xong."""
+    """Print clearly 2 artifacts after training."""
     print("\n" + "=" * 60)
-    print("[Artifacts] Đã lưu kết quả train:")
-    print(f"  (1) JSON metrics (cho scripts vẽ đồ thị)")
-    print(f"      → {paths.json_path.resolve()}")
-    print(f"      • metadata, metrics (theo round), energy_consumption, latency_history")
+    print("[Artifacts] Training results saved:")
+    print(f"  (1) JSON metrics (for plotting scripts)")
+    print(f"      -> {paths.json_path.resolve()}")
+    print(f"      - metadata, metrics (by round), energy_consumption, latency_history")
     print(f"  (2) Stdout log (console replay / debug)")
-    print(f"      → {paths.stdout_log_path.resolve()}")
-    print(f"      • Round-by-round print, payload KB, lỗi runtime, Gateway KD, …")
+    print(f"      -> {paths.stdout_log_path.resolve()}")
+    print(f"      - Round-by-round print, payload KB, runtime errors, Gateway KD, ...")
     if extra:
         for k, v in extra.items():
             print(f"  • {k}: {v}")

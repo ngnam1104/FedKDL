@@ -87,15 +87,27 @@ class Simulator1D(BaseSimulator):
         # Build dataloaders
         data, labels = load_dataset(self.dataset_name, seed=data_part.seed)
         split_idx = int(len(data) * 0.7)
-        train_data, val_data     = data[:split_idx],   data[split_idx:]
-        train_labels, val_labels = labels[:split_idx], labels[split_idx:]
+        train_data = data[:split_idx]
+        train_labels = labels[:split_idx]
+        
+        remaining_data = data[split_idx:]
+        remaining_labels = labels[split_idx:]
+        
+        val_split = int(len(remaining_data) * 0.5)
+        
+        val_data = remaining_data[:val_split]
+        val_labels = remaining_labels[:val_split]
+        
+        test_data = remaining_data[val_split:]
+        test_labels = remaining_labels[val_split:]
         
         train_ds = SlidingWindowDataset(train_data, train_labels, window_size=10)
         val_ds   = SlidingWindowDataset(val_data,   val_labels,   window_size=10)
+        test_ds  = SlidingWindowDataset(test_data,  test_labels,  window_size=10)
         
         self.train_loaders = make_client_loaders(train_ds, data_part.client_data_indices, batch_size=64)
         self.val_loader = make_val_loader(val_ds, batch_size=256)
-        self.test_loader = self.val_loader
+        self.test_loader = make_val_loader(test_ds, batch_size=256)
 
         
         # Initialize model

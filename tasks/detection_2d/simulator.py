@@ -136,6 +136,8 @@ class Simulator2D(BaseSimulator):
                 c_yaml_path = temp_dir / f"client_{sid}.yaml"
                 c_cfg = base_cfg.copy()
                 c_cfg['train'] = str(txt_path.absolute())
+                original_path = base_cfg.get('path', '')
+                c_cfg['path'] = str((Path(base_yaml_path).parent / original_path).absolute())
                 with open(c_yaml_path, 'w') as f:
                     yaml.safe_dump(c_cfg, f)
                 self.client_yamls.append(str(c_yaml_path))
