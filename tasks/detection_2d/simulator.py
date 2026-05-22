@@ -41,8 +41,13 @@ class SensorWorker2D(BaseWorker):
                 print(f"[Sensor {self.sensor_id}] Bỏ qua vì n_samples = 0 (Không có dữ liệu trong tệp train).")
             return None, 0.0, 0.0
 
+        import yaml
+        with open(self.client_yaml, 'r') as f:
+            c_cfg = yaml.safe_load(f)
+        nc = c_cfg.get('nc', 80)
+
         from config.settings import fed_cfg
-        local_student = StudentModel("yolo11n.pt", rank=fed_cfg.LORA_RANK)
+        local_student = StudentModel("yolo11n.pt", rank=fed_cfg.LORA_RANK, nc=nc)
         local_student.load_trainable_state_dict(global_state)
 
         new_state, delta_norm = local_sgd_od(
