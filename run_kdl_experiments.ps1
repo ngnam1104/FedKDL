@@ -8,6 +8,10 @@ $ALPHAS    = @(0.1, 10000.0)
 $SEEDS     = @(42, 123, 2024)
 $BASELINES = @("baseline_od", "fedkdl")
 
+Write-Host "============================================================"
+Write-Host "[START RUN] Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Write-Host "============================================================"
+
 $ROUNDS   = 20
 $OUT_DIR  = "results/logs_kdl"
 $ENVS_DIR = "environments"

@@ -8,6 +8,10 @@ $ALPHAS    = @(0.1, 10000.0)
 $SEEDS     = @(42, 123, 2024)
 $BASELINES = @("hfl_selective", "hfl_nearest", "hfl_nocoop", "fedprox", "fedavg")
 
+Write-Host "============================================================"
+Write-Host "[START RUN] Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Write-Host "============================================================"
+
 $ROUNDS   = 20
 $RHO_S    = 0.05
 $OUT_DIR  = "results/logs"

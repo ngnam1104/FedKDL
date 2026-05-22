@@ -49,7 +49,7 @@ class BaseSimulator(ABC):
         self.fog_positions = topo.fog_positions
         self.gateway_position = topo.gateway_position
         self.G = EnvironmentManager.restore_graph(topo)
-        self.association = topo.hfl_association if self.baseline != 'fedavg' else topo.flat_association
+        self.association = topo.hfl_association if self.baseline not in ['fedavg', 'fedprox'] else topo.flat_association
         self.clusters = topo.clusters
 
     @abstractmethod

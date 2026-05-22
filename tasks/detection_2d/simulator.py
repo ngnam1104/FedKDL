@@ -181,8 +181,14 @@ class Simulator2D(BaseSimulator):
         if payload is not None:
             S_bits = len(payload) * 8  # payload luôn là bytes INT8
 
-            fog_id = self.association.get(s_id, 0)
-            link_key = ('sensor', s_id, 'fog', fog_id)
+            fog_id = self.association.get(s_id, -1)
+            if fog_id == -1:
+                link_key = ('sensor', s_id, 'gateway', 0)
+            else:
+                link_key = ('sensor', s_id, 'fog', fog_id)
+                
+            e_tx_cost = 0.0
+            e_comp_cost = 0.0
             if link_key in self.G:
                 link = self.G[link_key]
                 e_tx_cost = e_tx(

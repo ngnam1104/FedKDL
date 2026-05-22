@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, TextIO
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,10 @@ def tee_stdout_to_file(log_path: Path):
     console = sys.stdout
     with open(log_path, "w", encoding="utf-8") as log_file:
         sys.stdout = _Tee(console, log_file)
+        # Print a clear run header (timestamp) so appended logs can be separated
+        print("\n" + "=" * 60)
+        print(f"[RUN START] Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 60 + "\n")
         try:
             yield log_file
         finally:

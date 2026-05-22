@@ -6,6 +6,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+echo "============================================================"
+echo "[START RUN] Timestamp: $(date +"%Y-%m-%d %H:%M:%S")"
+echo "============================================================"
+
 if [[ -f ".venv/bin/python" ]]; then
   PYTHON=".venv/bin/python"
 elif [[ -f ".venv/Scripts/python.exe" ]]; then

@@ -154,22 +154,26 @@ class Simulator1D(BaseSimulator):
         from physics_models.energy import e_tx, e_comp_dynamic
         if payload is not None:
             # tx cost
-            fog_id = self.association[s_id]
-            link_key = ('sensor', s_id, 'fog', fog_id)
-            link = self.G[link_key]
-            e_tx_cost = e_tx(
-                payload.payload_bits, link.R_bps, link.SL_min,
-                self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
-            )
-            # comp cost
-            e_comp_cost = e_comp_dynamic(
-                sensor.n_samples, self.fed_cfg.LOCAL_EPOCHS,
-                self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
-                self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
-                self.en_cfg.EPSILON_OP[self.task_key]
-            )
-            
-            return s_id, payload, avg_loss, sensor.n_samples, e_tx_cost, e_comp_cost
+            fog_id = self.association.get(s_id, -1)
+            if fog_id == -1:
+                link_key = ('sensor', s_id, 'gateway', 0)
+            else:
+                link_key = ('sensor', s_id, 'fog', fog_id)
+                
+            if link_key in self.G:
+                link = self.G[link_key]
+                e_tx_cost = e_tx(
+                    payload.payload_bits, link.R_bps, link.SL_min,
+                    self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
+                )
+                # comp cost
+                e_comp_cost = e_comp_dynamic(
+                    sensor.n_samples, self.fed_cfg.LOCAL_EPOCHS,
+                    self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
+                    self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
+                    self.en_cfg.EPSILON_OP[self.task_key]
+                )
+                return s_id, payload, avg_loss, sensor.n_samples, e_tx_cost, e_comp_cost
         
         return s_id, None, 0.0, 0, 0.0, 0.0
 
