@@ -24,11 +24,11 @@ STDOUT_DIR="results/train_logs/kdl"
 mkdir -p "$OUT_DIR" "$STDOUT_DIR"
 export PYTHONIOENCODING=utf-8
 
-# Sinh dữ liệu môi trường riêng cho mạng nhỏ (N=10, 15, 20)
-echo "[KDL] Generating topologies and data partitions for N=10, 15, 20..."
-"$PYTHON" utils/generate_all_envs.py --n 10 --dataset URPC
-"$PYTHON" utils/generate_all_envs.py --n 15 --dataset URPC
+# Sinh dữ liệu môi trường riêng cho mạng nhỏ (N=20, 30, 40)
+echo "[KDL] Generating topologies and data partitions for N=20, 30, 40..."
 "$PYTHON" utils/generate_all_envs.py --n 20 --dataset URPC
+"$PYTHON" utils/generate_all_envs.py --n 30 --dataset URPC
+"$PYTHON" utils/generate_all_envs.py --n 40 --dataset URPC
 
 # Cấu hình chung
 ROUNDS=20
@@ -75,21 +75,21 @@ run_baseline() {
 
 echo ""
 echo "=== GROUP A: Ablation & Comparison ==="
-# N=10, Alpha=1.0, 10 baselines
+# N=20, Alpha=1.0, 10 baselines
 ALL_BASELINES=(
   "fedkdl" "fedkdl_r4" "full_param_kd" "full_param_nokd" 
   "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
   "fedavg" "fedprox" "centralized"
 )
 for b in "${ALL_BASELINES[@]}"; do
-  run_baseline 10 1.0 "$b"
+  run_baseline 20 1.0 "$b"
 done
 
 echo ""
 echo "=== GROUP B: Scalability ==="
-# N=15, 20 (N=10 đã có ở Group A), Alpha=1.0, 3 baselines
+# N=30, 40 (N=20 đã có ở Group A), Alpha=1.0, 3 baselines
 MAIN_BASELINES=("fedkdl" "fedavg" "centralized")
-for n in 15 20; do
+for n in 30 40; do
   for b in "${MAIN_BASELINES[@]}"; do
     run_baseline "$n" 1.0 "$b"
   done
@@ -97,9 +97,9 @@ done
 
 echo ""
 echo "=== GROUP C: Heterogeneity ==="
-# N=10, Alpha=10000.0, 3 baselines
+# N=20, Alpha=10000.0, 3 baselines
 for b in "${MAIN_BASELINES[@]}"; do
-  run_baseline 10 10000.0 "$b"
+  run_baseline 20 10000.0 "$b"
 done
 
 echo ""
