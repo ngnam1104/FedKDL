@@ -184,7 +184,7 @@ class KDDetectionTrainer(DetectionTrainer):
 
     def validate(self):
         """Bỏ qua validate giữa các epoch để tiết kiệm thời gian cho Tier 3."""
-        return None, None
+        return {}, 0.0
 
     def final_eval(self):
         """Bỏ qua bước Validate dư thừa ở cuối quá trình KD."""
