@@ -203,6 +203,16 @@ class Simulator2D(BaseSimulator):
                 with open(c_yaml_path, 'w') as f:
                     yaml.safe_dump(c_cfg, f)
                 self.client_yamls.append(str(c_yaml_path))
+            
+            # Tạo proxy_test.yaml với đường dẫn tuyệt đối để evaluate_od không bị lỗi
+            test_cfg = base_cfg.copy()
+            original_path = base_cfg.get('path', '')
+            if original_path:
+                test_cfg['path'] = str((Path(base_yaml_path).parent / original_path).absolute())
+            proxy_test_yaml = "datasets/proxy_test.yaml"
+            with open(proxy_test_yaml, 'w') as f:
+                yaml.safe_dump(test_cfg, f)
+            self.test_yaml = str(Path(proxy_test_yaml).absolute())
 
         # Models
         nc = base_cfg.get('nc', 80) if 'base_cfg' in locals() else 80
