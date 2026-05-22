@@ -26,7 +26,7 @@ def main():
         DATASETS = ['URPC']
         N_LIST = [10, 15, 20]
         ALPHAS = [0.5, 10000.0]
-        SEEDS = [42, 123, 2024]
+        SEEDS = [42]
         task_type = '2d'
     else:
         DATASETS = ['SMD', 'SMAP', 'MSL'] if not args.dataset else [args.dataset]
