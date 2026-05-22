@@ -49,8 +49,8 @@ def main():
     if args.lora_rank is not None:
         fed_cfg.LORA_RANK = args.lora_rank
         
-    # Ép LOCAL_EPOCHS = 1 cho 2D để tăng tốc (1 epoch ~50s) giúp tổng thời gian vừa vặn ngân sách
-    fed_cfg.LOCAL_EPOCHS = 1
+    # Ép LOCAL_EPOCHS = 2 cho 2D để cân bằng giữa thời gian huấn luyện và độ hội tụ
+    fed_cfg.LOCAL_EPOCHS = 2
 
     T_rounds = fed_cfg.GLOBAL_ROUNDS["2D"]
     
