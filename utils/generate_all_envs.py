@@ -25,13 +25,13 @@ def main():
     if args.dataset == 'URPC':
         DATASETS = ['URPC']
         N_LIST = [10, 15, 20]
-        ALPHAS = [0.5, 1.0, 10000.0]
+        ALPHAS = [1.0, 10000.0]
         SEEDS = [42]
         task_type = '2d'
     else:
         DATASETS = ['SMD', 'SMAP', 'MSL'] if not args.dataset else [args.dataset]
         N_LIST = [50, 100, 150, 200]
-        ALPHAS = [0.5, 1.0, 10000.0]
+        ALPHAS = [1.0, 10000.0]
         SEEDS = [42, 123, 2024]
         task_type = '1d'
 
@@ -51,9 +51,9 @@ def main():
     for n in N_LIST:
         net_cfg.N_SENSORS = n
         
-        # Thiết lập Fog node theo yêu cầu: 3 cho 2D (URPC), 10 cho 1D
+        # Thiết lập Fog node theo yêu cầu: 20 cho 2D (URPC) để tăng độ phủ sóng
         if len(DATASETS) == 1 and DATASETS[0] == 'URPC':
-            net_cfg.M_FOGS = 3
+            net_cfg.M_FOGS = 20
         else:
             net_cfg.M_FOGS = 10
         
