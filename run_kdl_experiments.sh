@@ -26,6 +26,7 @@ SEEDS=(42 123 2024)
 # Danh sách baselines
 # Các cấu hình Ablation (Ablation Study):
 # fedkdl: Bản gốc (LoRA + Head, INT8, có KD)
+# fedkdl_r4: Bản gốc nhưng với 4 ranks (LoRA + Head, INT8, có KD)
 # full_param_kd: Truyền toàn bộ mô hình (INT8, có KD)
 # full_param_nokd: Truyền toàn bộ mô hình (INT8, không KD)
 # lora_head_kd_noint8: LoRA + Head (Float32, có KD)
@@ -45,7 +46,7 @@ BASELINES=(
     "centralized"
 )
 
-ROUNDS=20
+ROUNDS=50
 OUT_DIR="results/logs_kdl"
 ENVS_DIR="environments"
 STDOUT_DIR="results/train_logs/kdl"

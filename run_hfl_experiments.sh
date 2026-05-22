@@ -24,7 +24,7 @@ ALPHAS=(0.5 10000.0)
 SEEDS=(42 123 2024)
 BASELINES=(hfl_selective hfl_nearest hfl_nocoop fedprox fedavg centralized)
 
-ROUNDS=20
+ROUNDS=30
 RHO_S=0.05
 OUT_DIR="results/logs"
 ENVS_DIR="environments"

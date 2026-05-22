@@ -68,15 +68,15 @@ class SensorWorker2D(BaseWorker):
 
         if use_int8:
             payload_bytes, payload_kb = pack_payload(new_state)
-            print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB INT8 "
-                  f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
+            # print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB INT8 "
+            #       f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
         else:
             # Fake packing for simulation (Float32 payload)
             payload_bytes = new_state
             # Calculate bytes based on float32 (4 bytes per param)
             total_params = sum(t.numel() for t in new_state.values())
             payload_kb = (total_params * 4) / 1024.0
-            print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB Float32")
+            # print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB Float32")
 
         return payload_bytes, payload_kb, delta_norm
 

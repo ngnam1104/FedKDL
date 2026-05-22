@@ -94,7 +94,7 @@ def local_sgd_od(
         'project': 'runs/fl_clients',
         'name': f'client_{client_id}',
         'exist_ok': True,
-        'verbose': False,
+        'verbose': False,  # Ngăn YOLO in bảng kiến trúc
         'save': False,
         'val': False,
         'workers': 0,
@@ -106,12 +106,14 @@ def local_sgd_od(
     trainer.fedprox_mu = fedprox_mu
     trainer.global_weights = global_weights
 
-    # HẬU KIỂM (POST-CHECK): Lưu lại trọng số của các lớp bị đóng băng
+    # HẠN ĐỊNH: Xác định các keys sẽ được truyền qua mạng (LoRA + Head) và coi
+    # toàn bộ phần còn lại là "đóng băng"; sử dụng `trainable_state_dict()`
+    # để tránh lệ thuộc vào trạng thái `requires_grad` do trainer có thể thay đổi.
+    payload_keys = set(student_model.trainable_state_dict().keys())
     frozen_weights_before = {}
-    if not student_model.full_param:
-        for k, v in student_model.yolo.model.named_parameters():
-            if not v.requires_grad:
-                frozen_weights_before[k] = v.clone().detach()
+    for k, v in student_model.yolo.model.state_dict().items():
+        if k not in payload_keys:
+            frozen_weights_before[k] = v.clone().detach()
 
     # Chạy train
     trainer.train()

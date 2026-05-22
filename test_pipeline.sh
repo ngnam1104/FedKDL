@@ -17,47 +17,12 @@ echo "============================================================"
 echo "BẮT ĐẦU SMOKE TEST (KIỂM TRA LỖI LOGIC CODE)"
 echo "============================================================"
 
-# ---- TEST 1D (HFL) ----
-N_1D=50
-DS_1D="SMD"
-ALPHA_1D="10000.0"
-SEED_1D="42"
-ALPHA_STR_1D="10000p0"
-
-TOPO_1D="environments/topo/N_${N_1D}/topo_N${N_1D}_seed${SEED_1D}.pkl"
-DATA_1D="environments/data/${DS_1D}/N_${N_1D}/data_N${N_1D}_${DS_1D}_a${ALPHA_STR_1D}_seed${SEED_1D}.pkl"
-
-BASELINES_1D=(
-    "hfl_selective"
-    "hfl_nearest"
-    "hfl_nocoop"
-    "fedprox"
-    "fedavg"
-    "centralized"
-)
-
-if [[ -f "$TOPO_1D" && -f "$DATA_1D" ]]; then
-    for baseline in "${BASELINES_1D[@]}"; do
-        echo ""
-        echo ">>> [TEST 1D] Đang kiểm tra baseline: $baseline"
-        $PYTHON main_trainer.py \
-            --topo "$TOPO_1D" \
-            --data "$DATA_1D" \
-            --baseline "$baseline" \
-            --rounds 2 \
-            --out-dir "results/test_logs" \
-            --log-dir "results/test_logs"
-    done
-else
-    echo "⚠️ Bỏ qua test 1D vì thiếu file môi trường."
-fi
-
 # ---- TEST 2D (OD) ----
 N_2D=50
 DS_2D="URPC"
-ALPHA_2D="10000.0"
+ALPHA_2D="0.5" # URPC thường dùng 0.5 để kiểm tra tính năng Heterogeneity
 SEED_2D="42"
-ALPHA_STR_2D="10000p0"
+ALPHA_STR_2D="0p5"
 
 TOPO_2D="environments/topo/N_${N_2D}/topo_N${N_2D}_seed${SEED_2D}.pkl"
 DATA_2D="environments/data/${DS_2D}/N_${N_2D}/data_N${N_2D}_${DS_2D}_a${ALPHA_STR_2D}_seed${SEED_2D}.pkl"

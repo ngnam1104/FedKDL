@@ -47,11 +47,11 @@ class StudentModel:
             
             new_model.load_state_dict(transfer_sd, strict=False)
             self.yolo.model = new_model
-            print(f"[StudentModel] Replaced Detection Head for nc={nc}")
+            # print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         if not self.full_param and self.use_lora:
             injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank)
-            print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
+            # print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
 
         if self.full_param:
             for param in self.yolo.model.parameters():
@@ -67,8 +67,8 @@ class StudentModel:
         trainable = sum(p.numel() for p in self.yolo.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.yolo.model.parameters())
         mode_str = "Full Params" if self.full_param else ("LoRA+Head" if self.use_lora else "Head Only")
-        print(f"[StudentModel] Trainable ({mode_str}): {trainable:,} / {total:,} params "
-              f"({100*trainable/total:.1f}%)")
+        # print(f"[StudentModel] Trainable ({mode_str}): {trainable:,} / {total:,} params "
+        #       f"({100*trainable/total:.1f}%)")
 
     # Keys của lớp output classifier trong YOLO26 Detect head (nc-specific):
     #   cv3.0.2, cv3.1.2, cv3.2.2  (one2many branch)
@@ -124,7 +124,7 @@ class TeacherModel:
         self.yolo.model.eval()
         for p in self.yolo.model.parameters():
             p.requires_grad_(False)
-        print(f"[TeacherModel] Loaded {ckpt} — frozen, eval mode.")
+        # print(f"[TeacherModel] Loaded {ckpt} — frozen, eval mode.")
 
     def get_outputs(self, imgs: torch.Tensor):
         """Forward pass không gradient — dùng trong KD criterion."""
