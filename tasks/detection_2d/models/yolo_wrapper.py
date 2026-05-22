@@ -15,15 +15,20 @@ class StudentModel:
     """
 
     def __init__(self, ckpt: str = "yolo11n.pt", rank: int = 4,
-                 lora_targets=None, nc: int = None):
+                 lora_targets=None, nc: int = None,
+                 full_param: bool = False, use_lora: bool = True):
         """
         lora_targets: List tên class module để inject LoRA.
             None → ['C2f', 'C3k2', 'C2fAttn'] (mặc định theo YOLO11)
             Có thể truyền ['Conv'] để adapt domain shift nặng hơn (underwater).
         nc: Số lượng class của dataset. Cần set đúng để khởi tạo head trước khi inject LoRA.
+        full_param: Train toàn bộ mô hình, không đóng băng, không LoRA.
+        use_lora: Có sử dụng LoRA hay không.
         """
         self.yolo = YOLO(ckpt)
         self.rank = rank
+        self.full_param = full_param
+        self.use_lora = use_lora
 
         # Override classes if needed BEFORE injecting LoRA
         if nc is not None and hasattr(self.yolo.model, 'yaml') and self.yolo.model.yaml.get('nc') != nc:
@@ -44,19 +49,25 @@ class StudentModel:
             self.yolo.model = new_model
             print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
-        injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank)
-        print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
+        if not self.full_param and self.use_lora:
+            injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank)
+            print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
 
-        # Đóng băng tất cả, trừ LoRA params và Detection Head
-        for name, param in self.yolo.model.named_parameters():
-            if 'lora_' in name or 'detect' in name.lower():
+        if self.full_param:
+            for param in self.yolo.model.parameters():
                 param.requires_grad_(True)
-            else:
-                param.requires_grad_(False)
+        else:
+            # Đóng băng tất cả, trừ LoRA params và Detection Head
+            for name, param in self.yolo.model.named_parameters():
+                if ('lora_' in name and self.use_lora) or 'detect' in name.lower():
+                    param.requires_grad_(True)
+                else:
+                    param.requires_grad_(False)
 
         trainable = sum(p.numel() for p in self.yolo.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.yolo.model.parameters())
-        print(f"[StudentModel] Trainable: {trainable:,} / {total:,} params "
+        mode_str = "Full Params" if self.full_param else ("LoRA+Head" if self.use_lora else "Head Only")
+        print(f"[StudentModel] Trainable ({mode_str}): {trainable:,} / {total:,} params "
               f"({100*trainable/total:.1f}%)")
 
     # Keys của lớp output classifier trong YOLO26 Detect head (nc-specific):
@@ -72,15 +83,18 @@ class StudentModel:
 
     def trainable_state_dict(self) -> dict:
         """
-        Trả về chỉ các tensor cần truyền qua kênh âm thanh dưới nước:
-          - LoRA adapters (lora_A, lora_B): ~72KB (r=4) hoặc ~144KB (r=8) INT8
-          - cv3.x.2 output classifier conv: ~2KB INT8 (class-specific, cần update khi nc thay đổi)
-        KHÔNG truyền: cv2, cv3 hidden layers, backbone weights — giữ cố định tại Gateway.
+        Trả về chỉ các tensor cần truyền qua mạng:
+          - Nếu full_param: toàn bộ model
+          - Nếu dùng LoRA: lora_A, lora_B, và head
+          - Nếu không dùng LoRA (nolora): chỉ head
         """
+        if self.full_param:
+            # Truyền toàn bộ
+            return {k: v.cpu().clone() for k, v in self.yolo.model.state_dict().items()}
+
         def _is_payload_key(k: str) -> bool:
-            if 'lora_' in k:
+            if 'lora_' in k and self.use_lora:
                 return True
-            # Tìm suffix cv3.x.2 trong key state dict (prefix là 'model.model[-1].' hoặc tương tự)
             for suffix in self._HEAD_OUTPUT_SUFFIXES:
                 if k.endswith(suffix):
                     return True

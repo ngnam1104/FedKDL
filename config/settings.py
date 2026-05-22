@@ -65,7 +65,7 @@ class FedKDLConfig:
     # KD-LoRA-INT8 Parameters
     # Kịch bản 1: LORA_RANK=4 → payload ~74KB  (LoRA 72KB + Head partial 2KB)
     # Kịch bản 2: LORA_RANK=8 → payload ~146KB (LoRA 144KB + Head partial 2KB) ≈ 150KB target
-    LORA_RANK: int = 4                # r=4 (74KB) hoặc r=8 (146KB) — xem 2 kịch bản trên
+    LORA_RANK: int = 8                # r=4 (74KB) hoặc r=8 (146KB) — xem 2 kịch bản trên
     QUANTIZATION_BITS: int = 8        # Affine Quantization từng tensor riêng biệt (INT8)
     TARGET_PAYLOAD_KB: float = 150.0  # Target payload: 150KB (LoRA+Head partial INT8)
     

@@ -14,6 +14,10 @@ from ultralytics.models.yolo.detect import DetectionTrainer
 from config.settings import fed_cfg
 
 class CustomDetectionTrainer(DetectionTrainer):
+    def __init__(self, overrides=None, _callbacks=None, student_wrapper=None):
+        super().__init__(overrides=overrides, _callbacks=_callbacks)
+        self.student_wrapper = student_wrapper
+
     def _setup_train(self):
         from ultralytics.utils import LOGGER
         
@@ -29,11 +33,12 @@ class CustomDetectionTrainer(DetectionTrainer):
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
         
-        for k, v in model.named_parameters():
-            if 'lora_' in k or 'model.22' in k or 'model.23' in k or 'detect' in k.lower():
-                v.requires_grad = True
-            else:
-                v.requires_grad = False
+        if self.student_wrapper and not self.student_wrapper.full_param:
+            for k, v in model.named_parameters():
+                if ('lora_' in k and self.student_wrapper.use_lora) or 'model.22' in k or 'model.23' in k or 'detect' in k.lower():
+                    v.requires_grad = True
+                else:
+                    v.requires_grad = False
                 
         # Loại bỏ các parameter đã bị đóng băng (requires_grad=False) khỏi optimizer param_groups
         # Điều này đảm bảo PyTorch hoàn toàn bỏ qua chúng trong quá trình step()
@@ -41,6 +46,16 @@ class CustomDetectionTrainer(DetectionTrainer):
             group['params'] = [p for p in group['params'] if p.requires_grad]
             
         return optimizer
+
+    def optimizer_step(self):
+        # Apply Proximal term to gradients before step (FedProx)
+        if getattr(self, 'fedprox_mu', 0.0) > 0.0 and getattr(self, 'global_weights', None) is not None:
+            for name, param in self.model.named_parameters():
+                if param.requires_grad and param.grad is not None and name in self.global_weights:
+                    prox_term = param.data - self.global_weights[name].to(param.device)
+                    param.grad.data.add_(prox_term, alpha=self.fedprox_mu)
+
+        super().optimizer_step()
 
 
 def local_sgd_od(
@@ -51,6 +66,8 @@ def local_sgd_od(
     batch_size: int = 16,
     lr: float = 0.01,
     device: str = "cpu",
+    fedprox_mu: float = 0.0,
+    global_weights: dict = None,
 ) -> tuple:
     """
     Thực hiện Local SGD cho OD tại Sensor (Tier 1).
@@ -84,24 +101,28 @@ def local_sgd_od(
     }
 
     # 3. Khởi tạo CustomDetectionTrainer
-    trainer = CustomDetectionTrainer(overrides=overrides)
+    trainer = CustomDetectionTrainer(overrides=overrides, student_wrapper=student_model)
     trainer.model = student_model.yolo.model
+    trainer.fedprox_mu = fedprox_mu
+    trainer.global_weights = global_weights
 
     # HẬU KIỂM (POST-CHECK): Lưu lại trọng số của các lớp bị đóng băng
     frozen_weights_before = {}
-    for k, v in student_model.yolo.model.named_parameters():
-        if not ('lora_' in k or 'model.22' in k or 'model.23' in k or 'detect' in k.lower()):
-            frozen_weights_before[k] = v.clone().detach()
+    if not student_model.full_param:
+        for k, v in student_model.yolo.model.named_parameters():
+            if not v.requires_grad:
+                frozen_weights_before[k] = v.clone().detach()
 
     # Chạy train
     trainer.train()
 
     # Đảm bảo không có bất kỳ trọng số nào ngoài LoRA và head bị thay đổi
-    for k, v in student_model.yolo.model.named_parameters():
-        if k in frozen_weights_before:
-            diff = torch.abs(frozen_weights_before[k].to(v.device) - v).max().item()
-            if diff > 1e-6:
-                raise RuntimeError(f"CƠ CHẾ NGẦM PHÁT HIỆN: Lớp '{k}' dự kiến bị đóng băng nhưng đã thay đổi (max diff: {diff})!")
+    if not student_model.full_param:
+        for k, v in student_model.yolo.model.named_parameters():
+            if k in frozen_weights_before:
+                diff = torch.abs(frozen_weights_before[k].to(v.device) - v).max().item()
+                if diff > 1e-6:
+                    raise RuntimeError(f"CƠ CHẾ NGẦM PHÁT HIỆN: Lớp '{k}' dự kiến bị đóng băng nhưng đã thay đổi (max diff: {diff})!")
 
     # 4. Lấy state sau khi train
     state_after = student_model.trainable_state_dict()

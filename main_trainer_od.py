@@ -74,6 +74,50 @@ def main():
     )
 
     def _train():
+        if args.baseline == 'centralized':
+            print(f"\n[Trainer 2D] RUNNING CENTRALIZED TRAINING ON {data_path}")
+            from ultralytics import YOLO
+            
+            # Khởi tạo mô hình dựa trên config full_param, LORA, v.v.
+            # Centralized thường train full params hoặc có thể test LoRA. Ở đây giả định train full params.
+            model = YOLO("yolo11n.pt")
+            
+            # Train trực tiếp trên dataset URPC2020.yaml
+            results = model.train(
+                data="datasets/URPC2020.yaml",
+                epochs=T_rounds,
+                imgsz=640,
+                batch=16,
+                device=device,
+                project=args.out_dir,
+                name=f"centralized_{stem}",
+                verbose=False
+            )
+            
+            map_score = results.box.map
+            print(f"[Centralized] mAP: {map_score:.4f}")
+            
+            history = {
+                'round': list(range(1, T_rounds + 1)),
+                'mAP': [map_score] * T_rounds,
+                'tau_round_s': [0] * T_rounds,
+                'avg_payload_kb': [0] * T_rounds,
+                'e_total': [0] * T_rounds,
+            }
+            
+            return {
+                "metadata": {
+                    "task": "2D",
+                    "baseline": args.baseline,
+                    "rounds": T_rounds,
+                    "N": N,
+                    "dataset": dataset,
+                    "alpha": alpha_str,
+                    "seed": seed,
+                },
+                "history": history
+            }
+            
         sim = Simulator2D(
             topo_path=str(topo_path),
             data_path=str(data_path),

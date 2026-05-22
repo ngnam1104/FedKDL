@@ -25,7 +25,7 @@ class SensorWorker2D(BaseWorker):
         with open(c_cfg['train'], 'r') as f:
             self.n_samples = sum(1 for _ in f)
 
-    def train_and_get_payload(self, global_state, epochs, lr, device):
+    def train_and_get_payload(self, global_state, epochs, lr, device, baseline: str = 'fedkdl', global_weights: dict = None):
         """
         Train local SGD (Tier 1, KHÔNG dùng KD) và đóng gói payload INT8.
         KD chỉ chạy tại Gateway (Tier 3) sau global aggregation.
@@ -46,8 +46,14 @@ class SensorWorker2D(BaseWorker):
             c_cfg = yaml.safe_load(f)
         nc = c_cfg.get('nc', 80)
 
+        full_param = 'full_param' in baseline
+        use_lora = 'nolora' not in baseline
+        use_int8 = 'noint8' not in baseline
+        fedprox_mu = 0.01 if 'fedprox' in baseline else 0.0
+        rank = 4 if 'r4' in baseline else fed_cfg.LORA_RANK
+
         from config.settings import fed_cfg
-        local_student = StudentModel("yolo11n.pt", rank=fed_cfg.LORA_RANK, nc=nc)
+        local_student = StudentModel("yolo11n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 
         new_state, delta_norm = local_sgd_od(
@@ -56,12 +62,22 @@ class SensorWorker2D(BaseWorker):
             client_id=self.sensor_id,
             epochs=epochs,
             device=device,
+            fedprox_mu=fedprox_mu,
+            global_weights=global_weights,
         )
 
-        # Pack toàn bộ new_state (LoRA + cv3.x.2) thành bytes INT8
-        payload_bytes, payload_kb = pack_payload(new_state)
-        print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB INT8 "
-              f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
+        if use_int8:
+            payload_bytes, payload_kb = pack_payload(new_state)
+            print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB INT8 "
+                  f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
+        else:
+            # Fake packing for simulation (Float32 payload)
+            payload_bytes = new_state
+            # Calculate bytes based on float32 (4 bytes per param)
+            total_params = sum(t.numel() for t in new_state.values())
+            payload_kb = (total_params * 4) / 1024.0
+            print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB Float32")
+
         return payload_bytes, payload_kb, delta_norm
 
 
@@ -182,8 +198,12 @@ class Simulator2D(BaseSimulator):
 
         # Models
         nc = base_cfg.get('nc', 80) if 'base_cfg' in locals() else 80
+        full_param = 'full_param' in self.baseline
+        use_lora = 'nolora' not in self.baseline
+        rank = 4 if 'r4' in self.baseline else self.fed_cfg.LORA_RANK
+        
         self.teacher = TeacherModel(teacher_ckpt)
-        self.global_student = StudentModel(student_ckpt, rank=self.fed_cfg.LORA_RANK, nc=nc)
+        self.global_student = StudentModel(student_ckpt, rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         
         self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
         
@@ -214,11 +234,16 @@ class Simulator2D(BaseSimulator):
             epochs=self.fed_cfg.LOCAL_EPOCHS,
             lr=self.fed_cfg.LOCAL_LR,
             device=self.device,
+            baseline=self.baseline,
+            global_weights=self.gateway.global_state_dict if 'fedprox' in self.baseline else None,
         )
 
         from physics_models.energy import e_tx, e_comp_dynamic
         if payload is not None:
-            S_bits = len(payload) * 8  # payload luôn là bytes INT8
+            if 'noint8' in self.baseline:
+                S_bits = payload_kb * 1024 * 8
+            else:
+                S_bits = len(payload) * 8  # payload luôn là bytes INT8
 
             fog_id = self.association.get(s_id, -1)
             if fog_id == -1:
@@ -252,18 +277,21 @@ class Simulator2D(BaseSimulator):
 
 
     def _aggregate_intra_fog(self, m: int, fog, payloads, sensor_n_samples) -> float:
+        use_int8 = 'noint8' not in self.baseline
         fog.aggregate_intra_cluster(
             global_state_dict=self.gateway.global_state_dict,
             payloads=payloads,
             sensor_n_samples=sensor_n_samples,
-            use_kd_lora_int8=True  # luôn dùng INT8 decode cho 2D
+            use_kd_lora_int8=use_int8
         )
         return 0.0
 
     def _compute_payload_bits(self, payloads: Dict) -> float:
         if not payloads:
             return self.fog_model_bits
-        # payload luôn là bytes INT8
+        if 'noint8' in self.baseline:
+            # payloads là state_dicts Float32
+            return np.mean([sum(t.numel() for t in p.values()) * 32 for p in payloads.values()])
         return np.mean([len(p) * 8 for p in payloads.values()])
 
     def _compute_fog_model_bits(self) -> float:
@@ -275,9 +303,9 @@ class Simulator2D(BaseSimulator):
         Sau global aggregation, Gateway dùng Teacher (YOLO12l, GPU mạnh)
         để distill vào global_student trên tập proxy data (coco8.yaml).
 
-        Chỉ chạy khi baseline == 'fedkdl'.
+        Chỉ chạy khi có KD (không có 'nokd' trong baseline).
         """
-        if self.baseline != 'fedkdl':
+        if 'nokd' in self.baseline:
             return
 
         import os

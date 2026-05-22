@@ -22,7 +22,28 @@ N_LIST=(50 100 150 200)
 DATASETS=(URPC)
 ALPHAS=(0.5 10000.0)
 SEEDS=(42 123 2024)
-BASELINES=(baseline_od fedkdl)
+
+# Danh sách baselines
+# Các cấu hình Ablation (Ablation Study):
+# fedkdl: Bản gốc (LoRA + Head, INT8, có KD)
+# full_param_kd: Truyền toàn bộ mô hình (INT8, có KD)
+# full_param_nokd: Truyền toàn bộ mô hình (INT8, không KD)
+# lora_head_kd_noint8: LoRA + Head (Float32, có KD)
+# head_kd_int8_nolora: Chỉ Head (INT8, có KD)
+# lora_head_int8_nokd: LoRA + Head (INT8, không KD)
+# Các FL Baselines: fedavg, fedprox, centralized
+BASELINES=(
+    "fedkdl"
+    "fedkdl_r4"
+    "full_param_kd"
+    "full_param_nokd"
+    "lora_head_kd_noint8"
+    "head_kd_int8_nolora"
+    "lora_head_int8_nokd"
+    "fedavg"
+    "fedprox"
+    "centralized"
+)
 
 ROUNDS=20
 OUT_DIR="results/logs_kdl"
