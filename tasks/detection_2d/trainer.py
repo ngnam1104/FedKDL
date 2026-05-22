@@ -99,7 +99,7 @@ def local_sgd_od(
     # Đảm bảo không có bất kỳ trọng số nào ngoài LoRA và head bị thay đổi
     for k, v in student_model.yolo.model.named_parameters():
         if k in frozen_weights_before:
-            diff = torch.abs(frozen_weights_before[k] - v).max().item()
+            diff = torch.abs(frozen_weights_before[k].to(v.device) - v).max().item()
             if diff > 1e-6:
                 raise RuntimeError(f"CƠ CHẾ NGẦM PHÁT HIỆN: Lớp '{k}' dự kiến bị đóng băng nhưng đã thay đổi (max diff: {diff})!")
 
