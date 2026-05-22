@@ -190,7 +190,13 @@ class EnvironmentManager:
         proportions = np.random.dirichlet(np.repeat(alpha, net_cfg.N_SENSORS))
         proportions = proportions / proportions.sum()
         
-        client_splits = (proportions * num_samples).astype(int)
+        # Đảm bảo mỗi thiết bị có ít nhất 2 ảnh (nếu đủ ảnh)
+        min_samples = 2 if num_samples >= net_cfg.N_SENSORS * 2 else 0
+        remaining_samples = max(0, num_samples - net_cfg.N_SENSORS * min_samples)
+        
+        client_splits = (proportions * remaining_samples).astype(int)
+        client_splits += min_samples
+        
         if num_samples > 0:
             client_splits[-1] = num_samples - sum(client_splits[:-1])
         
