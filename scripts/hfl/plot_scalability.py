@@ -1,4 +1,4 @@
-﻿"""
+"""
 plot_scalability.py
 Đọc logs JSON để vẽ biểu đồ khả năng mở rộng (Figure 5).
 """
@@ -20,7 +20,7 @@ def plot_scalability():
 
     participation_data = defaultdict(lambda: defaultdict(list))
     energy_data = defaultdict(lambda: defaultdict(list))
-    latency_data = defaultdict(lambda: defaultdict(list))
+    f1_data = defaultdict(lambda: defaultdict(list))
 
     log_files = glob.glob("results/logs/*.json")
     for f in log_files:
@@ -50,9 +50,9 @@ def plot_scalability():
                        sum(energy.get("e_comp", [])))
             energy_data[baseline][n].append(total_e)
 
-        # Latency — dùng tau_round_s (tổng hợp) thay cho breakdown
-        if "tau_round_s" in latency and latency["tau_round_s"]:
-            latency_data[baseline][n].append(np.mean(latency["tau_round_s"]))
+        # F1 - dùng PA-F1 
+        if "PA-F1" in metrics and metrics["PA-F1"]:
+            f1_data[baseline][n].append(metrics["PA-F1"][-1])
 
     if not participation_data:
         print("[Warning] Không tìm thấy dữ liệu scalability.")
@@ -75,37 +75,52 @@ def plot_scalability():
     plt.savefig("results/scalability/fig5a_participation.png", dpi=150)
     plt.close()
 
-    # --- Fig 5b: Energy ---
+    # --- Fig 5b: F1 Score ---
+    fig, ax = plt.subplots(figsize=(7, 5))
+    for baseline, bdata in f1_data.items():
+        if baseline == "centralized": continue
+        means = [np.mean(bdata[n]) if bdata[n] else np.nan for n in N_sorted]
+        c, m, l = get_style(baseline)
+        ax.plot(N_sorted, means, label=l, color=c, marker=m, linewidth=2, markersize=8)
+    ax.set_title("(b) F1 vs Scale")
+    ax.set_xlabel("Number of Sensors (N)")
+    ax.set_ylabel("F1 Score")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig("results/scalability/fig5b_f1.png", dpi=150)
+    plt.close()
+
+    # --- Fig 5c: Energy ---
     fig, ax = plt.subplots(figsize=(7, 5))
     for baseline, bdata in energy_data.items():
-        means = [np.mean(bdata[n]) if bdata[n] else np.nan for n in N_sorted]
+        if baseline == "centralized": continue
+        # Năng lượng trung bình trên mỗi sensor = Total Energy / N
+        means = [np.mean(bdata[n]) / n if bdata[n] else np.nan for n in N_sorted]
         c, m, l = get_style(baseline)
         ax.plot(N_sorted, means, label=l, color=c, marker=m, linewidth=2, markersize=8)
-    ax.set_title("Total Energy Consumption vs Scale")
-    ax.set_xlabel("Number of AUVs (N)")
-    ax.set_ylabel("Energy (Joules)")
+    ax.set_title("(c) Energy vs Scale")
+    ax.set_xlabel("Number of Sensors (N)")
+    ax.set_ylabel("Energy per Sensor (J)")
     ax.grid(True, alpha=0.3)
     ax.legend()
     plt.tight_layout()
-    plt.savefig("results/scalability/fig5b_energy.png", dpi=150)
+    plt.savefig("results/scalability/fig5c_energy.png", dpi=150)
     plt.close()
 
-    # --- Fig 5c: Latency ---
-    fig, ax = plt.subplots(figsize=(7, 5))
-    for baseline, bdata in latency_data.items():
-        means = [np.mean(bdata[n]) if bdata[n] else np.nan for n in N_sorted]
-        c, m, l = get_style(baseline)
-        ax.plot(N_sorted, means, label=l, color=c, marker=m, linewidth=2, markersize=8)
-    ax.set_title("Average Round Latency vs Scale")
-    ax.set_xlabel("Number of AUVs (N)")
-    ax.set_ylabel("Latency (Seconds)")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig("results/scalability/fig5c_latency.png", dpi=150)
-    plt.close()
-
-    print("\nDa luu bieu do Scalability (Fig 5a, 5b, 5c).")
+    print("\nĐã lưu biểu đồ Scalability (Fig 5a, 5b, 5c) với format Reachability, F1, Energy.")
+    
+    # Calculate Energy Saving
+    print("\n--- ENERGY SAVING (%) So với FedAvg ---")
+    if "fedavg" in energy_data:
+        for baseline in energy_data.keys():
+            if baseline in ["fedavg", "centralized"]: continue
+            print(f"[{baseline}]")
+            for n in N_sorted:
+                e_fedavg = np.mean(energy_data["fedavg"][n])
+                e_ours = np.mean(energy_data[baseline][n])
+                saving = (e_fedavg - e_ours) / e_fedavg * 100
+                print(f"  N={n}: Tiết kiệm {saving:.2f}%")
 
 if __name__ == "__main__":
     plot_scalability()

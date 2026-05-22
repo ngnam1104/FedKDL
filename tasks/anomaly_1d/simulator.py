@@ -208,12 +208,12 @@ class Simulator1D(BaseSimulator):
                 test_errors.extend(errs.cpu().numpy())
                 test_labels.extend(y_test.numpy())
 
-        pa_f1, prec, rec = point_adjusted_f1(np.array(test_labels), np.array(test_errors), tau_A)
+        pa_f1, prec, rec, f1_std = point_adjusted_f1(np.array(test_labels), np.array(test_errors), tau_A)
         
         val_loss = float(np.mean(val_errors)) if val_errors else 0.0
         test_loss = float(np.mean(test_errors)) if test_errors else 0.0
         
         return {
-            'PA-F1': pa_f1, 'Prec': prec, 'Rec': rec,
+            'PA-F1': pa_f1, 'F1-Score': f1_std, 'Prec': prec, 'Rec': rec,
             'val_loss': val_loss, 'test_loss': test_loss
         }

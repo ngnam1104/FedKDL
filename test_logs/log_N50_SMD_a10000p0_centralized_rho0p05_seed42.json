@@ -1,0 +1,39 @@
+{
+  "metadata": {
+    "task": "1D",
+    "baseline": "centralized",
+    "rho_s": 0.05,
+    "rounds": 1,
+    "N": 50,
+    "dataset": "SMD",
+    "alpha": "10000p0",
+    "seed": 42,
+    "artifacts": {
+      "json_path": "/data/nam_nh225051_hust/FedKDL/results/test_logs/log_N50_SMD_a10000p0_centralized_rho0p05_seed42.json",
+      "stdout_log_path": "/data/nam_nh225051_hust/FedKDL/results/test_logs/log_N50_SMD_a10000p0_centralized_rho0p05_seed42.stdout.log"
+    }
+  },
+  "history": {
+    "round": [
+      1
+    ],
+    "PA-F1": [
+      0.713714359437492
+    ],
+    "tau_round_s": [
+      0
+    ],
+    "avg_payload_kb": [
+      0
+    ],
+    "e_total": [
+      0
+    ],
+    "e_cumul": [
+      0
+    ],
+    "loss": [
+      0.07895247652553596
+    ]
+  }
+}

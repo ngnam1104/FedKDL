@@ -30,10 +30,10 @@ def anomaly_threshold(val_errors: np.ndarray, percentile: float = 99.0) -> float
     return float(np.percentile(val_errors, percentile))
 
 
-def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[float, float, float]:
+def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[float, float, float, float]:
     """
-    Tính Point-Adjusted F1 (PA-F1) score.
-    Logic: Nếu một điểm trong segment anomaly được phát hiện (score > threshold),
+    Tính Point-Adjusted F1 (PA-F1) score và Standard F1 score.
+    Logic PA: Nếu một điểm trong segment anomaly được phát hiện (score > threshold),
     toàn bộ segment đó được coi là True Positive.
 
     Args:
@@ -42,10 +42,18 @@ def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: 
         threshold:     Ngưỡng τ_A.
 
     Returns:
-        (pa_f1, precision, recall)
+        (pa_f1, precision, recall, f1_std)
     """
     y_pred = (y_pred_scores > threshold).astype(int)
     
+    # Standard F1
+    tp_std = np.sum((y_true == 1) & (y_pred == 1))
+    fp_std = np.sum((y_true == 0) & (y_pred == 1))
+    fn_std = np.sum((y_true == 1) & (y_pred == 0))
+    prec_std = tp_std / (tp_std + fp_std) if (tp_std + fp_std) > 0 else 0.0
+    rec_std = tp_std / (tp_std + fn_std) if (tp_std + fn_std) > 0 else 0.0
+    f1_std = 2 * prec_std * rec_std / (prec_std + rec_std) if (prec_std + rec_std) > 0 else 0.0
+
     # Point-Adjustment
     adjusted_pred = y_pred.copy()
     in_anomaly = False
@@ -73,9 +81,9 @@ def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: 
 
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    f1_pa = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
-    return float(f1), float(precision), float(recall)
+    return float(f1_pa), float(precision), float(recall), float(f1_std)
 
 
 class EnergyTracker:

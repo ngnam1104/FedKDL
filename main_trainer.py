@@ -121,13 +121,14 @@ def main():
                     test_errors.extend(errs.cpu().numpy())
                     test_labels_list.extend(y_test.numpy())
             
-            pa_f1, prec, rec = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
+            pa_f1, prec, rec, f1_std = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
             
-            print(f"[Centralized] PA-F1: {pa_f1:.4f}")
+            print(f"[Centralized] PA-F1: {pa_f1:.4f} | F1-Score: {f1_std:.4f}")
             
             history = {
                 'round': list(range(1, T_rounds + 1)),
                 'PA-F1': [pa_f1] * T_rounds,
+                'F1-Score': [f1_std] * T_rounds,
                 'tau_round_s': [0] * T_rounds,
                 'avg_payload_kb': [0] * T_rounds,
                 'e_total': [0] * T_rounds,

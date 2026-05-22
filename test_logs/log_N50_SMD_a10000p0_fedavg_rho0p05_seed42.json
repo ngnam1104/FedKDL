@@ -1,0 +1,96 @@
+{
+  "metadata": {
+    "task": "1D",
+    "baseline": "fedavg",
+    "rho_s": 0.05,
+    "rounds": 1,
+    "N": 50,
+    "dataset": "SMD",
+    "alpha": "10000p0",
+    "seed": 42,
+    "topo_path": "environments/topo/N_50/topo_N50_seed42.pkl",
+    "data_path": "environments/data/SMD/N_50/data_N50_SMD_a10000p0_seed42.pkl",
+    "artifacts": {
+      "json_path": "/data/nam_nh225051_hust/FedKDL/results/test_logs/log_N50_SMD_a10000p0_fedavg_rho0p05_seed42.json",
+      "stdout_log_path": "/data/nam_nh225051_hust/FedKDL/results/test_logs/log_N50_SMD_a10000p0_fedavg_rho0p05_seed42.stdout.log"
+    }
+  },
+  "metrics": {
+    "round": [
+      1
+    ],
+    "loss": [
+      0.08616914838552474
+    ],
+    "alive": [
+      20
+    ],
+    "tau_round_s": [
+      2.904414067481515
+    ],
+    "avg_payload_kb": [
+      3.666015625
+    ],
+    "e_total": [
+      2.275706630236951
+    ],
+    "e_cumul": [
+      2.275706630236951
+    ],
+    "PA-F1": [
+      0.7144517628826036
+    ],
+    "Prec": [
+      0.5557564798071127
+    ],
+    "Rec": [
+      1.0
+    ],
+    "val_loss": [
+      0.12388312071561813
+    ],
+    "test_loss": [
+      8.826837539672852
+    ],
+    "Train_Loss": [
+      0.08616914838552474
+    ],
+    "Participation": [
+      0.4
+    ],
+    "energy_cumul_J": [
+      2.275706630236951
+    ]
+  },
+  "latency_history": {
+    "round": [
+      1
+    ],
+    "tau_round_s": [
+      2.904414067481515
+    ]
+  },
+  "energy_consumption": {
+    "round": [
+      1
+    ],
+    "e_s2f": [
+      2.272474325236951
+    ],
+    "e_f2f": [
+      0.0
+    ],
+    "e_f2g": [
+      0.0
+    ],
+    "e_comp": [
+      0.0032323050000000004
+    ],
+    "round_total": [
+      2.275706630236951
+    ],
+    "cumulative_total": [
+      2.275706630236951
+    ]
+  }
+}
