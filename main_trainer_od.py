@@ -74,8 +74,58 @@ def main():
     )
 
     def _train():
+        # Initialize Simulator first to get total_samples and network info
+        sim = Simulator2D(
+            topo_path=str(topo_path),
+            data_path=str(data_path),
+            baseline=args.baseline,
+            test_yaml="datasets/URPC2020.yaml" if dataset == "urpc2020" else "coco8.yaml",
+            student_ckpt="yolo11n.pt",
+            teacher_ckpt="yolo12l.pt",
+            device=device,
+        )
+
         if args.baseline == 'centralized':
             print(f"\n[Trainer 2D] RUNNING CENTRALIZED TRAINING ON {data_path}")
+            
+            total_samples = sum(getattr(s, 'n_samples', 0) for s in sim.sensors.values())
+            if total_samples == 0:
+                total_samples = 4000 # Fallback
+            
+            from physics_models.latency import comp_delay_dynamic
+            from physics_models.energy import e_comp_dynamic
+            from config.settings import fed_cfg, energy_cfg as en_cfg
+            
+            # In centralized, Gateway trains 1 epoch per round.
+            tau_comp_gw = comp_delay_dynamic(
+                n_samples=total_samples,
+                n_local_epochs=1,
+                flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["2D"],
+                flop_multiplier=fed_cfg.FLOP_MULTIPLIER["2D"],
+                f_cpu=en_cfg.F_CPU * 5 # Assuming GW is 5x faster
+            )
+            
+            e_comp_gw = e_comp_dynamic(
+                n_samples=total_samples,
+                n_local_epochs=1,
+                flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["2D"],
+                epsilon_op=en_cfg.EPSILON_OP["2D"],
+                flop_multiplier=fed_cfg.FLOP_MULTIPLIER["2D"]
+            )
+            
+            # Raw data transmission in round 1
+            raw_payload_kb = total_samples * 500 # Assume 500KB per image
+            
+            # E_tx for raw data (Assume directly sent to Gateway)
+            from physics_models.energy import e_tx
+            e_tx_raw_total = 0.0
+            for sid, s in sim.sensors.items():
+                if ('sensor', sid, 'gateway', 0) in sim.G:
+                    link = sim.G[('sensor', sid, 'gateway', 0)]
+                else:
+                    link = next(iter(sim.G.values())) # fallback
+                e_tx_raw_total += e_tx(getattr(s, 'n_samples', 100) * 500 * 1024 * 8, link.R_bps, link.SL_min, en_cfg.ETA_EA, en_cfg.P_C_TX)
+
             from ultralytics import YOLO
             
             # Khởi tạo mô hình dựa trên config full_param, LORA, v.v.
@@ -121,6 +171,11 @@ def main():
                 
             print(f"[Centralized] mAP50-95: {map50_95:.4f} | mAP50: {map50:.4f}")
             
+            tau_cumul_s = [tau_comp_gw * t for t in range(1, T_rounds + 1)]
+            e_cumul = [e_tx_raw_total + e_comp_gw * t for t in range(1, T_rounds + 1)]
+            avg_payload_kb_arr = [raw_payload_kb] + [0] * (T_rounds - 1) if T_rounds > 0 else []
+            e_total_arr = [e_tx_raw_total + e_comp_gw] + [e_comp_gw] * (T_rounds - 1) if T_rounds > 0 else []
+            
             history = {
                 'round': list(range(1, T_rounds + 1)),
                 'mAP50-95': [map50_95] * T_rounds,
@@ -133,12 +188,12 @@ def main():
                 'loss': [total_train_loss] * T_rounds,
                 'val_loss': [total_val_loss] * T_rounds,
                 'alive': [N] * T_rounds,
-                'tau_round_s': [0] * T_rounds,
-                'tau_cumul_s': [0] * T_rounds,
-                'avg_payload_kb': [0] * T_rounds,
-                'payload_cumul_kb': [0] * T_rounds,
-                'e_total': [0] * T_rounds,
-                'e_cumul': [0] * T_rounds,
+                'tau_round_s': [tau_comp_gw] * T_rounds,
+                'tau_cumul_s': tau_cumul_s,
+                'avg_payload_kb': avg_payload_kb_arr,
+                'payload_cumul_kb': [raw_payload_kb] * T_rounds,
+                'e_total': e_total_arr,
+                'e_cumul': e_cumul,
             }
             
             return {
@@ -154,13 +209,6 @@ def main():
                 "history": history
             }
             
-        sim = Simulator2D(
-            topo_path=str(topo_path),
-            data_path=str(data_path),
-            baseline=args.baseline,
-            test_yaml="datasets/URPC2020.yaml",
-            device=device,
-        )
         print(f"\n[Trainer 2D] baseline={args.baseline} rounds={T_rounds} lora_rank={fed_cfg.LORA_RANK} device={device}")
         print(f"[Trainer 2D] topo={topo_path}")
         print(f"[Trainer 2D] data={data_path}")
