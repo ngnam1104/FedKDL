@@ -1,4 +1,4 @@
-﻿"""
+"""
 plot_heterogeneity.py
 Đọc logs JSON (results/logs_kdl) để vẽ biểu đồ độ nhạy với Dữ liệu Non-IID cho Kịch bản 3.
 """
@@ -43,12 +43,15 @@ def plot_heterogeneity():
         
         metrics = data.get("metrics", {})
         
-        if 'energy_cumul_J' in metrics and metrics['energy_cumul_J'] and 'map' in metrics and metrics['map']:
+        map_val = metrics.get('mAP50-95', metrics.get('map'))
+        e_cumul_val = metrics.get('e_cumul', metrics.get('energy_cumul_J'))
+        
+        if e_cumul_val and map_val:
             data_points.append({
                 'alpha': alpha,
                 'baseline': baseline,
-                'map': metrics['map'][-1],
-                'energy': metrics['energy_cumul_J'][-1]
+                'map': map_val[-1],
+                'energy': e_cumul_val[-1]
             })
 
     if not data_points:

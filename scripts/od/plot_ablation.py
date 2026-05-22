@@ -54,7 +54,10 @@ def plot_ablation():
             metrics_data[baseline]["mAP"].append(data["history"]["mAP50-95"][-1])
             metrics_data[baseline]["mAP_history"].append(data["history"]["mAP50-95"])
 
-        if "e_s2f" in energy:
+        e_cumul_val = metrics.get("e_cumul", [0])[-1]
+        if e_cumul_val > 0:
+            metrics_data[baseline]["energy"].append(e_cumul_val)
+        elif "e_s2f" in energy:
             total_e = (sum(energy.get("e_s2f", [])) + sum(energy.get("e_f2f", [])) + 
                        sum(energy.get("e_f2g", [])) + sum(energy.get("e_comp", [])))
             metrics_data[baseline]["energy"].append(total_e)

@@ -1,4 +1,4 @@
-﻿"""
+"""
 plot_od_scalability.py
 Đọc logs JSON (results/logs_kdl) để vẽ biểu đồ khả năng mở rộng cho Kịch bản 3.
 """
@@ -41,11 +41,17 @@ def plot_scalability():
         
         metrics = data.get("metrics", {})
         
-        if 'energy_cumul_J' in metrics and metrics['energy_cumul_J']:
+        if 'e_cumul' in metrics and metrics['e_cumul']:
+            energy_data[baseline][n].append(metrics['e_cumul'][-1])
+        elif 'energy_cumul_J' in metrics and metrics['energy_cumul_J']:
             energy_data[baseline][n].append(metrics['energy_cumul_J'][-1])
+
         if 'alive' in metrics and metrics['alive']:
             alive_data[baseline][n].append(metrics['alive'][-1] / max(1, n)) # Participation fraction
-        if 'map' in metrics and metrics['map']:
+
+        if 'mAP50-95' in metrics and metrics['mAP50-95']:
+            map_data[baseline][n].append(metrics['mAP50-95'][-1])
+        elif 'map' in metrics and metrics['map']:
             map_data[baseline][n].append(metrics['map'][-1])
 
     if not energy_data:

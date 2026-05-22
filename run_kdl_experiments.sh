@@ -100,6 +100,7 @@ echo "[KDL] Training done. Generating plots..."
 "$PYTHON" scripts/fedkdl/plot_od_scalability.py
 "$PYTHON" scripts/fedkdl/plot_heterogeneity.py
 "$PYTHON" scripts/fedkdl/eval_baselines.py --results-dir "$OUT_DIR"
+"$PYTHON" scripts/od/plot_ablation.py
 echo "[KDL] All done."
 echo "  JSON (plot):  $OUT_DIR/*.json"
 echo "  Stdout logs:  $STDOUT_DIR/*.stdout.log"

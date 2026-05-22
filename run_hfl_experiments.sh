@@ -81,6 +81,7 @@ echo "[HFL] Training done. Generating plots..."
 "$PYTHON" scripts/hfl/plot_scalability.py
 "$PYTHON" scripts/hfl/plot_heterogeneity.py
 "$PYTHON" scripts/hfl/plot_real_benchmark.py
+"$PYTHON" scripts/hfl/plot_tradeoff.py
 echo "[HFL] All done."
 echo "  JSON (plot):  $OUT_DIR/*.json"
 echo "  Stdout logs:  $STDOUT_DIR/*.stdout.log"

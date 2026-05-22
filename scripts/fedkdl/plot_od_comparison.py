@@ -1,4 +1,4 @@
-﻿"""
+"""
 plot_od_comparison.py
 Đọc logs JSON (results/logs_kdl) để vẽ biểu đồ so sánh Kịch bản 3: FedKDL vs baseline_od.
 """
@@ -52,9 +52,11 @@ def plot_comparison():
 
     for key, hist in results.items():
         if 'round' not in hist: continue
-        axes[0].plot(hist['round'], hist['map'], label=labels.get(key, key), color=colors.get(key, 'black'), marker='o')
-        axes[1].plot(hist['round'], hist['alive'], label=labels.get(key, key), color=colors.get(key, 'black'), marker='o')
-        axes[2].plot(hist['round'], hist['energy_cumul_J'], label=labels.get(key, key), color=colors.get(key, 'black'), marker='o')
+        map_val = hist.get('mAP50-95', hist.get('map', []))
+        e_cumul_val = hist.get('e_cumul', hist.get('energy_cumul_J', []))
+        if len(map_val) > 0: axes[0].plot(hist['round'], map_val, label=labels.get(key, key), color=colors.get(key, 'black'), marker='o')
+        if len(hist.get('alive', [])) > 0: axes[1].plot(hist['round'], hist['alive'], label=labels.get(key, key), color=colors.get(key, 'black'), marker='o')
+        if len(e_cumul_val) > 0: axes[2].plot(hist['round'], e_cumul_val, label=labels.get(key, key), color=colors.get(key, 'black'), marker='o')
 
     axes[0].set_title("mAP@0.5:0.95 vs Round")
     axes[0].set_xlabel("Round")
