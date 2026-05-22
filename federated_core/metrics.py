@@ -83,7 +83,7 @@ def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: 
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
     f1_pa = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
-    return float(f1_pa), float(precision), float(recall), float(f1_std)
+    return float(f1_pa), float(precision), float(recall), float(f1_std), float(prec_std), float(rec_std)
 
 
 class EnergyTracker:

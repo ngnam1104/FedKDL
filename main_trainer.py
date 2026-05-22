@@ -121,7 +121,7 @@ def main():
                     test_errors.extend(errs.cpu().numpy())
                     test_labels_list.extend(y_test.numpy())
             
-            pa_f1, prec, rec, f1_std = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
+            pa_f1, prec, rec, f1_std, prec_std, rec_std = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
             
             print(f"[Centralized] PA-F1: {pa_f1:.4f} | F1-Score: {f1_std:.4f}")
             
@@ -129,6 +129,10 @@ def main():
                 'round': list(range(1, T_rounds + 1)),
                 'PA-F1': [pa_f1] * T_rounds,
                 'F1-Score': [f1_std] * T_rounds,
+                'Prec': [prec] * T_rounds,
+                'Rec': [rec] * T_rounds,
+                'Prec-Std': [prec_std] * T_rounds,
+                'Rec-Std': [rec_std] * T_rounds,
                 'loss': [avg_loss] * T_rounds,
                 'alive': [N] * T_rounds,
                 'tau_round_s': [0] * T_rounds,
