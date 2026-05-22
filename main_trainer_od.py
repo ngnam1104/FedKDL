@@ -94,12 +94,17 @@ def main():
                 verbose=False
             )
             
-            map_score = results.box.map
-            print(f"[Centralized] mAP: {map_score:.4f}")
+            map50_95 = results.box.map
+            map50 = results.box.map50
+            # Ultralytics results.results_dict contains detailed losses
+            val_loss = results.results_dict.get('val/box_loss', 0.0) if hasattr(results, 'results_dict') else 0.0
+            print(f"[Centralized] mAP50-95: {map50_95:.4f} | mAP50: {map50:.4f}")
             
             history = {
                 'round': list(range(1, T_rounds + 1)),
-                'mAP': [map_score] * T_rounds,
+                'mAP50-95': [map50_95] * T_rounds,
+                'mAP50': [map50] * T_rounds,
+                'val_loss': [val_loss] * T_rounds,
                 'tau_round_s': [0] * T_rounds,
                 'avg_payload_kb': [0] * T_rounds,
                 'e_total': [0] * T_rounds,

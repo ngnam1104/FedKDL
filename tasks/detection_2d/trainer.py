@@ -137,10 +137,10 @@ def local_sgd_od(
     return state_after, delta_norm
 
 
-def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> float:
+def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
     """
-    Đánh giá mAP@0.5:0.95 của Student model trên tập test.
-    Returns: mAP score (float)
+    Đánh giá mAP@0.5:0.95 và mAP@0.5 của Student model trên tập test.
+    Returns: dict chứa các metrics
     """
     results = student_model.yolo.val(
         data=test_yaml,
@@ -148,5 +148,8 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> float:
         verbose=False,
         split='val',
     )
-    return results.box.map
+    return {
+        'mAP50-95': float(results.box.map),
+        'mAP50': float(results.box.map50)
+    }
 

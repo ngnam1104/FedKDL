@@ -338,6 +338,5 @@ class Simulator2D(BaseSimulator):
 
     def evaluate(self) -> Dict[str, float]:
         self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
-        map_score = evaluate_od(self.global_student, self.test_yaml, self.device)
-        return {'mAP': map_score}
+        return evaluate_od(self.global_student, self.test_yaml, self.device)
 
