@@ -94,7 +94,7 @@ def main():
             
             from physics_models.latency import comp_delay_dynamic
             from physics_models.energy import e_comp_dynamic
-            from config.settings import fed_cfg, energy_cfg as en_cfg
+            from config.settings import energy_cfg as en_cfg
             
             # In centralized, Gateway trains 1 epoch per round.
             tau_comp_gw = comp_delay_dynamic(
