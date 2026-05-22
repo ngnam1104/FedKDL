@@ -57,7 +57,9 @@ def generate_synthetic_timeseries(
     # Normalize to [0, 1] per feature
     data_min = data.min(axis=0, keepdims=True)
     data_max = data.max(axis=0, keepdims=True)
-    data = (data - data_min) / (data_max - data_min + 1e-8)
+    scale = data_max - data_min
+    scale[scale == 0] = 1.0
+    data = (data - data_min) / scale
 
     return data, labels
 
@@ -86,8 +88,10 @@ def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray]:
     # MinMaxScaler based on train data
     d_min = train_data.min(axis=0, keepdims=True)
     d_max = train_data.max(axis=0, keepdims=True)
-    train_data = (train_data - d_min) / (d_max - d_min + 1e-8)
-    test_data = (test_data - d_min) / (d_max - d_min + 1e-8)
+    scale = d_max - d_min
+    scale[scale == 0] = 1.0
+    train_data = (train_data - d_min) / scale
+    test_data = (test_data - d_min) / scale
     
     data = np.vstack([train_data, test_data])
     labels = np.concatenate([np.zeros(len(train_data), dtype=np.int32), test_labels])
@@ -174,8 +178,10 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
     # MinMaxScaler theo train
     d_min = train_data.min(axis=0, keepdims=True)
     d_max = train_data.max(axis=0, keepdims=True)
-    train_data = (train_data - d_min) / (d_max - d_min + 1e-8)
-    test_data  = (test_data  - d_min) / (d_max - d_min + 1e-8)
+    scale = d_max - d_min
+    scale[scale == 0] = 1.0
+    train_data = (train_data - d_min) / scale
+    test_data  = (test_data  - d_min) / scale
 
     train_labels = np.zeros(len(train_data), dtype=np.int32)
     test_labels  = build_labels(test_files, label_map, len(test_data))
