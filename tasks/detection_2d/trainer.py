@@ -30,8 +30,12 @@ class CustomDetectionTrainer(DetectionTrainer):
         finally:
             LOGGER.warning = original_warning
 
+    def validate(self):
+        """Bỏ qua validate giữa các epoch để tiết kiệm thời gian (Lần 1)."""
+        return None, None
+
     def final_eval(self):
-        """Bỏ qua bước Validate dư thừa ở cuối quá trình Local SGD để tiết kiệm 70% thời gian."""
+        """Bỏ qua bước Validate dư thừa ở cuối quá trình Local SGD để tiết kiệm thời gian (Lần 2)."""
         from ultralytics.utils.torch_utils import strip_optimizer
         model = self.best if self.best.exists() else None
         if self.last.exists():
