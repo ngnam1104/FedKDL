@@ -15,13 +15,15 @@ from config.settings import fed_cfg
 
 class CustomDetectionTrainer(DetectionTrainer):
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
-        logger = logging.getLogger('ultralytics')
-        old_level = logger.level
-        logger.setLevel(logging.ERROR)
+        from ultralytics.utils import LOGGER
+        import logging
+        
+        old_level = LOGGER.level
+        LOGGER.setLevel(logging.ERROR)
         
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
         
-        logger.setLevel(old_level)
+        LOGGER.setLevel(old_level)
         
         for k, v in model.named_parameters():
             if 'lora_' in k or 'model.22' in k or 'model.23' in k or 'detect' in k.lower():
@@ -29,6 +31,11 @@ class CustomDetectionTrainer(DetectionTrainer):
             else:
                 v.requires_grad = False
                 
+        # Loại bỏ các parameter đã bị đóng băng (requires_grad=False) khỏi optimizer param_groups
+        # Điều này đảm bảo PyTorch hoàn toàn bỏ qua chúng trong quá trình step()
+        for group in optimizer.param_groups:
+            group['params'] = [p for p in group['params'] if p.requires_grad]
+            
         return optimizer
 
 

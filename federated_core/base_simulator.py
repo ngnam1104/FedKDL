@@ -116,21 +116,33 @@ class BaseSimulator(ABC):
             e_s2f_total = 0.0
             e_comp_total = 0.0
 
-            max_w = 4 if self.device == 'cuda' else 8
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
-                futures = {executor.submit(self._process_sensor, s_id): s_id for s_id in alive_sensors}
-                for future in concurrent.futures.as_completed(futures):
-                    sid, payload, loss, n_samp, e_tx_cost, e_comp_cost = future.result()
-                    
+            if self.task_key == "2D":
+                # Chạy tuần tự cho YOLO 2D vì Ultralytics trainer gây deadlock/crash nếu chạy đa luồng CUDA
+                for s_id in alive_sensors:
+                    sid, payload, loss, n_samp, e_tx_cost, e_comp_cost = self._process_sensor(s_id)
                     if payload is not None:
                         payloads[sid] = payload
                         sensor_n_samples[sid] = n_samp
                         avg_losses.append(loss)
-                        
                         self.sensors[sid].deduct_battery(e_tx_cost + e_comp_cost)
-                        
                     e_s2f_total += e_tx_cost
                     e_comp_total += e_comp_cost
+            else:
+                max_w = 4 if self.device == 'cuda' else 8
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
+                    futures = {executor.submit(self._process_sensor, s_id): s_id for s_id in alive_sensors}
+                    for future in concurrent.futures.as_completed(futures):
+                        sid, payload, loss, n_samp, e_tx_cost, e_comp_cost = future.result()
+                        
+                        if payload is not None:
+                            payloads[sid] = payload
+                            sensor_n_samples[sid] = n_samp
+                            avg_losses.append(loss)
+                            
+                            self.sensors[sid].deduct_battery(e_tx_cost + e_comp_cost)
+                            
+                        e_s2f_total += e_tx_cost
+                        e_comp_total += e_comp_cost
 
             # --- Phase 2: Fog Tier ---
             e_f2f_total = 0.0
@@ -177,15 +189,16 @@ class BaseSimulator(ABC):
             
             # Tính năng lượng gửi Fog -> Gateway
             from physics_models.energy import e_tx
-            for m, fog in self.fogs.items():
-                if fog.final_state_dict is not None:
-                    link_key = ('fog', m, 'gateway', 0)
-                    if link_key in self.G:
-                        link = self.G[link_key]
-                        e_f2g_total += e_tx(
-                            self._compute_fog_model_bits(), link.R_bps, link.SL_min,
-                            self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
-                        )
+            if self.baseline not in ['fedavg', 'fedprox']:
+                for m, fog in self.fogs.items():
+                    if fog.final_state_dict is not None:
+                        link_key = ('fog', m, 'gateway', 0)
+                        if link_key in self.G:
+                            link = self.G[link_key]
+                            e_f2g_total += e_tx(
+                                self._compute_fog_model_bits(), link.R_bps, link.SL_min,
+                                self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
+                            )
 
             # --- Phase 3: Global Aggregation ---
             fog_final = {m: fog.final_state_dict for m, fog in self.fogs.items() if fog.final_state_dict is not None}

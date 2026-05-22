@@ -1,28 +1,41 @@
-# Cập nhật kdl_core
+Để ra được con số **360 lần chạy (runs)** trong kịch bản HFL (Scenario 1), script `run_hfl_experiments.sh` đang duyệt qua tổ hợp của 5 thông số (mỗi tổ hợp là một lần chạy). Cụ thể như sau:
 
-# TODO & Status Report
+**1. `N` (Số lượng sensor/client) - 4 giá trị:**
 
-## 1. Lỗi vừa xảy ra là gì?
+* `50`
+* `100`
+* `150`
+* `200`
+*(Dùng để đánh giá khả năng mở rộng - Scalability).*
 
-Khi chạy test `main_trainer.py` với cấu hình `hfl_selective`, hệ thống ném ra lỗi từ thư viện PyTorch:
-`ValueError: num_samples should be a positive integer value, but got num_samples=0`
+**2. `DS` (Dataset / Tập dữ liệu) - 3 giá trị:**
 
-**Nguyên nhân:** Quá trình phân rã dữ liệu Non-IID bằng phân phối Dirichlet đôi khi sẽ gán 0 mẫu dữ liệu (samples) cho một vài cảm biến. Khi `simulator.py` cố gắng tạo `DataLoader` cho các cảm biến bị rỗng dữ liệu này, `RandomSampler` của PyTorch sẽ sụp đổ (crash).
+* `SMD` (Server Machine Dataset)
+* `SMAP` (Soil Moisture Active Passive)
+* `MSL` (Mars Science Laboratory)
 
-**Cách khắc phục (Đã thực hiện):** Tôi đã thêm một lớp bảo vệ trong `hfl_core/simulator.py` ở đoạn tạo `DataLoader`. Cụ thể, các cảm biến có danh sách chỉ mục dữ liệu rỗng (`len(idx_list) == 0`) sẽ tự động bị bỏ qua, không đưa vào danh sách tham gia huấn luyện ở round đó nữa.
+**3. `alpha` (Độ bất đồng nhất dữ liệu - Data Heterogeneity) - 2 giá trị:**
 
-## 2. Xác nhận JSON Output (Đã kiểm tra thành công ✅)
+* `0.1` (Non-IID rất cao - mỗi client chỉ có dữ liệu lệch hẳn về một vài phân bố).
+* `10000.0` (Gần như IID - dữ liệu phân chia đồng đều).
 
-Tiến trình test `hfl_selective` (3 rounds) đã hoàn tất mỹ mãn mà không gặp bất kỳ lỗi nào.
+**4. `seed` (Hạt giống ngẫu nhiên) - 3 giá trị:**
 
-Kiểm tra trực tiếp file JSON sinh ra (`results/logs/log_N50_SMD_a0p1_hfl_selective_rho0p05_seed42.json`) cho thấy:
+* `42`
+* `123`
+* `2024`
+*(Dùng để chạy lặp lại 3 lần trên các bộ chia dữ liệu khác nhau, đảm bảo kết quả đáng tin cậy).*
 
-- Năng lượng tiêu thụ đã được chia tách hoàn hảo: `e_s2f`, `e_f2f`, `e_f2g`, `e_comp`.
-- Độ trễ `tau_round_s` được lưu chính xác.
-- Training Loss giảm dần (0.0987 -> 0.0874 -> 0.0775) chứng tỏ model học bình thường.
-- Script vẽ biểu đồ (plot_scalability) cũng đã được tôi sửa lại để đọc đúng các key mới này.
+**5. `baseline` (Chiến lược FL) - 5 giá trị:**
 
-## Trạng thái hiện tại: SẴN SÀNG 100% 🚀
+* `hfl_selective` (Chiến lược đề xuất: HFL + Filter + Lựa chọn hợp tác linh hoạt).
+* `hfl_nearest` (Chỉ hợp tác với Fog Node gần nhất).
+* `hfl_nocoop` (Các Fog Node hoàn toàn độc lập, không hợp tác).
+* `fedprox` (Phương pháp baseline phổ biến, thêm hàm Proximal để chống nhiễu Non-IID).
+* `fedavg` (Phương pháp nền tảng tiêu chuẩn).
 
-Tất cả các thành phần cốt lõi đều đã được vá lỗi và audit kỹ càng. Bạn hoàn toàn có thể chạy kịch bản chính thức:
-`.\run_all_experiments.ps1`
+---
+**Tổng cộng:** `4 (N) × 3 (DS) × 2 (alpha) × 3 (seed) × 5 (baseline) = 360` lần chạy.
+
+Script sẽ quét qua tất cả các trường hợp này bằng các vòng lặp lồng nhau (từ ngoài vào trong: `N` -> `DS` -> `alpha` -> `seed` -> `baseline`), nên lệnh chạy đầu tiên sẽ luôn là:
+`N=50`, `DS=SMD`, `alpha=0.1`, `seed=42`, `baseline=hfl_selective`.
