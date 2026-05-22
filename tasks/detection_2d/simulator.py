@@ -196,7 +196,7 @@ class Simulator2D(BaseSimulator):
                 
             temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_SENSORS}_a{data_part.alpha}_s{data_part.seed}")
             temp_dir.mkdir(parents=True, exist_ok=True)
-            
+            self.client_yamls = {}
             for sid, idx_list in data_part.client_data_indices.items():
                 c_images = [all_images[i] for i in idx_list]
                 txt_path = temp_dir / f"client_{sid}_train.txt"
@@ -209,7 +209,7 @@ class Simulator2D(BaseSimulator):
                 c_cfg['path'] = str((Path(base_yaml_path).parent / original_path).absolute())
                 with open(c_yaml_path, 'w') as f:
                     yaml.safe_dump(c_cfg, f)
-                self.client_yamls.append(str(c_yaml_path))
+                self.client_yamls[sid] = str(c_yaml_path)
             
             # Tạo proxy_test.yaml với đường dẫn tuyệt đối để evaluate_od không bị lỗi
             test_cfg = base_cfg.copy()
@@ -238,7 +238,7 @@ class Simulator2D(BaseSimulator):
 
     def _init_network(self):
         for s_id in range(self.net_cfg.N_SENSORS):
-            if s_id < len(self.client_yamls):
+            if s_id in getattr(self, 'client_yamls', {}):
                 if s_id in self.association:
                     self.sensors[s_id] = SensorWorker2D(
                         sensor_id=s_id,
