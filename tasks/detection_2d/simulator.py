@@ -176,8 +176,9 @@ class Simulator2D(BaseSimulator):
                 self.client_yamls.append(str(c_yaml_path))
 
         # Models
+        nc = base_cfg.get('nc', 80) if 'base_cfg' in locals() else 80
         self.teacher = TeacherModel(teacher_ckpt)
-        self.global_student = StudentModel(student_ckpt, rank=self.fed_cfg.LORA_RANK)
+        self.global_student = StudentModel(student_ckpt, rank=self.fed_cfg.LORA_RANK, nc=nc)
         
         self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
         

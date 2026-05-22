@@ -15,14 +15,34 @@ class StudentModel:
     """
 
     def __init__(self, ckpt: str = "yolo11n.pt", rank: int = 4,
-                 lora_targets=None):
+                 lora_targets=None, nc: int = None):
         """
         lora_targets: List tên class module để inject LoRA.
             None → ['C2f', 'C3k2', 'C2fAttn'] (mặc định theo YOLO11)
             Có thể truyền ['Conv'] để adapt domain shift nặng hơn (underwater).
+        nc: Số lượng class của dataset. Cần set đúng để khởi tạo head trước khi inject LoRA.
         """
         self.yolo = YOLO(ckpt)
         self.rank = rank
+
+        # Override classes if needed BEFORE injecting LoRA
+        if nc is not None and hasattr(self.yolo.model, 'yaml') and self.yolo.model.yaml.get('nc') != nc:
+            from ultralytics.nn.tasks import DetectionModel
+            cfg = self.yolo.model.yaml.copy()
+            cfg['nc'] = nc
+            
+            # Rebuild model with correct nc
+            new_model = DetectionModel(cfg, ch=3, nc=nc)
+            
+            # Transfer weights with shape matching (omitting mismatched classification head weights)
+            current_sd = self.yolo.model.state_dict()
+            new_sd = new_model.state_dict()
+            transfer_sd = {k: v for k, v in current_sd.items() 
+                           if k in new_sd and v.shape == new_sd[k].shape}
+            
+            new_model.load_state_dict(transfer_sd, strict=False)
+            self.yolo.model = new_model
+            print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank)
         print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
