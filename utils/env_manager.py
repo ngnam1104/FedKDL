@@ -181,6 +181,7 @@ class EnvironmentManager:
             if isinstance(train_path, str) and train_path.endswith('.txt'):
                 with open(train_path, 'r') as f:
                     all_images = [line.strip() for line in f.readlines()]
+            else:
                 dataset_dir = Path(base_yaml_path).parent
                 original_path = base_cfg.get('path', '')
                 img_dir_candidates = [
