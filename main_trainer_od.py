@@ -103,12 +103,21 @@ def main():
             val_box_loss = 0.0
             val_cls_loss = 0.0
             val_dfl_loss = 0.0
+            train_box_loss = 0.0
+            train_cls_loss = 0.0
+            train_dfl_loss = 0.0
+            
             if hasattr(results, 'results_dict'):
                 val_box_loss = results.results_dict.get('val/box_loss', 0.0)
                 val_cls_loss = results.results_dict.get('val/cls_loss', 0.0)
                 val_dfl_loss = results.results_dict.get('val/dfl_loss', 0.0)
                 
+                train_box_loss = results.results_dict.get('train/box_loss', 0.0)
+                train_cls_loss = results.results_dict.get('train/cls_loss', 0.0)
+                train_dfl_loss = results.results_dict.get('train/dfl_loss', 0.0)
+                
             total_val_loss = val_box_loss + val_cls_loss + val_dfl_loss
+            total_train_loss = train_box_loss + train_cls_loss + train_dfl_loss
                 
             print(f"[Centralized] mAP50-95: {map50_95:.4f} | mAP50: {map50:.4f}")
             
@@ -121,7 +130,7 @@ def main():
                 'val_box_loss': [val_box_loss] * T_rounds,
                 'val_cls_loss': [val_cls_loss] * T_rounds,
                 'val_dfl_loss': [val_dfl_loss] * T_rounds,
-                'loss': [total_val_loss] * T_rounds,
+                'loss': [total_train_loss] * T_rounds,
                 'val_loss': [total_val_loss] * T_rounds,
                 'alive': [N] * T_rounds,
                 'tau_round_s': [0] * T_rounds,
