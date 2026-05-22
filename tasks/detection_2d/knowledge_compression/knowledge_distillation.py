@@ -182,6 +182,20 @@ class KDDetectionTrainer(DetectionTrainer):
         finally:
             LOGGER.warning = original_warning
 
+    def validate(self):
+        """Bỏ qua validate giữa các epoch để tiết kiệm thời gian cho Tier 3."""
+        return None, None
+
+    def final_eval(self):
+        """Bỏ qua bước Validate dư thừa ở cuối quá trình KD."""
+        from ultralytics.utils.torch_utils import strip_optimizer
+        model = self.best if self.best.exists() else None
+        if self.last.exists():
+            strip_optimizer(self.last)
+        if model:
+            strip_optimizer(self.best)
+            self.run_callbacks("on_fit_epoch_end")
+
     def set_teacher(self, teacher_nn_module: Optional[nn.Module]):
         """
         Nhận nn.Module của Teacher (đã eval + frozen). Gọi sau __init__ trước khi train.

@@ -312,6 +312,23 @@ class Simulator2D(BaseSimulator):
         from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
 
         proxy_yaml = getattr(self, 'test_yaml', "coco8.yaml")  # Dùng luôn test_yaml (URPC) làm proxy thay vì tải coco8
+        
+        # Tạo proxy yaml với absolute path để tránh lỗi đường dẫn của YOLO
+        if proxy_yaml != "coco8.yaml" and os.path.exists(proxy_yaml):
+            import yaml
+            from pathlib import Path
+            with open(proxy_yaml, 'r') as f:
+                p_cfg = yaml.safe_load(f)
+            
+            dataset_dir = Path(proxy_yaml).parent
+            original_path = p_cfg.get('path', '')
+            p_cfg['path'] = str((dataset_dir / original_path).absolute())
+            
+            proxy_yaml_abs = "datasets/proxy_kd_data.yaml"
+            with open(proxy_yaml_abs, 'w') as f:
+                yaml.safe_dump(p_cfg, f)
+            proxy_yaml = proxy_yaml_abs
+
         overrides = {
             'model': "yolo11n.pt",
             'data': proxy_yaml,
