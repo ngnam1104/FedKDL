@@ -123,10 +123,37 @@ class Simulator2D(BaseSimulator):
             else:
                 dataset_dir = Path(base_yaml_path).parent
                 original_path = base_cfg.get('path', '')
-                img_dir = dataset_dir / original_path / train_path
+                
+                # CƠ CHẾ DỰ PHÒNG TÌM ĐƯỜNG DẪN ẢNH (Phòng hờ cấu trúc thư mục trên Linux khác Windows)
+                img_dir_candidates = [
+                    dataset_dir / original_path / train_path,
+                    dataset_dir / original_path.split('/')[0] / train_path,
+                    dataset_dir / base_yaml_path.split('/')[-1].split('.')[0] / train_path
+                ]
+                
+                img_dir = None
+                for candidate in img_dir_candidates:
+                    if candidate.exists() and candidate.is_dir():
+                        img_dir = candidate
+                        break
+                
+                if img_dir is None:
+                    # Rà quét toàn bộ thư mục datasets để tìm train_path
+                    for potential_dir in dataset_dir.glob(f'**/{train_path}'):
+                        if potential_dir.is_dir():
+                            img_dir = potential_dir
+                            break
+                            
+                if img_dir is None or not img_dir.exists():
+                    raise FileNotFoundError(f"CRITICAL: Không thể tìm thấy thư mục ảnh '{train_path}' ở bất kỳ đâu trong '{dataset_dir}'.")
+
                 all_images = []
                 for ext in ('*.jpg', '*.png', '*.JPG', '*.JPEG', '*.jpeg'):
                     all_images.extend([str(p.resolve()) for p in img_dir.glob(f'**/{ext}')])
+                
+                if not all_images:
+                    raise FileNotFoundError(f"CRITICAL: Tìm thấy thư mục {img_dir} nhưng KHÔNG CÓ ẢNH NÀO bên trong! (Hỗ trợ: jpg, png, jpeg)")
+                    
                 all_images.sort()
                 
             temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_SENSORS}_a{data_part.alpha}_s{data_part.seed}")
