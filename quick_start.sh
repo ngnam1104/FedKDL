@@ -192,11 +192,11 @@ count_env_files() {
 run_experiments() {
   if [[ $DO_HFL -eq 1 ]]; then
     log "Khởi chạy HFL grid (CPU-friendly)..."
-    ./run_hfl_experiments.sh 2>&1 | tee -a results/quick_start/run_hfl.log
+    ./run_hfl_experiments.sh 2>&1 | tee results/quick_start/run_hfl_$(date +"%Y%m%d_%H%M%S").log
   fi
   if [[ $DO_KDL -eq 1 ]]; then
     log "Khởi chạy KDL grid (ưu tiên GPU)..."
-    ./run_kdl_experiments.sh 2>&1 | tee -a results/quick_start/run_kdl.log
+    ./run_kdl_experiments.sh 2>&1 | tee results/quick_start/run_kdl_$(date +"%Y%m%d_%H%M%S").log
   fi
 }
 
