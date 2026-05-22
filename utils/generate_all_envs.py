@@ -24,7 +24,7 @@ def main():
 
     N_LIST = [50, 100, 150, 200]
     DATASETS = ['SMD', 'SMAP', 'MSL', 'URPC']
-    ALPHAS = [0.1, 10000.0]
+    ALPHAS = [0.5, 10000.0]
     SEEDS = [42, 123, 2024]
     
     if args.n:
