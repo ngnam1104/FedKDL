@@ -68,6 +68,87 @@ def main():
     )
 
     def _train():
+        if args.baseline == 'centralized':
+            print(f"\n[Trainer 1D] RUNNING CENTRALIZED TRAINING ON {dataset}")
+            from tasks.anomaly_1d.dataloader import load_dataset, SlidingWindowDataset, make_val_loader
+            from tasks.anomaly_1d.autoencoder import SmallAutoencoder
+            from tasks.anomaly_1d.trainer import local_sgd
+            from torch.utils.data import DataLoader
+            from federated_core.metrics import anomaly_threshold, point_adjusted_f1
+            import torch
+            
+            # 1. Load data
+            train_data, train_labels, test_data, test_labels = load_dataset(dataset, seed=seed)
+            split_idx = int(len(train_data) * 0.7)
+            train_ds = SlidingWindowDataset(train_data[:split_idx], train_labels[:split_idx], window_size=10)
+            val_ds   = SlidingWindowDataset(train_data[split_idx:], train_labels[split_idx:], window_size=10)
+            test_ds  = SlidingWindowDataset(test_data,  test_labels,  window_size=10)
+            
+            train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
+            val_loader = make_val_loader(val_ds, batch_size=256)
+            test_loader = make_val_loader(test_ds, batch_size=256)
+            
+            # 2. Init model
+            sample_batch, _ = next(iter(train_loader))
+            model = SmallAutoencoder(input_dim=sample_batch.shape[1]).to("cpu")
+            
+            # 3. Train
+            # Centralized runs for T_rounds epochs for equivalence
+            _, avg_loss = local_sgd(
+                model=model,
+                dataloader=train_loader,
+                epochs=T_rounds,
+                lr=fed_cfg.LOCAL_LR,
+                device="cpu",
+            )
+            
+            # 4. Evaluate
+            model.eval()
+            val_errors = []
+            with torch.no_grad():
+                for x_val, y_val in val_loader:
+                    errs = model.reconstruction_error(x_val).cpu().numpy()
+                    normal_errs = errs[y_val.numpy() == 0]
+                    val_errors.extend(normal_errs)
+            
+            tau_A = anomaly_threshold(np.array(val_errors), percentile=99.0)
+            
+            test_errors = []
+            test_labels_list = []
+            with torch.no_grad():
+                for x_test, y_test in test_loader:
+                    errs = model.reconstruction_error(x_test)
+                    test_errors.extend(errs.cpu().numpy())
+                    test_labels_list.extend(y_test.numpy())
+            
+            pa_f1, prec, rec = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
+            
+            print(f"[Centralized] PA-F1: {pa_f1:.4f}")
+            
+            history = {
+                'round': list(range(1, T_rounds + 1)),
+                'PA-F1': [pa_f1] * T_rounds,
+                'tau_round_s': [0] * T_rounds,
+                'avg_payload_kb': [0] * T_rounds,
+                'e_total': [0] * T_rounds,
+                'e_cumul': [0] * T_rounds,
+                'loss': [avg_loss] * T_rounds,
+            }
+            
+            return {
+                "metadata": {
+                    "task": "1D",
+                    "baseline": args.baseline,
+                    "rho_s": args.rho_s,
+                    "rounds": T_rounds,
+                    "N": N,
+                    "dataset": dataset,
+                    "alpha": alpha_str,
+                    "seed": seed,
+                },
+                "history": history
+            }
+
         sim = Simulator1D(
             topo_path=str(topo_path),
             data_path=str(data_path),
