@@ -50,9 +50,9 @@ class SensorWorker2D(BaseWorker):
         use_lora = 'nolora' not in baseline
         use_int8 = 'noint8' not in baseline
         fedprox_mu = 0.01 if 'fedprox' in baseline else 0.0
+        from config.settings import fed_cfg
         rank = 4 if 'r4' in baseline else fed_cfg.LORA_RANK
 
-        from config.settings import fed_cfg
         local_student = StudentModel("yolo11n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 

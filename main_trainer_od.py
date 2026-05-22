@@ -79,7 +79,7 @@ def main():
             topo_path=str(topo_path),
             data_path=str(data_path),
             baseline=args.baseline,
-            test_yaml="datasets/URPC2020.yaml" if dataset == "urpc2020" else "coco8.yaml",
+            test_yaml="datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml",
             student_ckpt="yolo11n.pt",
             teacher_ckpt="yolo12l.pt",
             device=device,
@@ -132,9 +132,10 @@ def main():
             # Centralized thường train full params hoặc có thể test LoRA. Ở đây giả định train full params.
             model = YOLO("yolo11n.pt")
             
-            # Train trực tiếp trên dataset URPC2020.yaml
+            # Train trực tiếp trên dataset yaml tương ứng
+            test_yaml = "datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml"
             results = model.train(
-                data="datasets/URPC2020.yaml",
+                data=test_yaml,
                 epochs=T_rounds,
                 imgsz=640,
                 batch=16,
