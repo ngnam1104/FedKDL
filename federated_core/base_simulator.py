@@ -98,6 +98,8 @@ class BaseSimulator(ABC):
             self.baseline = baseline
         import concurrent.futures
         
+        cumulative_payload = 0.0
+        
         for t in range(1, T_rounds + 1):
             gc.collect()
             if torch.cuda.is_available():
@@ -216,6 +218,9 @@ class BaseSimulator(ABC):
             avg_payload_bits = self._compute_payload_bits(payloads)
             fog_model_bits = self._compute_fog_model_bits()
             
+            payload_kb = avg_payload_bits / 8.0 / 1024.0
+            cumulative_payload += payload_kb
+            
             # Tính tau_comp trung bình của round
             from physics_models.latency import comp_delay_dynamic
             avg_n_samples = np.mean(list(sensor_n_samples.values())) if sensor_n_samples else 100
@@ -243,7 +248,9 @@ class BaseSimulator(ABC):
                 'loss': float(np.mean(avg_losses)) if avg_losses else 0.0,
                 'alive': len(alive_sensors),
                 'tau_round_s': tau_round,
-                'avg_payload_kb': avg_payload_bits / 8.0 / 1024.0,
+                'tau_cumul_s': self.latency_tracker.cumulative_latency,
+                'avg_payload_kb': payload_kb,
+                'payload_cumul_kb': cumulative_payload,
                 'e_total': e_s2f_total + e_f2f_total + e_f2g_total + e_comp_total,
                 'e_cumul': self.energy_tracker.cumulative_energy
             }

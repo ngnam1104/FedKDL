@@ -136,6 +136,7 @@ class LatencyTracker:
         self.c_s = sound_speed
         self.time_per_epoch = time_per_epoch
         self.history: List[Dict] = []
+        self.cumulative_latency = 0.0
 
     def _link_delay(self, S_bits: float, R_bps: float, d_m: float) -> float:
         """Tính trễ 1 link: tx delay + propagation delay."""
@@ -226,7 +227,8 @@ class LatencyTracker:
 
     def add_round(self, round_idx: int, tau_round: float):
         """Ghi nhận latency của 1 round."""
-        self.history.append({'round': round_idx, 'tau_round_s': tau_round})
+        self.cumulative_latency += tau_round
+        self.history.append({'round': round_idx, 'tau_round_s': tau_round, 'tau_cumul_s': self.cumulative_latency})
 
     def get_dataframe(self) -> pd.DataFrame:
         """Trả về lịch sử latency dưới dạng DataFrame."""

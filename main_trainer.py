@@ -136,7 +136,9 @@ def main():
                 'loss': [avg_loss] * T_rounds,
                 'alive': [N] * T_rounds,
                 'tau_round_s': [0] * T_rounds,
+                'tau_cumul_s': [0] * T_rounds,
                 'avg_payload_kb': [0] * T_rounds,
+                'payload_cumul_kb': [0] * T_rounds,
                 'e_total': [0] * T_rounds,
                 'e_cumul': [0] * T_rounds,
             }
