@@ -197,10 +197,12 @@ class Simulator1D(BaseSimulator):
         
         val_errors = []
         with torch.no_grad():
-            for x_val, _ in self.val_loader:
+            for x_val, y_val in self.val_loader:
                 x_val = x_val.to(self.device)
-                errs = self.model_template.reconstruction_error(x_val)
-                val_errors.extend(errs.cpu().numpy())
+                errs = self.model_template.reconstruction_error(x_val).cpu().numpy()
+                # Chỉ lấy các sample bình thường (y == 0) để tính ngưỡng
+                normal_errs = errs[y_val.numpy() == 0]
+                val_errors.extend(normal_errs)
 
         tau_A = anomaly_threshold(np.array(val_errors), percentile=99.0)
 

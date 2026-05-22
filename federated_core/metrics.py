@@ -163,7 +163,11 @@ class LatencyTracker:
         # 1. Sensor → Fog delays (mỗi fog lấy max trong cụm)
         s2f_per_fog: Dict[int, float] = {}
         for s_id, fog_id in association.items():
-            key = ('sensor', s_id, 'fog', fog_id)
+            if fog_id == -1:
+                key = ('sensor', s_id, 'gateway', 0)
+            else:
+                key = ('sensor', s_id, 'fog', fog_id)
+                
             if key in G:
                 link = G[key]
                 delay = comm_delay(sensor_payload_bits, link.R_bps, link.distance, self.c_s)
@@ -187,6 +191,8 @@ class LatencyTracker:
         # 3. Fog → Gateway delays
         f2g_delays = []
         for m in set(association.values()):
+            if m == -1:
+                continue
             key = ('fog', m, 'gateway', 0)
             if key in G:
                 link = G[key]
@@ -196,12 +202,17 @@ class LatencyTracker:
 
         # Bottleneck: max over all fogs of (s2f + f2f + f2g)
         all_fog_ids = set(association.values())
-        per_fog_total = [
-            s2f_per_fog.get(m, 0.0) +
-            f2f_per_fog.get(m, 0.0) +
-            (max(f2g_delays) if f2g_delays else 0.0)
-            for m in all_fog_ids
-        ]
+        per_fog_total = []
+        max_f2g = max(f2g_delays) if f2g_delays else 0.0
+        for m in all_fog_ids:
+            if m == -1:
+                per_fog_total.append(s2f_per_fog.get(m, 0.0))
+            else:
+                per_fog_total.append(
+                    s2f_per_fog.get(m, 0.0) +
+                    f2f_per_fog.get(m, 0.0) +
+                    max_f2g
+                )
         tau_round = (max(per_fog_total) if per_fog_total else 0.0) + tau_comp
         return tau_round
 
