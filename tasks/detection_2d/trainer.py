@@ -113,6 +113,7 @@ def local_sgd_od(
         'verbose': False,  # Ngăn YOLO in bảng kiến trúc
         'save': False,
         'val': False,
+        'plots': False,    # Vô hiệu hóa tính năng vẽ biểu đồ để tránh lỗi Plotting error do bỏ qua val
         'workers': 0,
     }
 

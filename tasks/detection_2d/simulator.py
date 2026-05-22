@@ -369,6 +369,7 @@ class Simulator2D(BaseSimulator):
             'verbose': False,
             'save': False,
             'val': False,
+            'plots': False,
             'workers': 0,
         }
         trainer = KDDetectionTrainer(overrides=overrides)
