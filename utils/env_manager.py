@@ -51,6 +51,7 @@ class DataPartitionSnapshot:
 
     input_dim: int                     # window_size * n_features
     n_train_samples: int               # So luong window trong train_ds
+    public_data_indices: List[int] = None # proxy dataset cho Gateway KD
 
 
 class EnvironmentManager:
@@ -207,30 +208,34 @@ class EnvironmentManager:
                     all_images = [str(p) for p in img_dir.glob('**/*.jpg')]
                 
         num_samples = len(all_images)
+        
+        # Tách 20% dữ liệu làm Public Dataset cho Gateway KD
+        public_samples = int(num_samples * 0.2)
+        client_samples = num_samples - public_samples
+        
+        indices = np.arange(num_samples)
+        np.random.shuffle(indices)
+        
+        public_indices = indices[:public_samples].tolist()
+        client_indices_pool = indices[public_samples:]
+        
         proportions = np.random.dirichlet(np.repeat(alpha, net_cfg.N_SENSORS))
         proportions = proportions / proportions.sum()
         
         # Đảm bảo mỗi thiết bị có ít nhất 2 ảnh (nếu đủ ảnh)
-        min_samples = 2 if num_samples >= net_cfg.N_SENSORS * 2 else 0
-        remaining_samples = max(0, num_samples - net_cfg.N_SENSORS * min_samples)
+        min_samples = 2 if client_samples >= net_cfg.N_SENSORS * 2 else 0
+        remaining_samples = max(0, client_samples - net_cfg.N_SENSORS * min_samples)
         
         client_splits = (proportions * remaining_samples).astype(int)
         client_splits += min_samples
         
-        if num_samples > 0:
-            client_splits[-1] = num_samples - sum(client_splits[:-1])
-        
-        # We only need to store the indices (not the strings), 
-        # so simulator can lookup the same array from base_yaml.
-        # But wait, shuffle changes the order!
-        # If we just store indices from 0 to num_samples-1 randomly assigned.
-        indices = np.arange(num_samples)
-        np.random.shuffle(indices)
+        if client_samples > 0:
+            client_splits[-1] = client_samples - sum(client_splits[:-1])
         
         client_data_indices = {}
         current_idx = 0
         for i in range(net_cfg.N_SENSORS):
-            c_indices = indices[current_idx : current_idx + client_splits[i]]
+            c_indices = client_indices_pool[current_idx : current_idx + client_splits[i]]
             client_data_indices[i] = c_indices.tolist()
             current_idx += client_splits[i]
             
@@ -242,7 +247,8 @@ class EnvironmentManager:
             client_data_indices=client_data_indices,
             val_indices=[], # YOLO validates via the base yaml's val set
             input_dim=0, # not used for images in the same way
-            n_train_samples=num_samples
+            n_train_samples=num_samples,
+            public_data_indices=public_indices
         )
 
     # --- HELPERS ---

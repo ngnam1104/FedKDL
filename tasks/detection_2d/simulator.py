@@ -183,8 +183,15 @@ class Simulator2D(BaseSimulator):
                 # Lưu file txt cho proxy KD sau này
                 proxy_txt = Path("datasets/proxy_kd_train.txt")
                 proxy_txt.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Trích xuất riêng Public Data cho Gateway KD (nếu có định nghĩa trong data_part)
+                if hasattr(data_part, 'public_data_indices') and data_part.public_data_indices:
+                    public_images = [all_images[i] for i in data_part.public_data_indices]
+                else:
+                    public_images = all_images
+                    
                 with open(proxy_txt, "w") as f:
-                    f.write("\n".join(all_images))
+                    f.write("\n".join(public_images))
                 self.proxy_kd_txt = str(proxy_txt.absolute())
                 
             temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_SENSORS}_a{data_part.alpha}_s{data_part.seed}")

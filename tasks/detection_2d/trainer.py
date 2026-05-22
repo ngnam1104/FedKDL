@@ -10,6 +10,7 @@ Payload truyền đi: LoRA adapters + cv3.x.2 output conv, nén INT8.
 import torch
 import copy
 import logging
+import numpy as np
 from ultralytics.models.yolo.detect import DetectionTrainer
 from config.settings import fed_cfg
 
