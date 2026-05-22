@@ -59,6 +59,8 @@ def main():
     dataset = parts[2]
     alpha_str = parts[3][1:]
     seed = int(parts[4][4:])
+    
+    network_cfg.N_SENSORS = N
 
     paths = build_experiment_paths(
         task="2D",

@@ -16,14 +16,15 @@ from config.settings import fed_cfg
 class CustomDetectionTrainer(DetectionTrainer):
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         from ultralytics.utils import LOGGER
-        import logging
         
-        old_level = LOGGER.level
-        LOGGER.setLevel(logging.ERROR)
+        # Tắt triệt để cảnh báo của YOLO bằng cách ghi đè method warning tạm thời
+        original_warning = LOGGER.warning
+        LOGGER.warning = lambda *args, **kwargs: None
         
-        optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
-        
-        LOGGER.setLevel(old_level)
+        try:
+            optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
+        finally:
+            LOGGER.warning = original_warning
         
         for k, v in model.named_parameters():
             if 'lora_' in k or 'model.22' in k or 'model.23' in k or 'detect' in k.lower():
