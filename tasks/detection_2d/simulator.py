@@ -36,7 +36,9 @@ class SensorWorker2D(BaseWorker):
             payload_kb: kích thước payload tính bằng KB
             delta_norm: L2 norm của sự thay đổi trọng số (cho Lazy Filter)
         """
-        if not self.alive:
+        if not self.alive or getattr(self, 'n_samples', 0) == 0:
+            if getattr(self, 'n_samples', 0) == 0:
+                print(f"[Sensor {self.sensor_id}] Bỏ qua vì n_samples = 0 (Không có dữ liệu trong tệp train).")
             return None, 0.0, 0.0
 
         from config.settings import fed_cfg
