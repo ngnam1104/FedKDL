@@ -94,18 +94,33 @@ def main():
                 verbose=False
             )
             
-            map50_95 = results.box.map
-            map50 = results.box.map50
+            map50_95 = float(results.box.map)
+            map50 = float(results.box.map50)
+            mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
+            mr = float(np.mean(results.box.mr)) if hasattr(results.box, 'mr') else 0.0
+            
             # Ultralytics results.results_dict contains detailed losses
-            val_loss = results.results_dict.get('val/box_loss', 0.0) if hasattr(results, 'results_dict') else 0.0
+            val_box_loss = 0.0
+            val_cls_loss = 0.0
+            val_dfl_loss = 0.0
+            if hasattr(results, 'results_dict'):
+                val_box_loss = results.results_dict.get('val/box_loss', 0.0)
+                val_cls_loss = results.results_dict.get('val/cls_loss', 0.0)
+                val_dfl_loss = results.results_dict.get('val/dfl_loss', 0.0)
+                
             print(f"[Centralized] mAP50-95: {map50_95:.4f} | mAP50: {map50:.4f}")
             
             history = {
                 'round': list(range(1, T_rounds + 1)),
                 'mAP50-95': [map50_95] * T_rounds,
                 'mAP50': [map50] * T_rounds,
-                'loss': [val_loss] * T_rounds,
-                'val_loss': [val_loss] * T_rounds,
+                'Prec': [mp] * T_rounds,
+                'Rec': [mr] * T_rounds,
+                'val_box_loss': [val_box_loss] * T_rounds,
+                'val_cls_loss': [val_cls_loss] * T_rounds,
+                'val_dfl_loss': [val_dfl_loss] * T_rounds,
+                'loss': [val_box_loss] * T_rounds, # Fallback mapping
+                'val_loss': [val_box_loss] * T_rounds, # Fallback mapping
                 'alive': [N] * T_rounds,
                 'tau_round_s': [0] * T_rounds,
                 'avg_payload_kb': [0] * T_rounds,
