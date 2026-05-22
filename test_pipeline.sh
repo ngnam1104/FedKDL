@@ -17,6 +17,41 @@ echo "============================================================"
 echo "BẮT ĐẦU SMOKE TEST (KIỂM TRA LỖI LOGIC CODE)"
 echo "============================================================"
 
+# ---- TEST 1D (HFL) ----
+N_1D=50
+DS_1D="SMD"
+ALPHA_1D="10000.0"
+SEED_1D="42"
+ALPHA_STR_1D="10000p0"
+
+TOPO_1D="environments/topo/N_${N_1D}/topo_N${N_1D}_seed${SEED_1D}.pkl"
+DATA_1D="environments/data/${DS_1D}/N_${N_1D}/data_N${N_1D}_${DS_1D}_a${ALPHA_STR_1D}_seed${SEED_1D}.pkl"
+
+BASELINES_1D=(
+    "hfl_selective"
+    "hfl_nearest"
+    "hfl_nocoop"
+    "fedprox"
+    "fedavg"
+    "centralized"
+)
+
+if [[ -f "$TOPO_1D" && -f "$DATA_1D" ]]; then
+    for baseline in "${BASELINES_1D[@]}"; do
+        echo ""
+        echo ">>> [TEST 1D] Đang kiểm tra baseline: $baseline"
+        $PYTHON main_trainer.py \
+            --topo "$TOPO_1D" \
+            --data "$DATA_1D" \
+            --baseline "$baseline" \
+            --rounds 1 \
+            --out-dir "results/test_logs" \
+            --log-dir "results/test_logs"
+    done
+else
+    echo "⚠️ Bỏ qua test 1D vì thiếu file môi trường."
+fi
+
 # ---- TEST 2D (OD) ----
 N_2D=50
 DS_2D="URPC"
@@ -54,41 +89,6 @@ if [[ -f "$TOPO_2D" && -f "$DATA_2D" ]]; then
     done
 else
     echo "⚠️ Bỏ qua test 2D vì thiếu file môi trường (Chạy utils/generate_all_envs.py trước)."
-fi
-
-# ---- TEST 1D (HFL) ----
-N_1D=50
-DS_1D="SMD"
-ALPHA_1D="10000.0"
-SEED_1D="42"
-ALPHA_STR_1D="10000p0"
-
-TOPO_1D="environments/topo/N_${N_1D}/topo_N${N_1D}_seed${SEED_1D}.pkl"
-DATA_1D="environments/data/${DS_1D}/N_${N_1D}/data_N${N_1D}_${DS_1D}_a${ALPHA_STR_1D}_seed${SEED_1D}.pkl"
-
-BASELINES_1D=(
-    "hfl_selective"
-    "hfl_nearest"
-    "hfl_nocoop"
-    "fedprox"
-    "fedavg"
-    "centralized"
-)
-
-if [[ -f "$TOPO_1D" && -f "$DATA_1D" ]]; then
-    for baseline in "${BASELINES_1D[@]}"; do
-        echo ""
-        echo ">>> [TEST 1D] Đang kiểm tra baseline: $baseline"
-        $PYTHON main_trainer.py \
-            --topo "$TOPO_1D" \
-            --data "$DATA_1D" \
-            --baseline "$baseline" \
-            --rounds 1 \
-            --out-dir "results/test_logs" \
-            --log-dir "results/test_logs"
-    done
-else
-    echo "⚠️ Bỏ qua test 1D vì thiếu file môi trường."
 fi
 
 echo "============================================================"
