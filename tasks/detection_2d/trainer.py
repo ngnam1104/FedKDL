@@ -86,7 +86,22 @@ def local_sgd_od(
     # 3. Khởi tạo CustomDetectionTrainer
     trainer = CustomDetectionTrainer(overrides=overrides)
     trainer.model = student_model.yolo.model
+
+    # HẬU KIỂM (POST-CHECK): Lưu lại trọng số của các lớp bị đóng băng
+    frozen_weights_before = {}
+    for k, v in student_model.yolo.model.named_parameters():
+        if not ('lora_' in k or 'model.22' in k or 'model.23' in k or 'detect' in k.lower()):
+            frozen_weights_before[k] = v.clone().detach()
+
+    # Chạy train
     trainer.train()
+
+    # Đảm bảo không có bất kỳ trọng số nào ngoài LoRA và head bị thay đổi
+    for k, v in student_model.yolo.model.named_parameters():
+        if k in frozen_weights_before:
+            diff = torch.abs(frozen_weights_before[k] - v).max().item()
+            if diff > 1e-6:
+                raise RuntimeError(f"CƠ CHẾ NGẦM PHÁT HIỆN: Lớp '{k}' dự kiến bị đóng băng nhưng đã thay đổi (max diff: {diff})!")
 
     # 4. Lấy state sau khi train
     state_after = student_model.trainable_state_dict()

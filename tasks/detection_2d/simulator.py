@@ -126,7 +126,7 @@ class Simulator2D(BaseSimulator):
                 img_dir = dataset_dir / original_path / train_path
                 all_images = []
                 for ext in ('*.jpg', '*.png', '*.JPG', '*.JPEG', '*.jpeg'):
-                    all_images.extend([str(p) for p in img_dir.glob(f'**/{ext}')])
+                    all_images.extend([str(p.resolve()) for p in img_dir.glob(f'**/{ext}')])
                 all_images.sort()
                 
             temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_SENSORS}_a{data_part.alpha}_s{data_part.seed}")
