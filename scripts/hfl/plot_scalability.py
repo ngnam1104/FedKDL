@@ -43,7 +43,10 @@ def plot_scalability():
             participation_data[baseline][n].append(metrics["Participation"][-1])
 
         # Energy — tổng toàn bộ round
-        if "e_s2f" in energy:
+        e_cumul_val = metrics.get("e_cumul", [0])[-1]
+        if e_cumul_val > 0:
+            energy_data[baseline][n].append(e_cumul_val)
+        elif "e_s2f" in energy:
             total_e = (sum(energy.get("e_s2f", [])) +
                        sum(energy.get("e_f2f", [])) +
                        sum(energy.get("e_f2g", [])) +

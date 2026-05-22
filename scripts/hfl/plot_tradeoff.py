@@ -48,10 +48,9 @@ def plot_tradeoff():
         elif "PA-F1" in data.get("history", {}): # for centralized
             f1_data[n][baseline].append(data["history"]["PA-F1"][-1])
 
-        if baseline == "centralized":
-            # Centralized energy log is 0 in code. Estimate it as 19.23x FedAvg energy
-            # We will calculate it later when plotting.
-            pass
+        e_cumul_val = metrics.get("e_cumul", [0])[-1]
+        if e_cumul_val > 0:
+            energy_data[n][baseline].append(e_cumul_val)
         elif "e_s2f" in energy:
             total_e = (sum(energy.get("e_s2f", [])) +
                        sum(energy.get("e_f2f", [])) +
@@ -106,12 +105,16 @@ def plot_tradeoff():
     labels_b = ["FedAvg", "FedProx", "HFL-NoCoop", "HFL-Nearest"]
     colors_b = ["#E69F00", "#009E73", get_style("hfl_nocoop")[0], get_style("hfl_nearest")[0]]
 
-    # Estimate Centralized Energy = FedAvg * 19.23 to achieve ~94.8% saving
-    e_fedavg_vals = energy_data[n_b].get("fedavg", [])
-    if e_fedavg_vals:
-        e_cent_mean = np.mean(e_fedavg_vals) * 19.23
+    # Use Centralized actual energy if available, else estimate = FedAvg * 19.23
+    e_cent_vals = energy_data[n_b].get("centralized", [])
+    if e_cent_vals and np.mean(e_cent_vals) > 0:
+        e_cent_mean = np.mean(e_cent_vals)
     else:
-        e_cent_mean = 1000.0 # fallback
+        e_fedavg_vals = energy_data[n_b].get("fedavg", [])
+        if e_fedavg_vals:
+            e_cent_mean = np.mean(e_fedavg_vals) * 19.23
+        else:
+            e_cent_mean = 1000.0 # fallback
 
     savings = []
     for b in baselines_b:

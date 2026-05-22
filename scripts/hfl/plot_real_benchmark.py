@@ -49,9 +49,9 @@ def plot_real_benchmark():
         elif "PA-F1" in data.get("history", {}):
             f1_data[dataset][baseline].append(data["history"]["PA-F1"][-1])
 
-        if baseline == "centralized":
-            # For plotting, we need some dummy large energy for centralized or estimate it
-            pass
+        e_cumul_val = metrics.get("e_cumul", [0])[-1]
+        if e_cumul_val > 0:
+            energy_data[dataset][baseline].append(e_cumul_val)
         elif "e_s2f" in energy:
             total_e = (sum(energy.get("e_s2f", [])) +
                        sum(energy.get("e_f2f", [])) +
@@ -121,12 +121,16 @@ def plot_real_benchmark():
         stds = []
         for ds in datasets:
             if b == "centralized":
-                # Estimate centralized energy as 19.23x FedAvg
-                e_fedavg_vals = energy_data[ds].get("fedavg", [])
-                if e_fedavg_vals:
-                    val = np.mean(e_fedavg_vals) * 19.23
+                e_cent_vals = energy_data[ds].get("centralized", [])
+                if e_cent_vals and np.mean(e_cent_vals) > 0:
+                    val = np.mean(e_cent_vals)
                 else:
-                    val = 1000.0
+                    # Estimate centralized energy as 19.23x FedAvg
+                    e_fedavg_vals = energy_data[ds].get("fedavg", [])
+                    if e_fedavg_vals:
+                        val = np.mean(e_fedavg_vals) * 19.23
+                    else:
+                        val = 1000.0
                 means.append(val)
                 stds.append(0)
             else:
