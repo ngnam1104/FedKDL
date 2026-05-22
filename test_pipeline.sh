@@ -44,7 +44,7 @@ if [[ -f "$TOPO_1D" && -f "$DATA_1D" ]]; then
             --topo "$TOPO_1D" \
             --data "$DATA_1D" \
             --baseline "$baseline" \
-            --rounds 1 \
+            --rounds 2 \
             --out-dir "results/test_logs" \
             --log-dir "results/test_logs"
     done
@@ -83,7 +83,7 @@ if [[ -f "$TOPO_2D" && -f "$DATA_2D" ]]; then
             --topo "$TOPO_2D" \
             --data "$DATA_2D" \
             --baseline "$baseline" \
-            --rounds 1 \
+            --rounds 2 \
             --out-dir "results/test_logs" \
             --log-dir "results/test_logs"
     done
