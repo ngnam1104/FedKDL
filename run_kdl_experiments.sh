@@ -75,23 +75,23 @@ run_baseline() {
 
 echo ""
 echo "=== GROUP A: Ablation & Comparison ==="
-# N=10, Alpha=0.5, 10 baselines
+# N=10, Alpha=1.0, 10 baselines
 ALL_BASELINES=(
   "fedkdl" "fedkdl_r4" "full_param_kd" "full_param_nokd" 
   "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
   "fedavg" "fedprox" "centralized"
 )
 for b in "${ALL_BASELINES[@]}"; do
-  run_baseline 10 0.5 "$b"
+  run_baseline 10 1.0 "$b"
 done
 
 echo ""
 echo "=== GROUP B: Scalability ==="
-# N=15, 20 (N=10 đã có ở Group A), Alpha=0.5, 3 baselines
+# N=15, 20 (N=10 đã có ở Group A), Alpha=1.0, 3 baselines
 MAIN_BASELINES=("fedkdl" "fedavg" "centralized")
 for n in 15 20; do
   for b in "${MAIN_BASELINES[@]}"; do
-    run_baseline "$n" 0.5 "$b"
+    run_baseline "$n" 1.0 "$b"
   done
 done
 
