@@ -48,6 +48,9 @@ def main():
         fed_cfg.GLOBAL_ROUNDS = {"1D": args.rounds, "2D": args.rounds}
     if args.lora_rank is not None:
         fed_cfg.LORA_RANK = args.lora_rank
+        
+    # Ép LOCAL_EPOCHS = 1 cho 2D để tăng tốc (1 epoch ~50s) giúp tổng thời gian vừa vặn ngân sách
+    fed_cfg.LOCAL_EPOCHS = 1
 
     T_rounds = fed_cfg.GLOBAL_ROUNDS["2D"]
     
