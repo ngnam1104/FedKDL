@@ -178,6 +178,14 @@ class Simulator2D(BaseSimulator):
                     raise FileNotFoundError(f"CRITICAL: Tìm thấy thư mục {img_dir} nhưng KHÔNG CÓ ẢNH NÀO bên trong! (Hỗ trợ: jpg, png, jpeg)")
                     
                 all_images.sort()
+                self.all_images = all_images
+                
+                # Lưu file txt cho proxy KD sau này
+                proxy_txt = Path("datasets/proxy_kd_train.txt")
+                proxy_txt.parent.mkdir(parents=True, exist_ok=True)
+                with open(proxy_txt, "w") as f:
+                    f.write("\n".join(all_images))
+                self.proxy_kd_txt = str(proxy_txt.absolute())
                 
             temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_SENSORS}_a{data_part.alpha}_s{data_part.seed}")
             temp_dir.mkdir(parents=True, exist_ok=True)
@@ -313,21 +321,21 @@ class Simulator2D(BaseSimulator):
 
         proxy_yaml = getattr(self, 'test_yaml', "coco8.yaml")  # Dùng luôn test_yaml (URPC) làm proxy thay vì tải coco8
         
-        # Tạo proxy yaml với absolute path để tránh lỗi đường dẫn của YOLO
+        # Tạo proxy yaml với absolute path qua file txt để tránh lỗi thư mục Linux của YOLO
         if proxy_yaml != "coco8.yaml" and os.path.exists(proxy_yaml):
             import yaml
             from pathlib import Path
             with open(proxy_yaml, 'r') as f:
                 p_cfg = yaml.safe_load(f)
             
-            dataset_dir = Path(proxy_yaml).parent
-            original_path = p_cfg.get('path', '')
-            p_cfg['path'] = str((dataset_dir / original_path).absolute())
+            p_cfg.pop('path', None)  # Xoá path đi để YOLO bắt buộc dùng đường dẫn tuyệt đối ở dưới
+            p_cfg['train'] = getattr(self, 'proxy_kd_txt', '')
+            p_cfg['val'] = getattr(self, 'proxy_kd_txt', '')
             
             proxy_yaml_abs = "datasets/proxy_kd_data.yaml"
             with open(proxy_yaml_abs, 'w') as f:
                 yaml.safe_dump(p_cfg, f)
-            proxy_yaml = proxy_yaml_abs
+            proxy_yaml = str(Path(proxy_yaml_abs).absolute())
 
         overrides = {
             'model': "yolo11n.pt",

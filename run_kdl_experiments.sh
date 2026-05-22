@@ -65,11 +65,11 @@ run_baseline() {
   "$PYTHON" main_trainer_od.py \
     --topo "$topo" --data "$data" \
     --baseline "$baseline" --rounds "$ROUNDS" \
-    --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR"
+    --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" 2>&1 | tee -a "$STDOUT_DIR/raw_bash_output_${n}_${alpha_str}.log"
   local rc=$?
   set -e
   if [[ $rc -ne 0 ]]; then
-    echo "[Error] Run failed (exit $rc). Check ${STDOUT_DIR}/log_N${n}_*.stdout.log"
+    echo "[Error] Run failed (exit $rc). Check ${STDOUT_DIR}/raw_bash_output_${n}_${alpha_str}.log"
   fi
 }
 
