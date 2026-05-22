@@ -122,8 +122,12 @@ class Simulator2D(BaseSimulator):
                     all_images = [line.strip() for line in f.readlines()]
             else:
                 dataset_dir = Path(base_yaml_path).parent
-                img_dir = dataset_dir / train_path
-                all_images = [str(p) for p in img_dir.glob('**/*.jpg')]
+                original_path = base_cfg.get('path', '')
+                img_dir = dataset_dir / original_path / train_path
+                all_images = []
+                for ext in ('*.jpg', '*.png', '*.JPG', '*.JPEG', '*.jpeg'):
+                    all_images.extend([str(p) for p in img_dir.glob(f'**/{ext}')])
+                all_images.sort()
                 
             temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_SENSORS}_a{data_part.alpha}_s{data_part.seed}")
             temp_dir.mkdir(parents=True, exist_ok=True)

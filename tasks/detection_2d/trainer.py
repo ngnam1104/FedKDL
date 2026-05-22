@@ -14,17 +14,20 @@ from ultralytics.models.yolo.detect import DetectionTrainer
 from config.settings import fed_cfg
 
 class CustomDetectionTrainer(DetectionTrainer):
-    def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
+    def _setup_train(self):
         from ultralytics.utils import LOGGER
         
-        # Tắt triệt để cảnh báo của YOLO bằng cách ghi đè method warning tạm thời
+        # Tắt triệt để cảnh báo của YOLO (trong lúc _setup_train, YOLO sẽ quét và lật lại requires_grad)
         original_warning = LOGGER.warning
         LOGGER.warning = lambda *args, **kwargs: None
         
         try:
-            optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
+            super()._setup_train()
         finally:
             LOGGER.warning = original_warning
+
+    def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
+        optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
         
         for k, v in model.named_parameters():
             if 'lora_' in k or 'model.22' in k or 'model.23' in k or 'detect' in k.lower():
