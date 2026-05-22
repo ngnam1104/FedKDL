@@ -1,6 +1,6 @@
-﻿"""
+"""
 plot_heterogeneity.py
-Đọc logs JSON để vẽ biểu đồ tác động Non-IID (Figure 6).
+Đọc logs JSON để vẽ biểu đồ tác động Non-IID (F1 và Energy vs Alpha) giống Hình trong bài báo.
 """
 import os
 import sys
@@ -18,10 +18,13 @@ def plot_heterogeneity():
     setup_global_plot_style()
     os.makedirs("results/heterogeneity", exist_ok=True)
 
-    # Cau truc: alpha -> baseline -> list cac PA-F1 history (nhieu seed)
     f1_data = defaultdict(lambda: defaultdict(list))
+    energy_data = defaultdict(lambda: defaultdict(list))
 
     log_files = glob.glob("results/logs/*.json")
+    if not log_files:
+        log_files = glob.glob("results/test_logs/*.json")
+
     for f in log_files:
         with open(f, "r", encoding="utf-8") as file:
             data = json.load(file)
@@ -30,59 +33,91 @@ def plot_heterogeneity():
         baseline = meta.get("baseline")
         n = meta.get("N")
         alpha = meta.get("alpha")
+        dataset = meta.get("dataset")
+        rho_s = meta.get("rho_s", 0.05)
 
         if str(n) != "200": continue
-        if meta.get("dataset") != "SMD": continue
-        if meta.get("rho_s") != 0.05: continue
+        if dataset != "SMD": continue
+        if rho_s != 0.05: continue
+        if baseline in ["centralized", "fedavg"]: continue
 
         metrics = data.get("metrics", {})
+        energy = data.get("energy_consumption", {})
+
         if "PA-F1" in metrics and metrics["PA-F1"]:
-            f1_data[alpha][baseline].append(metrics["PA-F1"])
+            f1_data[alpha][baseline].append(metrics["PA-F1"][-1])
+        
+        if "e_s2f" in energy:
+            total_e = (sum(energy.get("e_s2f", [])) +
+                       sum(energy.get("e_f2f", [])) +
+                       sum(energy.get("e_f2g", [])) +
+                       sum(energy.get("e_comp", [])))
+            energy_data[alpha][baseline].append(total_e)
 
-    if not f1_data:
-        print("[Warning] Khong tim thay du lieu heterogeneity.")
-        return
+    alphas = ["0p1", "10000p0"]  # hardcode mapping to 0.1 and 10^4
+    alpha_labels = ["Strong non-IID\n$\\alpha=0.1$", "Near-IID\n$\\alpha=10^4$"]
+    baselines = ["fedprox", "hfl_nocoop", "hfl_selective", "hfl_nearest"]
 
-    alphas = sorted(f1_data.keys())
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 
-    fig, axes = plt.subplots(1, len(alphas), figsize=(6 * len(alphas), 5))
-    if len(alphas) == 1:
-        axes = [axes]
+    x = np.arange(len(alphas))
 
-    for idx, alpha in enumerate(alphas):
-        ax = axes[idx]
-        data_a = f1_data[alpha]
+    # --- (a) Detection Quality ---
+    ax1 = axes[0]
+    for b in baselines:
+        means = []
+        stds = []
+        for a in alphas:
+            vals = f1_data.get(a, {}).get(b, [])
+            means.append(np.mean(vals) if vals else np.nan)
+            stds.append(np.std(vals) if vals else 0)
+        
+        c, m, l = get_style(b)
+        # For FedProx, line style might be dash-dot
+        ls = '-.' if b == 'fedprox' else '-'
+        if 'fedprox' not in f1_data.get(alphas[0], {}): # fallback
+            pass
+        ax1.plot(x, means, label=l, color=c, marker=m, linestyle=ls, linewidth=2, markersize=8)
+        ax1.errorbar(x, means, yerr=stds, color=c, capsize=5, fmt='none')
 
-        for baseline, f1_list in data_a.items():
-            if not f1_list: continue
-            min_len = min(len(h) for h in f1_list)
-            f1_matrix = np.array([h[:min_len] for h in f1_list])
-            mean_f1 = np.mean(f1_matrix, axis=0)
-            std_f1 = np.std(f1_matrix, axis=0)
-            rounds = np.arange(min_len)
-            c, m, l = get_style(baseline)
-            ax.plot(rounds, mean_f1, label=l, color=c, marker=m, linewidth=2, markevery=5)
-            ax.fill_between(rounds,
-                            np.maximum(0, mean_f1 - std_f1),
-                            np.minimum(1, mean_f1 + std_f1),
-                            color=c, alpha=0.2)
+    ax1.set_title("(a) Detection Quality")
+    ax1.set_ylabel("F1 Score")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(alpha_labels)
+    ax1.grid(True, alpha=0.3)
 
-        try:
-            a_val = str(float(alpha.replace("p", ".")))
-        except Exception:
-            a_val = alpha
-        title_suffix = "(Non-IID)" if float(a_val) < 1.0 else "(IID)"
-        ax.set_title(f"PA-F1 (alpha={a_val}) {title_suffix}")
-        ax.set_xlabel("Communication Round")
-        ax.set_ylabel("PA-F1 Score")
-        ax.grid(True, alpha=0.3)
-        ax.legend()
+    # --- (b) Communication Energy ---
+    ax2 = axes[1]
+    for b in baselines:
+        means = []
+        stds = []
+        for a in alphas:
+            vals = energy_data.get(a, {}).get(b, [])
+            means.append(np.mean(vals) if vals else np.nan)
+            stds.append(np.std(vals) if vals else 0)
+        
+        c, m, l = get_style(b)
+        ls = '-.' if b == 'fedprox' else ('--' if b == 'hfl_nearest' else '-')
+        ax2.plot(x, means, label=l, color=c, marker=m, linestyle=ls, linewidth=2, markersize=8)
+        # ax2.errorbar(x, means, yerr=stds, color=c, capsize=5, fmt='none') # Energy variance is usually very small
+
+    ax2.set_title("(b) Communication Energy")
+    ax2.set_ylabel("Total Energy (J)")
+    ax2.set_yscale('log')
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(alpha_labels)
+    ax2.grid(True, alpha=0.3)
+
+    # Global legend
+    handles, labels = ax1.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.05), ncol=4, framealpha=1.0, edgecolor='black')
 
     plt.tight_layout()
-    save_path = "results/heterogeneity/fig6_heterogeneity.png"
-    plt.savefig(save_path, dpi=150)
+    plt.subplots_adjust(top=0.85) # make room for global legend
+    save_path = "results/heterogeneity/fig_heterogeneity.png"
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"Da luu bieu do: {save_path}")
+    print(f"Đã lưu biểu đồ: {save_path}")
 
 if __name__ == "__main__":
     plot_heterogeneity()
