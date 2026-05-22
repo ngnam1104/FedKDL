@@ -38,7 +38,7 @@ class SensorWorker2D(BaseWorker):
         """
         if not self.alive or getattr(self, 'n_samples', 0) == 0:
             if getattr(self, 'n_samples', 0) == 0:
-                print(f"[Sensor {self.sensor_id}] Bỏ qua vì n_samples = 0 (Không có dữ liệu trong tệp train).")
+                print(f"\n[{'='*40}]\n[Sensor {self.sensor_id}] BỎ QUA VÌ KHÔNG CÓ DỮ LIỆU (n_samples = 0)\n[{'='*40}]\n")
             return None, 0.0, 0.0
 
         import yaml
