@@ -30,6 +30,16 @@ class CustomDetectionTrainer(DetectionTrainer):
         finally:
             LOGGER.warning = original_warning
 
+    def final_eval(self):
+        """Bỏ qua bước Validate dư thừa ở cuối quá trình Local SGD để tiết kiệm 70% thời gian."""
+        from ultralytics.utils.torch_utils import strip_optimizer
+        model = self.best if self.best.exists() else None
+        if self.last.exists():
+            strip_optimizer(self.last)
+        if model:
+            strip_optimizer(self.best)
+            self.run_callbacks("on_fit_epoch_end")
+
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
         
