@@ -231,12 +231,15 @@ class Simulator2D(BaseSimulator):
 
     def _init_network(self):
         for s_id in range(self.net_cfg.N_SENSORS):
-            if s_id < len(self.client_yamls) and s_id in self.association:
-                self.sensors[s_id] = SensorWorker2D(
-                    sensor_id=s_id,
-                    client_yaml=self.client_yamls[s_id],
-                    battery_init=self.en_cfg.E_INIT,
-                )
+            if s_id < len(self.client_yamls):
+                if s_id in self.association:
+                    self.sensors[s_id] = SensorWorker2D(
+                        sensor_id=s_id,
+                        client_yaml=self.client_yamls[s_id],
+                        battery_init=self.en_cfg.E_INIT,
+                    )
+                else:
+                    print(f"\n[{'='*40}]\n[Sensor {s_id}] BỎ QUA VÌ KHÔNG THỎA MÃN KHOẢNG CÁCH (Out of Range)\n[{'='*40}]\n")
 
         for m, members in self.clusters.items():
             self.fogs[m] = FogNode2D(
