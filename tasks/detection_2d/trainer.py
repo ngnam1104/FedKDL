@@ -188,25 +188,10 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
     mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
     mr = float(np.mean(results.box.mr)) if hasattr(results.box, 'mr') else 0.0
     
-    # Lấy các loại loss từ results_dict nếu có
-    val_box_loss = 0.0
-    val_cls_loss = 0.0
-    val_dfl_loss = 0.0
-    if hasattr(results, 'results_dict'):
-        val_box_loss = results.results_dict.get('val/box_loss', 0.0)
-        val_cls_loss = results.results_dict.get('val/cls_loss', 0.0)
-        val_dfl_loss = results.results_dict.get('val/dfl_loss', 0.0)
-        
-    total_val_loss = val_box_loss + val_cls_loss + val_dfl_loss
-    
     return {
         'mAP50-95': float(results.box.map),
         'mAP50': float(results.box.map50),
         'Prec': mp,
-        'Rec': mr,
-        'val_box_loss': val_box_loss,
-        'val_cls_loss': val_cls_loss,
-        'val_dfl_loss': val_dfl_loss,
-        'val_loss': total_val_loss
+        'Rec': mr
     }
 
