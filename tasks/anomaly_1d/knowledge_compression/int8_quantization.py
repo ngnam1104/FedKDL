@@ -39,6 +39,9 @@ def quantize_tensor(x: torch.Tensor) -> QuantizedTensor:
         QuantizedTensor với data_int8, scale, zero_point.
     """
     x_flat = x.view(-1).float()
+    if torch.isnan(x_flat).any() or torch.isinf(x_flat).any():
+        x_flat = torch.nan_to_num(x_flat, nan=0.0, posinf=0.0, neginf=0.0)
+        
     x_min = x_flat.min().item()
     x_max = x_flat.max().item()
 

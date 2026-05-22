@@ -40,7 +40,7 @@ class SensorWorker2D(BaseWorker):
             return None, 0.0, 0.0
 
         from config.settings import fed_cfg
-        local_student = StudentModel("yolo26n.pt", rank=fed_cfg.LORA_RANK)
+        local_student = StudentModel("yolo11n.pt", rank=fed_cfg.LORA_RANK)
         local_student.load_trainable_state_dict(global_state)
 
         new_state, delta_norm = local_sgd_od(
@@ -94,7 +94,7 @@ class Simulator2D(BaseSimulator):
         data_path: str,
         baseline: str,
         test_yaml: str = "datasets/URPC2020.yaml",
-        student_ckpt: str = "yolo26n.pt",
+        student_ckpt: str = "yolo11n.pt",
         teacher_ckpt: str = "yolo12l.pt",
         device: str = "cpu",
     ):
@@ -154,7 +154,7 @@ class Simulator2D(BaseSimulator):
 
     def _init_network(self):
         for s_id in range(self.net_cfg.N_SENSORS):
-            if s_id < len(self.client_yamls):
+            if s_id < len(self.client_yamls) and s_id in self.association:
                 self.sensors[s_id] = SensorWorker2D(
                     sensor_id=s_id,
                     client_yaml=self.client_yamls[s_id],
@@ -240,7 +240,7 @@ class Simulator2D(BaseSimulator):
 
         proxy_yaml = "coco8.yaml"  # Tập proxy nhỏ tại Gateway (co thể thay bằng URPC subset)
         overrides = {
-            'model': "yolo26n.pt",
+            'model': "yolo11n.pt",
             'data': proxy_yaml,
             'epochs': 1,  # 1 epoch distill tại Gateway mỗi round
             'batch': 8,

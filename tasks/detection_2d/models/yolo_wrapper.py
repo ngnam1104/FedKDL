@@ -10,15 +10,15 @@ from tasks.detection_2d.models.lora import inject_lora
 
 class StudentModel:
     """
-    YOLO26n + LoRA injection cho Federated Learning.
+    YOLO11n + LoRA injection cho Federated Learning.
     Chỉ {lora_A, lora_B, detect head} là trainable và được truyền qua mạng.
     """
 
-    def __init__(self, ckpt: str = "yolo26n.pt", rank: int = 4,
+    def __init__(self, ckpt: str = "yolo11n.pt", rank: int = 4,
                  lora_targets=None):
         """
         lora_targets: List tên class module để inject LoRA.
-            None → ['C2f', 'C3k2', 'C2fAttn'] (mặc định theo YOLO26/v11/v8)
+            None → ['C2f', 'C3k2', 'C2fAttn'] (mặc định theo YOLO11)
             Có thể truyền ['Conv'] để adapt domain shift nặng hơn (underwater).
         """
         self.yolo = YOLO(ckpt)

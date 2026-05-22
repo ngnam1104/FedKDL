@@ -124,7 +124,7 @@ class Simulator1D(BaseSimulator):
 
     def _init_network(self):
         for s_id in range(self.net_cfg.N_SENSORS):
-            if s_id in self.train_loaders:
+            if s_id in self.train_loaders and s_id in self.association:
                 self.sensors[s_id] = SensorWorker1D(
                     sensor_id=s_id,
                     dataloader=self.train_loaders[s_id],
