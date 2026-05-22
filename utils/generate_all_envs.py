@@ -51,9 +51,9 @@ def main():
     for n in N_LIST:
         net_cfg.N_SENSORS = n
         
-        # Thiết lập Fog node theo yêu cầu: 3 cho 2D (URPC), 10 cho 1D
+        # Thiết lập Fog node theo yêu cầu: 5 cho 2D (URPC)
         if len(DATASETS) == 1 and DATASETS[0] == 'URPC':
-            net_cfg.M_FOGS = 3
+            net_cfg.M_FOGS = 5
         else:
             net_cfg.M_FOGS = 10
         
