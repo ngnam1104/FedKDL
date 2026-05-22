@@ -37,7 +37,7 @@ class StudentModel:
             cfg['nc'] = nc
             
             # Rebuild model with correct nc
-            new_model = DetectionModel(cfg, ch=3, nc=nc)
+            new_model = DetectionModel(cfg, ch=3, nc=nc, verbose=False)
             
             # Transfer weights with shape matching (omitting mismatched classification head weights)
             current_sd = self.yolo.model.state_dict()
@@ -47,19 +47,19 @@ class StudentModel:
             
             new_model.load_state_dict(transfer_sd, strict=False)
             self.yolo.model = new_model
-            # print(f"[StudentModel] Replaced Detection Head for nc={nc}")
+            print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         if not self.full_param and self.use_lora:
             injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank)
-            # print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
+            print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
 
         if self.full_param:
             for param in self.yolo.model.parameters():
                 param.requires_grad_(True)
         else:
-            # Đóng băng tất cả, trừ LoRA params và Detection Head
+            # Đóng băng tất cả, trừ payload keys
             for name, param in self.yolo.model.named_parameters():
-                if ('lora_' in name and self.use_lora) or 'detect' in name.lower():
+                if self._is_payload_key(name):
                     param.requires_grad_(True)
                 else:
                     param.requires_grad_(False)
@@ -67,8 +67,8 @@ class StudentModel:
         trainable = sum(p.numel() for p in self.yolo.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.yolo.model.parameters())
         mode_str = "Full Params" if self.full_param else ("LoRA+Head" if self.use_lora else "Head Only")
-        # print(f"[StudentModel] Trainable ({mode_str}): {trainable:,} / {total:,} params "
-        #       f"({100*trainable/total:.1f}%)")
+        print(f"[StudentModel] Trainable ({mode_str}): {trainable:,} / {total:,} params "
+              f"({100*trainable/total:.1f}%)")
 
     # Keys của lớp output classifier trong YOLO26 Detect head (nc-specific):
     #   cv3.0.2, cv3.1.2, cv3.2.2  (one2many branch)
@@ -81,6 +81,14 @@ class StudentModel:
         '.one2one_cv3.0.2.bias',   '.one2one_cv3.1.2.bias',   '.one2one_cv3.2.2.bias',
     )
 
+    def _is_payload_key(self, k: str) -> bool:
+        if 'lora_' in k and self.use_lora:
+            return True
+        for suffix in self._HEAD_OUTPUT_SUFFIXES:
+            if k.endswith(suffix):
+                return True
+        return False
+
     def trainable_state_dict(self) -> dict:
         """
         Trả về chỉ các tensor cần truyền qua mạng:
@@ -92,17 +100,9 @@ class StudentModel:
             # Truyền toàn bộ
             return {k: v.cpu().clone() for k, v in self.yolo.model.state_dict().items()}
 
-        def _is_payload_key(k: str) -> bool:
-            if 'lora_' in k and self.use_lora:
-                return True
-            for suffix in self._HEAD_OUTPUT_SUFFIXES:
-                if k.endswith(suffix):
-                    return True
-            return False
-
         return {k: v.cpu().clone()
                 for k, v in self.yolo.model.state_dict().items()
-                if _is_payload_key(k)}
+                if self._is_payload_key(k)}
 
     def load_trainable_state_dict(self, state_dict: dict):
         """Nạp state dict (LoRA + Head partial) từ server aggregate."""
@@ -124,7 +124,7 @@ class TeacherModel:
         self.yolo.model.eval()
         for p in self.yolo.model.parameters():
             p.requires_grad_(False)
-        # print(f"[TeacherModel] Loaded {ckpt} — frozen, eval mode.")
+        print(f"[TeacherModel] Loaded {ckpt} — frozen, eval mode.")
 
     def get_outputs(self, imgs: torch.Tensor):
         """Forward pass không gradient — dùng trong KD criterion."""

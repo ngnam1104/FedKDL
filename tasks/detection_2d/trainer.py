@@ -34,8 +34,9 @@ class CustomDetectionTrainer(DetectionTrainer):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
         
         if self.student_wrapper and not self.student_wrapper.full_param:
+            payload_keys = set(self.student_wrapper.trainable_state_dict().keys())
             for k, v in model.named_parameters():
-                if ('lora_' in k and self.student_wrapper.use_lora) or 'model.22' in k or 'model.23' in k or 'detect' in k.lower():
+                if k in payload_keys:
                     v.requires_grad = True
                 else:
                     v.requires_grad = False
