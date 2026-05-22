@@ -104,10 +104,13 @@ def main():
                 'round': list(range(1, T_rounds + 1)),
                 'mAP50-95': [map50_95] * T_rounds,
                 'mAP50': [map50] * T_rounds,
+                'loss': [val_loss] * T_rounds,
                 'val_loss': [val_loss] * T_rounds,
+                'alive': [N] * T_rounds,
                 'tau_round_s': [0] * T_rounds,
                 'avg_payload_kb': [0] * T_rounds,
                 'e_total': [0] * T_rounds,
+                'e_cumul': [0] * T_rounds,
             }
             
             return {
