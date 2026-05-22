@@ -39,7 +39,7 @@ class SensorWorker2D(BaseWorker):
         if not self.alive or getattr(self, 'n_samples', 0) == 0:
             if getattr(self, 'n_samples', 0) == 0:
                 print(f"\n[{'='*40}]\n[Sensor {self.sensor_id}] BỎ QUA VÌ KHÔNG CÓ DỮ LIỆU (n_samples = 0)\n[{'='*40}]\n")
-            return None, 0.0, 0.0
+            return None, 0.0, 0.0, 0.0
 
         import yaml
         with open(self.client_yaml, 'r') as f:
@@ -56,7 +56,7 @@ class SensorWorker2D(BaseWorker):
         local_student = StudentModel("yolo11n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 
-        new_state, delta_norm = local_sgd_od(
+        new_state, delta_norm, train_loss = local_sgd_od(
             student_model=local_student,
             client_yaml=self.client_yaml,
             client_id=self.sensor_id,
@@ -78,7 +78,7 @@ class SensorWorker2D(BaseWorker):
             payload_kb = (total_params * 4) / 1024.0
             print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB Float32")
 
-        return payload_bytes, payload_kb, delta_norm
+        return payload_bytes, payload_kb, delta_norm, train_loss
 
 
 
@@ -257,7 +257,7 @@ class Simulator2D(BaseSimulator):
     def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float]:
         sensor = self.sensors[s_id]
 
-        payload, payload_kb, delta_norm = sensor.train_and_get_payload(
+        payload, payload_kb, delta_norm, train_loss = sensor.train_and_get_payload(
             global_state=self.gateway.global_state_dict,
             epochs=self.fed_cfg.LOCAL_EPOCHS,
             lr=self.fed_cfg.LOCAL_LR,
@@ -297,7 +297,7 @@ class Simulator2D(BaseSimulator):
                 )
 
                 if sensor.battery >= (e_tx_cost + e_comp_cost):
-                    return s_id, payload, 0.0, sensor.n_samples, e_tx_cost, e_comp_cost
+                    return s_id, payload, train_loss, sensor.n_samples, e_tx_cost, e_comp_cost
                 else:
                     sensor.alive = False
 

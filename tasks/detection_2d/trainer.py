@@ -153,7 +153,23 @@ def local_sgd_od(
             diff = state_after[k].float() - state_before[k].float()
             delta_norm += torch.sum(diff ** 2).item()
 
-    return state_after, delta_norm
+    # 6. Đọc training loss thực tế từ file results.csv của YOLO
+    import pandas as pd
+    from pathlib import Path
+    train_loss = 0.0
+    try:
+        csv_path = Path(trainer.save_dir) / 'results.csv'
+        if csv_path.exists():
+            df = pd.read_csv(csv_path)
+            df.columns = df.columns.str.strip()
+            last_row = df.iloc[-1]
+            train_loss = float(last_row.get('train/box_loss', 0.0)) + \
+                         float(last_row.get('train/cls_loss', 0.0)) + \
+                         float(last_row.get('train/dfl_loss', 0.0))
+    except Exception as e:
+        print(f"[Trainer] Không thể đọc results.csv để lấy loss: {e}")
+
+    return state_after, delta_norm, train_loss
 
 
 def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
