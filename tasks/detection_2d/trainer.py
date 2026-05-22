@@ -9,8 +9,27 @@ Payload truyền đi: LoRA adapters + cv3.x.2 output conv, nén INT8.
 """
 import torch
 import copy
+import logging
 from ultralytics.models.yolo.detect import DetectionTrainer
 from config.settings import fed_cfg
+
+class CustomDetectionTrainer(DetectionTrainer):
+    def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
+        logger = logging.getLogger('ultralytics')
+        old_level = logger.level
+        logger.setLevel(logging.ERROR)
+        
+        optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
+        
+        logger.setLevel(old_level)
+        
+        for k, v in model.named_parameters():
+            if 'lora_' in k or 'model.22' in k or 'model.23' in k or 'detect' in k.lower():
+                v.requires_grad = True
+            else:
+                v.requires_grad = False
+                
+        return optimizer
 
 
 def local_sgd_od(
@@ -53,8 +72,8 @@ def local_sgd_od(
         'workers': 0,
     }
 
-    # 3. Khởi tạo DetectionTrainer (thuần, không KD)
-    trainer = DetectionTrainer(overrides=overrides)
+    # 3. Khởi tạo CustomDetectionTrainer
+    trainer = CustomDetectionTrainer(overrides=overrides)
     trainer.model = student_model.yolo.model
     trainer.train()
 

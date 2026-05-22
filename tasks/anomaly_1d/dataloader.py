@@ -71,7 +71,7 @@ DATASET_CONFIGS = {
 }
 
 
-def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray]:
+def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     import os
     train_file = os.path.join(data_dir, "train", "machine-1-1.txt")
     test_file = os.path.join(data_dir, "test", "machine-1-1.txt")
@@ -79,7 +79,9 @@ def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray]:
     
     if not os.path.exists(train_file):
         print(f"[Warning] Real SMD data not found at {train_file}. Falling back to synthetic.")
-        return generate_synthetic_timeseries(n_samples=2000, n_features=38, seed=42)
+        data, labels = generate_synthetic_timeseries(n_samples=2000, n_features=38, seed=42)
+        half = len(data) // 2
+        return data[:half], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
         
     train_data = np.loadtxt(train_file, delimiter=",", dtype=np.float32)
     test_data = np.loadtxt(test_file, delimiter=",", dtype=np.float32)
@@ -93,14 +95,13 @@ def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray]:
     train_data = (train_data - d_min) / scale
     test_data = (test_data - d_min) / scale
     
-    data = np.vstack([train_data, test_data])
-    labels = np.concatenate([np.zeros(len(train_data), dtype=np.int32), test_labels])
+    train_labels = np.zeros(len(train_data), dtype=np.int32)
     
-    return data, labels
+    return train_data, train_labels, test_data, test_labels
 
 
 
-def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tuple[np.ndarray, np.ndarray]:
+def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Load SMAP hoac MSL tu file .npy (telemanom format).
     SMAP channels: prefix A-* B-* C-* D-* E-* F-* G-* P-* R-* S-* T-*  (n_features=25)
@@ -130,7 +131,9 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
                         pass
     else:
         print(f"[Warning] {labels_csv} not found. Cannot filter channels.")
-        return generate_synthetic_timeseries(n_samples=DATASET_CONFIGS[dataset]['n_samples'], n_features=DATASET_CONFIGS[dataset]['n_features'], seed=42)
+        data, labels = generate_synthetic_timeseries(n_samples=DATASET_CONFIGS[dataset]['n_samples'], n_features=DATASET_CONFIGS[dataset]['n_features'], seed=42)
+        half = len(data) // 2
+        return data[:half], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
 
     def collect_files(d):
         return sorted([f for f in d.glob("*.npy") if f.stem in valid_channels])
@@ -141,8 +144,10 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
     if not train_files:
         print(f"[Warning] No real {dataset} data found in {train_dir}. Using synthetic.")
         cfg = DATASET_CONFIGS[dataset]
-        return generate_synthetic_timeseries(
+        data, labels = generate_synthetic_timeseries(
             n_samples=cfg['n_samples'], n_features=cfg['n_features'], seed=42)
+        half = len(data) // 2
+        return data[:half], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
 
     def build_labels(files, segs_map, total_len):
         labels_arr = np.zeros(total_len, dtype=np.int32)
@@ -186,12 +191,10 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
     train_labels = np.zeros(len(train_data), dtype=np.int32)
     test_labels  = build_labels(test_files, label_map, len(test_data))
 
-    data   = np.vstack([train_data, test_data])
-    labels = np.concatenate([train_labels, test_labels])
-    return data, labels
+    return train_data, train_labels, test_data, test_labels
 
 
-def load_dataset(name: str, seed: int = 42) -> Tuple[np.ndarray, np.ndarray]:
+def load_dataset(name: str, seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Load dataset theo ten. Su dung du lieu thuc neu co san, khong fallback synthetic.
     Datasets ho tro: SMD, SMAP, MSL
