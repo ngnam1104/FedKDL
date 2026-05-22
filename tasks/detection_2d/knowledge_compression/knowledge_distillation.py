@@ -173,6 +173,15 @@ class KDDetectionTrainer(DetectionTrainer):
         self.kd_temperature: float = 4.0
         self.kd_lambda: float = 1.0
 
+    def _setup_train(self):
+        from ultralytics.utils import LOGGER
+        original_warning = LOGGER.warning
+        LOGGER.warning = lambda *args, **kwargs: None
+        try:
+            super()._setup_train()
+        finally:
+            LOGGER.warning = original_warning
+
     def set_teacher(self, teacher_nn_module: Optional[nn.Module]):
         """
         Nhận nn.Module của Teacher (đã eval + frozen). Gọi sau __init__ trước khi train.

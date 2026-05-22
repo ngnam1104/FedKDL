@@ -277,7 +277,7 @@ class Simulator2D(BaseSimulator):
         import os
         from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
 
-        proxy_yaml = "coco8.yaml"  # Tập proxy nhỏ tại Gateway (co thể thay bằng URPC subset)
+        proxy_yaml = getattr(self, 'test_yaml', "coco8.yaml")  # Dùng luôn test_yaml (URPC) làm proxy thay vì tải coco8
         overrides = {
             'model': "yolo11n.pt",
             'data': proxy_yaml,
