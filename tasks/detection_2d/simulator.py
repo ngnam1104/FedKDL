@@ -131,7 +131,7 @@ class Simulator2D(BaseSimulator):
         
         # Generate YAMLs
         self.client_yamls = []
-        base_yaml_path = "datasets/URPC2020.yaml"
+        base_yaml_path = self.test_yaml
         if not os.path.exists(base_yaml_path):
             print(f"[Warning] Khong tim thay {base_yaml_path}. Su dung che do synthetic.")
             for i in range(self.net_cfg.N_SENSORS):
