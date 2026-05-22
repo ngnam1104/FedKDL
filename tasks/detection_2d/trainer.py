@@ -161,6 +161,8 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
         val_box_loss = results.results_dict.get('val/box_loss', 0.0)
         val_cls_loss = results.results_dict.get('val/cls_loss', 0.0)
         val_dfl_loss = results.results_dict.get('val/dfl_loss', 0.0)
+        
+    total_val_loss = val_box_loss + val_cls_loss + val_dfl_loss
     
     return {
         'mAP50-95': float(results.box.map),
@@ -169,6 +171,7 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
         'Rec': mr,
         'val_box_loss': val_box_loss,
         'val_cls_loss': val_cls_loss,
-        'val_dfl_loss': val_dfl_loss
+        'val_dfl_loss': val_dfl_loss,
+        'val_loss': total_val_loss
     }
 

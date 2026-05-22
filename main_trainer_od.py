@@ -108,6 +108,8 @@ def main():
                 val_cls_loss = results.results_dict.get('val/cls_loss', 0.0)
                 val_dfl_loss = results.results_dict.get('val/dfl_loss', 0.0)
                 
+            total_val_loss = val_box_loss + val_cls_loss + val_dfl_loss
+                
             print(f"[Centralized] mAP50-95: {map50_95:.4f} | mAP50: {map50:.4f}")
             
             history = {
@@ -119,8 +121,8 @@ def main():
                 'val_box_loss': [val_box_loss] * T_rounds,
                 'val_cls_loss': [val_cls_loss] * T_rounds,
                 'val_dfl_loss': [val_dfl_loss] * T_rounds,
-                'loss': [val_box_loss] * T_rounds, # Fallback mapping
-                'val_loss': [val_box_loss] * T_rounds, # Fallback mapping
+                'loss': [total_val_loss] * T_rounds,
+                'val_loss': [total_val_loss] * T_rounds,
                 'alive': [N] * T_rounds,
                 'tau_round_s': [0] * T_rounds,
                 'tau_cumul_s': [0] * T_rounds,
