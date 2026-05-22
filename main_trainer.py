@@ -219,7 +219,7 @@ def main():
                     "alpha": alpha_str,
                     "seed": seed,
                 },
-                "history": history
+                "metrics": history
             }
 
         print(f"\n[Trainer 1D] baseline={args.baseline} rounds={T_rounds} rho_s={args.rho_s}")
