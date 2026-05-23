@@ -24,11 +24,11 @@ STDOUT_DIR="results/train_logs/kdl"
 mkdir -p "$OUT_DIR" "$STDOUT_DIR"
 export PYTHONIOENCODING=utf-8
 
-# Sinh dữ liệu môi trường riêng cho mạng nhỏ (N=20, 30, 40)
-echo "[KDL] Generating topologies and data partitions for N=20, 30, 40..."
-"$PYTHON" utils/generate_all_envs.py --n 20 --dataset URPC
+# Sinh dữ liệu môi trường riêng cho mạng lớn (N=30, 40, 50)
+echo "[KDL] Generating topologies and data partitions for N=30, 40, 50..."
 "$PYTHON" utils/generate_all_envs.py --n 30 --dataset URPC
 "$PYTHON" utils/generate_all_envs.py --n 40 --dataset URPC
+"$PYTHON" utils/generate_all_envs.py --n 50 --dataset URPC
 
 # Pre-train Teacher & Khởi động ấm Student
 echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..."
