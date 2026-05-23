@@ -58,8 +58,9 @@ for n in "${N_LIST[@]}"; do
           count=$((count + 1))
           rho_str="${RHO_S//./p}"
           log_json="${OUT_DIR}/log_N${n}_${ds}_a${alpha_str}_${baseline}_rho${rho_str}_seed${seed}.json"
-          if [[ -f "$log_json" ]]; then
-            echo "[$count/$total] Overwriting existing JSON: $log_json"
+          if [[ -s "$log_json" ]]; then
+            echo "[$count/$total] SKIPPING: $log_json already exists and is not empty."
+            continue
           fi
 
           echo "[$count/$total] N=$n | alpha=$alpha | seed=$seed | DS=$ds | baseline=$baseline"

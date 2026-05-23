@@ -61,8 +61,9 @@ run_baseline() {
   fi
 
   local log_json="${OUT_DIR}/log_N${n}_${DS}_a${alpha_str}_${baseline}_seed${SEED}.json"
-  if [[ -f "$log_json" ]]; then
-    echo "[$current_task/$total_tasks] Overwriting existing JSON: $log_json"
+  if [[ -s "$log_json" ]]; then
+    echo "[$current_task/$total_tasks] SKIPPING: $log_json already exists and is not empty."
+    return 0
   fi
 
   echo "[$current_task/$total_tasks] OD | N=$n | alpha=$alpha | baseline=$baseline"
