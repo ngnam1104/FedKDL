@@ -202,7 +202,7 @@ def main():
                     if len(val_errors) == 0:
                         continue
                         
-                    tau_A = anomaly_threshold(np.array(val_errors), percentile=99.8)
+                    tau_A = anomaly_threshold(np.array(val_errors), percentile=99.9)
                     
                     test_errors = []
                     test_labels_list = []
