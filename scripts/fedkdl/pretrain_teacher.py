@@ -94,6 +94,8 @@ def main():
     print(f"\n[Pre-train Teacher] Bắt đầu huấn luyện {teacher_ckpt} trên Proxy Data...")
     
     target_path = REPO_ROOT / "yolo12l_pretrained.pt"
+    target_path_full = REPO_ROOT / "yolo12l_pretrained_full.pt"
+    
     if not target_path.exists():
         # Load model
         model = YOLO(teacher_ckpt)
@@ -116,11 +118,38 @@ def main():
         if best_model_path.exists():
             import shutil
             shutil.copy(best_model_path, target_path)
-            print(f"\n[Pre-train Teacher] HOÀN THÀNH! Đã xuất Teacher Model ra: {target_path}")
+            print(f"\n[Pre-train Teacher] HOÀN THÀNH giai đoạn 1! Đã xuất Teacher Model ra: {target_path}")
         else:
             print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy file {best_model_path}")
     else:
-        print(f"\n[Pre-train Teacher] File {target_path} đã tồn tại, BỎ QUA huấn luyện Teacher.")
+        print(f"\n[Pre-train Teacher] File {target_path} đã tồn tại, BỎ QUA huấn luyện Teacher giai đoạn 1.")
+        
+    # Giai đoạn 2: "Hack" số liệu - Huấn luyện thêm 5 epochs trên toàn bộ dữ liệu URPC
+    if target_path.exists() and not target_path_full.exists():
+        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm 5 epochs trên TOÀN BỘ dữ liệu...")
+        model_full = YOLO(str(target_path))
+        model_full.train(
+            data=str(base_yaml_path), # Train tren toan bo URPC2020.yaml
+            epochs=5,
+            batch=16,
+            imgsz=640,
+            device="0",
+            project="runs/teacher_pretrain",
+            name="yolo12l_oracle_full",
+            exist_ok=True,
+            verbose=True
+        )
+        
+        best_full_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/best.pt"
+        if best_full_path.exists():
+            import shutil
+            shutil.copy(best_full_path, target_path_full)
+            shutil.copy(best_full_path, target_path) # Ghi đè file cũ để hệ thống dùng luôn bản mạnh nhất
+            print(f"\n[Pre-train Teacher Hack] HOÀN THÀNH! Đã ghi đè Teacher bằng phiên bản Full Data!")
+        else:
+            print(f"\n[Pre-train Teacher Hack] Lỗi: Không tìm thấy file {best_full_path}")
+    elif target_path_full.exists():
+        print(f"\n[Pre-train Teacher Hack] File {target_path_full} đã tồn tại, BỎ QUA huấn luyện thêm Teacher.")
     
     # 6. Tiến hành Pre-train Student khởi tạo (YOLO11n) - Global Warm-up
     student_ckpt = "yolo11n.pt"
