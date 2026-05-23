@@ -105,7 +105,7 @@ def main():
         if args_yaml.exists():
             with open(args_yaml, 'r') as f:
                 args = yaml.safe_load(f)
-            args['epochs'] = 300  
+            args['epochs'] = 170
             with open(args_yaml, 'w') as f:
                 yaml.safe_dump(args, f)
                 
