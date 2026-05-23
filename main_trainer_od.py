@@ -11,6 +11,9 @@ from tasks.detection_2d.simulator import Simulator2D
 from utils.log_export import build_experiment_bundle
 from utils.train_io import build_experiment_paths, run_trainer_with_artifacts
 
+import ultralytics
+ultralytics.settings.update({'datasets_dir': str(Path('datasets').absolute())})
+
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
