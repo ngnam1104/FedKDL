@@ -144,7 +144,6 @@ def main():
         except ImportError:
             print("[-] System RAM: (Thư viện psutil chưa cài đặt, không thể đo lường)")
             
-        import torch
         if torch.cuda.is_available():
             device_id = torch.cuda.current_device()
             vram_total = torch.cuda.get_device_properties(device_id).total_memory
