@@ -27,6 +27,8 @@ def anomaly_threshold(val_errors: np.ndarray, percentile: float = 99.0) -> float
     """
     if len(val_errors) == 0:
         return 0.0
+    return float(np.percentile(val_errors, percentile))
+
 def get_anomaly_segments(y_true: np.ndarray) -> list:
     segments = []
     in_anomaly = False
