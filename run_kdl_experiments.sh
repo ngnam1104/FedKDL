@@ -30,13 +30,9 @@ echo "[KDL] Generating topologies and data partitions for N=20, 30, 40..."
 "$PYTHON" utils/generate_all_envs.py --n 30 --dataset URPC
 "$PYTHON" utils/generate_all_envs.py --n 40 --dataset URPC
 
-# Pre-train Teacher model trên Proxy Data (nếu chưa có)
-if [[ ! -f "yolo12l_pretrained.pt" ]]; then
-  echo "[KDL] Teacher model chưa được pre-train. Bắt đầu pre-training..."
-  "$PYTHON" scripts/fedkdl/pretrain_teacher.py
-else
-  echo "[KDL] Đã tìm thấy yolo12l_pretrained.pt, bỏ qua pre-training."
-fi
+# Pre-train Teacher & Student (Python script tự động xử lý logic bỏ qua nếu đã có file)
+echo "[KDL] Đang kiểm tra và khởi tạo mô hình pre-trained (Teacher & Student)..."
+"$PYTHON" scripts/fedkdl/pretrain_teacher.py
 
 
 # Cấu hình chung
