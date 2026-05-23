@@ -14,8 +14,8 @@ class SmallAutoencoder(nn.Module):
     """
     Symmetric Autoencoder cho time-series anomaly detection.
 
-    Encoder: D_in → 64 → 32 → 16  (bottleneck)
-    Decoder: 16 → 32 → 64 → D_in
+    Encoder: D_in → 48 → 24 → 12 (bottleneck)
+    Decoder: 12 → 24 → 48 → D_in
     """
 
     def __init__(self, input_dim: int):
@@ -28,21 +28,21 @@ class SmallAutoencoder(nn.Module):
 
         # Encoder
         self.encoder = nn.Sequential(
-            nn.Linear(input_dim, 64),
+            nn.Linear(input_dim, 48),
             nn.ReLU(),
-            nn.Linear(64, 32),
+            nn.Linear(48, 24),
             nn.ReLU(),
-            nn.Linear(32, 16),
+            nn.Linear(24, 12),
             nn.ReLU(),
         )
 
         # Decoder
         self.decoder = nn.Sequential(
-            nn.Linear(16, 32),
+            nn.Linear(12, 24),
             nn.ReLU(),
-            nn.Linear(32, 64),
+            nn.Linear(24, 48),
             nn.ReLU(),
-            nn.Linear(64, input_dim),
+            nn.Linear(48, input_dim),
             # Không có activation cuối — dữ liệu đã normalize về [0,1]
         )
 
