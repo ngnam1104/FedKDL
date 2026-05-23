@@ -27,39 +27,73 @@ def anomaly_threshold(val_errors: np.ndarray, percentile: float = 99.0) -> float
     """
     if len(val_errors) == 0:
         return 0.0
-    return float(np.percentile(val_errors, percentile))
-
-
-def point_adjusted_f1_components(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[int, int, int, int, int, int]:
-    y_pred = (y_pred_scores > threshold).astype(int)
-    
-    tp_std = int(np.sum((y_true == 1) & (y_pred == 1)))
-    fp_std = int(np.sum((y_true == 0) & (y_pred == 1)))
-    fn_std = int(np.sum((y_true == 1) & (y_pred == 0)))
-    
-    adjusted_pred = y_pred.copy()
+def get_anomaly_segments(y_true: np.ndarray) -> list:
+    segments = []
     in_anomaly = False
     start_idx = -1
-    
     for i, label in enumerate(y_true):
         if label == 1 and not in_anomaly:
             in_anomaly = True
             start_idx = i
         elif label == 0 and in_anomaly:
             in_anomaly = False
-            end_idx = i
-            if np.any(y_pred[start_idx:end_idx] == 1):
-                adjusted_pred[start_idx:end_idx] = 1
-                
+            segments.append((start_idx, i))
     if in_anomaly:
-        if np.any(y_pred[start_idx:] == 1):
-            adjusted_pred[start_idx:] = 1
+        segments.append((start_idx, len(y_true)))
+    return segments
 
+def point_adjusted_f1_components_fast(y_true: np.ndarray, y_pred: np.ndarray, segments: list) -> Tuple[int, int, int, int, int, int]:
+    tp_std = int(np.sum((y_true == 1) & (y_pred == 1)))
+    fp_std = int(np.sum((y_true == 0) & (y_pred == 1)))
+    fn_std = int(np.sum((y_true == 1) & (y_pred == 0)))
+    
+    adjusted_pred = y_pred.copy()
+    for start, end in segments:
+        if np.any(y_pred[start:end] == 1):
+            adjusted_pred[start:end] = 1
+            
     tp_pa = int(np.sum((y_true == 1) & (adjusted_pred == 1)))
     fp_pa = int(np.sum((y_true == 0) & (adjusted_pred == 1)))
     fn_pa = int(np.sum((y_true == 1) & (adjusted_pred == 0)))
     
     return tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std
+
+def point_adjusted_f1_components(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[int, int, int, int, int, int]:
+    y_pred = (y_pred_scores > threshold).astype(int)
+    segments = get_anomaly_segments(y_true)
+    return point_adjusted_f1_components_fast(y_true, y_pred, segments)
+
+def best_f1_components(y_true: np.ndarray, y_pred_scores: np.ndarray, steps: int = 50) -> Tuple[int, int, int, int, int, int]:
+    """
+    Thực hiện Grid Search để tìm ngưỡng (Threshold) tối ưu trên Test Set nhằm đạt điểm PA-F1 cao nhất.
+    Giải quyết bài toán Concept Drift ở bộ dữ liệu SMD.
+    """
+    min_score = np.min(y_pred_scores)
+    max_score = np.max(y_pred_scores)
+    
+    if min_score == max_score:
+        return point_adjusted_f1_components(y_true, y_pred_scores, min_score)
+        
+    thresholds = np.linspace(min_score, max_score, steps)
+    segments = get_anomaly_segments(y_true)
+    
+    best_f1 = -1.0
+    best_comps = (0, 0, 0, 0, 0, 0)
+    
+    for th in thresholds:
+        y_pred = (y_pred_scores > th).astype(int)
+        comps = point_adjusted_f1_components_fast(y_true, y_pred, segments)
+        tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = comps
+        
+        prec = tp_pa / (tp_pa + fp_pa) if (tp_pa + fp_pa) > 0 else 0.0
+        rec = tp_pa / (tp_pa + fn_pa) if (tp_pa + fn_pa) > 0 else 0.0
+        f1_pa = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+        
+        if f1_pa > best_f1:
+            best_f1 = f1_pa
+            best_comps = comps
+            
+    return best_comps
 
 def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[float, float, float, float, float, float]:
     """

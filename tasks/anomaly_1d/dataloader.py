@@ -80,42 +80,69 @@ DATASET_CONFIGS = {
 
 def load_real_smd(data_dir="datasets/SMD", per_channel_eval: bool = False) -> Tuple:
     import os
-    train_file = os.path.join(data_dir, "train", "machine-1-1.txt")
-    test_file = os.path.join(data_dir, "test", "machine-1-1.txt")
-    label_file = os.path.join(data_dir, "test_label", "machine-1-1.txt")
+    from pathlib import Path
     
-    if not os.path.exists(train_file):
-        print(f"[Warning] Real SMD data not found at {train_file}. Falling back to synthetic.")
+    train_dir = Path(data_dir) / "train"
+    test_dir = Path(data_dir) / "test"
+    label_dir = Path(data_dir) / "test_label"
+    
+    if not train_dir.exists():
+        print(f"[Warning] Real SMD data not found at {train_dir}. Falling back to synthetic.")
         tr_d, tr_l, val_d, val_l = generate_synthetic_timeseries(n_samples=2000, n_features=38, seed=42)
         if per_channel_eval:
             return tr_d, tr_l, [val_d], [val_l], [val_d], [val_l]
         return tr_d, tr_l, val_d, val_l, val_d, val_l
+
+    train_files = sorted(list(train_dir.glob("*.txt")))
+    
+    train_parts = []
+    val_parts = []
+    test_parts = []
+    test_labels_parts = []
+    
+    for tr_f in train_files:
+        machine_name = tr_f.name
+        te_f = test_dir / machine_name
+        lbl_f = label_dir / machine_name
         
-    train_data = np.loadtxt(train_file, delimiter=",", dtype=np.float32)
-    test_data = np.loadtxt(test_file, delimiter=",", dtype=np.float32)
-    test_labels = np.loadtxt(label_file, delimiter=",", dtype=np.int32)
-    
-    # MinMaxScaler based on train data
-    d_min = train_data.min(axis=0, keepdims=True)
-    d_max = train_data.max(axis=0, keepdims=True)
-    scale = d_max - d_min
-    scale[scale == 0] = 1.0
-    train_data = (train_data - d_min) / scale
-    test_data = (test_data - d_min) / scale
-    
+        if not te_f.exists() or not lbl_f.exists():
+            continue
+            
+        tr_arr = np.loadtxt(tr_f, delimiter=",", dtype=np.float32)
+        te_arr = np.loadtxt(te_f, delimiter=",", dtype=np.float32)
+        lbl_arr = np.loadtxt(lbl_f, delimiter=",", dtype=np.int32)
+        
+        # Local Normalization per machine
+        d_min = tr_arr.min(axis=0, keepdims=True)
+        d_max = tr_arr.max(axis=0, keepdims=True)
+        scale = d_max - d_min
+        scale[scale == 0] = 1.0
+        
+        tr_arr = (tr_arr - d_min) / scale
+        te_arr = (te_arr - d_min) / scale
+        
+        split_idx = int(len(tr_arr) * 0.7)
+        tr_part = tr_arr[:split_idx]
+        val_part = tr_arr[split_idx:]
+        
+        train_parts.append(tr_part)
+        if len(val_part) > 0:
+            val_parts.append(val_part)
+        test_parts.append(te_arr)
+        test_labels_parts.append(lbl_arr)
+        
+    train_data = np.concatenate(train_parts, axis=0)
     train_labels = np.zeros(len(train_data), dtype=np.int32)
     
-    split_idx = int(len(train_data) * 0.7)
-    train_data_split = train_data[:split_idx]
-    train_labels_split = train_labels[:split_idx]
-    
-    val_data_split = train_data[split_idx:]
-    val_labels_split = train_labels[split_idx:]
-    
     if per_channel_eval:
-        return train_data_split, train_labels_split, [val_data_split], [val_labels_split], [test_data], [test_labels]
+        val_labels_parts = [np.zeros(len(v), dtype=np.int32) for v in val_parts]
+        return train_data, train_labels, val_parts, val_labels_parts, test_parts, test_labels_parts
     else:
-        return train_data_split, train_labels_split, val_data_split, val_labels_split, test_data, test_labels
+        val_data = np.concatenate(val_parts, axis=0)
+        test_data = np.concatenate(test_parts, axis=0)
+        val_labels = np.zeros(len(val_data), dtype=np.int32)
+        test_labels = np.concatenate(test_labels_parts, axis=0)
+        return train_data, train_labels, val_data, val_labels, test_data, test_labels
 
 
 

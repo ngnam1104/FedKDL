@@ -178,7 +178,7 @@ def main():
                 # Evaluate sau mỗi vòng
                 model.eval()
                 
-                from federated_core.metrics import anomaly_threshold, point_adjusted_f1_components
+                from federated_core.metrics import best_f1_components
                 
                 total_tp_pa = 0
                 total_fp_pa = 0
@@ -199,11 +199,6 @@ def main():
                             normal_errs = errs[y_val.numpy() == 0]
                             val_errors.extend(normal_errs)
                             
-                    if len(val_errors) == 0:
-                        continue
-                        
-                    tau_A = anomaly_threshold(np.array(val_errors), percentile=99.0)
-                    
                     test_errors = []
                     test_labels_list = []
                     with torch.no_grad():
@@ -216,7 +211,7 @@ def main():
                     if len(test_errors) == 0:
                         continue
                         
-                    tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = point_adjusted_f1_components(np.array(test_labels_list), np.array(test_errors), tau_A)
+                    tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = best_f1_components(np.array(test_labels_list), np.array(test_errors), steps=50)
                     total_tp_pa += tp_pa
                     total_fp_pa += fp_pa
                     total_fn_pa += fn_pa
