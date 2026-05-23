@@ -30,9 +30,9 @@ echo "[KDL] Generating topologies and data partitions for N=20, 30, 40..."
 "$PYTHON" utils/generate_all_envs.py --n 30 --dataset URPC
 "$PYTHON" utils/generate_all_envs.py --n 40 --dataset URPC
 
-# Pre-train Teacher & Student (Python script tự động xử lý logic bỏ qua nếu đã có file)
-echo "[KDL] Đang kiểm tra và khởi tạo mô hình pre-trained (Teacher & Student)..."
-"$PYTHON" scripts/fedkdl/pretrain_teacher.py
+# Khởi động ấm (Warm-up) cho Student trên tập Proxy Data
+echo "[KDL] Đang tiến hành huấn luyện khởi động ấm (Warm-up) cho Student..."
+"$PYTHON" scripts/fedkdl/pretrain_student.py
 
 
 # Cấu hình chung

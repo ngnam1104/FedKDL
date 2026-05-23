@@ -1,8 +1,8 @@
 """
-pretrain_teacher.py
-Tiền huấn luyện mô hình Teacher (YOLOv12-Large) trên 20% dữ liệu Public (Proxy Data)
-tại Gateway TRƯỚC KHI bắt đầu quá trình Federated Learning.
-Điều này đảm bảo Teacher là một 'Oracle' đã thấu hiểu domain của URPC.
+pretrain_student.py
+Tiền huấn luyện mô hình Student (YOLO11n) - Khởi động ấm (Warm-up) 
+trên 20% dữ liệu Public (Proxy Data) tại Gateway TRƯỚC KHI bắt đầu 
+quá trình Federated Learning.
 """
 import os
 import sys
