@@ -41,9 +41,10 @@ def fedavg_intra_cluster(
 
     # Tính weighted average Δθ
     total_params = sum(p.numel() for p in model_template.parameters())
-    weighted_delta = torch.zeros(total_params)
+    device = next(iter(global_state_dict.values())).device if global_state_dict else 'cpu'
+    weighted_delta = torch.zeros(total_params, device=device)
     for delta_flat, n_i in client_deltas:
-        weighted_delta += (n_i / total_samples) * delta_flat.cpu()
+        weighted_delta += (n_i / total_samples) * delta_flat.to(device)
 
     # Cộng Δθ vào θ_global (flat → state_dict)
     fog_sd = copy.deepcopy(global_state_dict)
