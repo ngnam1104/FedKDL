@@ -100,7 +100,7 @@ def main():
         teacher_model = YOLO(str(teacher_ckpt))
         teacher_model.train(
             data=str(base_yaml_path), # Toàn bộ URPC2020.yaml
-            epochs=5,
+            epochs=10,
             batch=16,
             imgsz=640,
             device="0",
