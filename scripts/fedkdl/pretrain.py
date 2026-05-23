@@ -130,8 +130,10 @@ def main():
             plots=False
         )
         
+    # Đoạn này nằm ngoài if/elif, đảm bảo DÙ RESUME HAY CHẠY TỪ ĐẦU thì khi xong cũng xuất file ra!
+    if not target_teacher_path_full.exists() and (last_teacher_path.exists() or teacher_ckpt.exists()):
         best_teacher_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/best.pt"
-        last_teacher_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/last.pt"
+        last_out_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/last.pt"
         
         if best_teacher_path.exists():
             import shutil
@@ -139,12 +141,12 @@ def main():
             shutil.copy(best_teacher_path, teacher_ckpt) # Ghi đè file cũ để Simulator dùng bản mạnh nhất
             print(f"\n[Pre-train Teacher Hack] HOÀN THÀNH! Đã ghi Teacher bằng phiên bản Full Data (từ best.pt) vào {teacher_ckpt}")
             
-            if last_teacher_path.exists():
+            if last_out_path.exists():
                 last_ckpt = REPO_ROOT / "yolo12l_last_pretrained.pt"
-                shutil.copy(last_teacher_path, last_ckpt)
+                shutil.copy(last_out_path, last_ckpt)
                 print(f"[Pre-train Teacher Hack] Đồng thời đã lưu bản last.pt vào {last_ckpt}")
         else:
-            print(f"\n[Pre-train Teacher Hack] Lỗi: Không tìm thấy file {best_teacher_path}")
+            print(f"\n[Pre-train Teacher Hack] Lỗi: Không tìm thấy file {best_teacher_path} (Có thể mô hình chưa train xong)")
             
         del teacher_model
         gc.collect()
