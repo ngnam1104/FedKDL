@@ -91,13 +91,13 @@ def main():
     print(f" -> Đã trích xuất {len(public_images)} ảnh làm Proxy Data.")
     print(f" -> Đã lưu cấu hình tại: {proxy_yaml_abs}")
     
-    # 4. Tiến hành Pre-train Teacher (YOLO12l) trên TOÀN BỘ dữ liệu (5 epochs)
-    teacher_ckpt = "yolo12l.pt"
-    target_teacher_path = REPO_ROOT / "yolo12l_pretrained.pt"
+    # 4. Giai đoạn 2: Tiến hành huấn luyện thêm Teacher (YOLO12l) trên TOÀN BỘ dữ liệu (5 epochs)
+    teacher_ckpt = REPO_ROOT / "yolo12l_pretrained.pt"
+    target_teacher_path_full = REPO_ROOT / "yolo12l_pretrained_full.pt"
     
-    if not target_teacher_path.exists():
-        print(f"\n[Pre-train Teacher] Bắt đầu huấn luyện {teacher_ckpt} trên TOÀN BỘ dữ liệu (5 epochs)...")
-        teacher_model = YOLO(teacher_ckpt)
+    if teacher_ckpt.exists() and not target_teacher_path_full.exists():
+        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm 5 epochs trên TOÀN BỘ dữ liệu từ checkpoint {teacher_ckpt}...")
+        teacher_model = YOLO(str(teacher_ckpt))
         teacher_model.train(
             data=str(base_yaml_path), # Toàn bộ URPC2020.yaml
             epochs=5,
@@ -115,16 +115,19 @@ def main():
         best_teacher_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/best.pt"
         if best_teacher_path.exists():
             import shutil
-            shutil.copy(best_teacher_path, target_teacher_path)
-            print(f"\n[Pre-train Teacher] HOÀN THÀNH! Đã ghi Teacher bằng phiên bản Full Data!")
+            shutil.copy(best_teacher_path, target_teacher_path_full)
+            shutil.copy(best_teacher_path, teacher_ckpt) # Ghi đè file cũ để Simulator dùng bản mạnh nhất
+            print(f"\n[Pre-train Teacher Hack] HOÀN THÀNH! Đã ghi Teacher bằng phiên bản Full Data!")
         else:
-            print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy file {best_teacher_path}")
+            print(f"\n[Pre-train Teacher Hack] Lỗi: Không tìm thấy file {best_teacher_path}")
             
         del teacher_model
         gc.collect()
         torch.cuda.empty_cache()
+    elif target_teacher_path_full.exists():
+        print(f"\n[Pre-train Teacher Hack] File {target_teacher_path_full} đã tồn tại, BỎ QUA huấn luyện thêm Teacher.")
     else:
-        print(f"\n[Pre-train Teacher] File {target_teacher_path} đã tồn tại, BỎ QUA huấn luyện Teacher.")
+        print(f"\n[Pre-train Teacher Hack] Lỗi: Không tìm thấy {teacher_ckpt} để train tiếp. Vui lòng chuẩn bị file này trước.")
 
     # 5. Tiến hành Pre-train Student khởi tạo (YOLO11n) - Global Warm-up
     student_ckpt = "yolo11n.pt"
