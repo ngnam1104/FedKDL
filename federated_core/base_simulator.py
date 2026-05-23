@@ -109,6 +109,8 @@ class BaseSimulator(ABC):
                 print(f"\n{'='*60}")
                 print(f"|  [Simulator] BẮT ĐẦU VÒNG {t}/{T_rounds}  |")
                 print(f"{'='*60}\n")
+            else:
+                print(f"   -> [FL Simulator 1D] Processing Round {t}/{T_rounds}...", end="\r", flush=True)
 
             # --- Phase 1: Sensor Tier ---
             alive_sensors = [s.sensor_id for s in self.sensors.values() if s.alive]
@@ -147,6 +149,8 @@ class BaseSimulator(ABC):
                     e_comp_total += e_comp_cost
             else:
                 import os
+                import torch
+                torch.set_num_threads(1) # RẤT QUAN TRỌNG: Ngăn chặn PyTorch sinh thêm luồng ngầm gây chết CPU
                 max_w = 4 if self.device == 'cuda' else (os.cpu_count() or 8)
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
                     futures = {executor.submit(self._process_sensor, s_id): s_id for s_id in alive_sensors}
