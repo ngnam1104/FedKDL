@@ -91,16 +91,16 @@ def main():
     print(f" -> Đã trích xuất {len(public_images)} ảnh làm Proxy Data.")
     print(f" -> Đã lưu cấu hình tại: {proxy_yaml_abs}")
     
-    # 4. Giai đoạn 2: Tiến hành huấn luyện thêm Teacher (YOLO12l) trên TOÀN BỘ dữ liệu (10 epochs)
+    # 4. Giai đoạn 2: Tiến hành huấn luyện thêm Teacher (YOLO12l) trên TOÀN BỘ dữ liệu (20 epochs)
     teacher_ckpt = REPO_ROOT / "yolo12l_pretrained.pt"
     target_teacher_path_full = REPO_ROOT / "yolo12l_pretrained_full.pt"
     
     if teacher_ckpt.exists() and not target_teacher_path_full.exists():
-        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm 10 epochs trên TOÀN BỘ dữ liệu từ checkpoint {teacher_ckpt}...")
+        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm 20 epochs trên TOÀN BỘ dữ liệu từ checkpoint {teacher_ckpt}...")
         teacher_model = YOLO(str(teacher_ckpt))
         teacher_model.train(
             data=str(base_yaml_path), # Toàn bộ URPC2020.yaml
-            epochs=10,
+            epochs=20,
             batch=16,
             imgsz=640,
             device="0",
