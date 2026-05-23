@@ -122,7 +122,7 @@ class SparseINT8Payload:
         """Tái tạo dense float gradient từ payload."""
         from tasks.anomaly_1d.knowledge_compression.topk_sparsification import TopKCompressor
         values_float = dequantize_tensor(self.qt)
-        dense = torch.zeros(self.total_params)
+        dense = torch.zeros(self.total_params, device=self.indices.device)
         dense[self.indices] = values_float
         return dense
 

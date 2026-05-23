@@ -92,4 +92,4 @@ def local_sgd(
     
     avg_loss = total_loss / max(1, num_batches)
 
-    return delta_theta.cpu(), avg_loss
+    return delta_theta, avg_loss
