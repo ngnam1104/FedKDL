@@ -91,16 +91,16 @@ def main():
     print(f" -> Đã trích xuất {len(public_images)} ảnh làm Proxy Data.")
     print(f" -> Đã lưu cấu hình tại: {proxy_yaml_abs}")
     
-    # 4. Giai đoạn 2: Tiến hành huấn luyện thêm Teacher (YOLO12l) trên TOÀN BỘ dữ liệu (5 epochs)
+    # 4. Giai đoạn 2: Tiến hành huấn luyện thêm Teacher (YOLO12l) trên TOÀN BỘ dữ liệu (20 epochs)
     teacher_ckpt = REPO_ROOT / "yolo12l_pretrained.pt"
     target_teacher_path_full = REPO_ROOT / "yolo12l_pretrained_full.pt"
     
     if teacher_ckpt.exists() and not target_teacher_path_full.exists():
-        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm 5 epochs trên TOÀN BỘ dữ liệu từ checkpoint {teacher_ckpt}...")
+        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm 20 epochs trên TOÀN BỘ dữ liệu từ checkpoint {teacher_ckpt}...")
         teacher_model = YOLO(str(teacher_ckpt))
         teacher_model.train(
             data=str(base_yaml_path), # Toàn bộ URPC2020.yaml
-            epochs=10,
+            epochs=20,
             batch=16,
             imgsz=640,
             device="0",
@@ -134,7 +134,7 @@ def main():
     target_student_path = REPO_ROOT / "yolo11n_pretrained.pt"
     
     if not target_student_path.exists():
-        print(f"\n[Pre-train Student] Bắt đầu khởi động ấm (Warm-up) {student_ckpt} trên Proxy Data (3 epochs)...")
+        print(f"\n[Pre-train Student] Bắt đầu khởi động ấm (Warm-up) {student_ckpt} trên Proxy Data (5 epochs)...")
         
         print("\n=== [Kiểm tra bộ nhớ (RAM/VRAM) trước khi Train Student] ===")
         try:
@@ -159,10 +159,10 @@ def main():
         
         student_model = YOLO(student_ckpt)
         
-        # Huấn luyện 3 epochs thay vì 10
+        # Huấn luyện 5 epochs thay vì 3
         student_model.train(
             data=str(proxy_yaml_abs),
-            epochs=3,
+            epochs=5,
             batch=16,
             imgsz=640,
             device="0",  
