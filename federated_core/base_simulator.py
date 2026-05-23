@@ -146,7 +146,8 @@ class BaseSimulator(ABC):
                     e_s2f_total += e_tx_cost
                     e_comp_total += e_comp_cost
             else:
-                max_w = 4 if self.device == 'cuda' else 8
+                import os
+                max_w = 4 if self.device == 'cuda' else (os.cpu_count() or 8)
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
                     futures = {executor.submit(self._process_sensor, s_id): s_id for s_id in alive_sensors}
                     for future in concurrent.futures.as_completed(futures):
