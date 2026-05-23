@@ -30,31 +30,13 @@ def anomaly_threshold(val_errors: np.ndarray, percentile: float = 99.0) -> float
     return float(np.percentile(val_errors, percentile))
 
 
-def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[float, float, float, float]:
-    """
-    Tính Point-Adjusted F1 (PA-F1) score và Standard F1 score.
-    Logic PA: Nếu một điểm trong segment anomaly được phát hiện (score > threshold),
-    toàn bộ segment đó được coi là True Positive.
-
-    Args:
-        y_true:        (N,) ground truth (0: normal, 1: anomaly).
-        y_pred_scores: (N,) reconstruction errors.
-        threshold:     Ngưỡng τ_A.
-
-    Returns:
-        (pa_f1, precision, recall, f1_std)
-    """
+def point_adjusted_f1_components(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[int, int, int, int, int, int]:
     y_pred = (y_pred_scores > threshold).astype(int)
     
-    # Standard F1
-    tp_std = np.sum((y_true == 1) & (y_pred == 1))
-    fp_std = np.sum((y_true == 0) & (y_pred == 1))
-    fn_std = np.sum((y_true == 1) & (y_pred == 0))
-    prec_std = tp_std / (tp_std + fp_std) if (tp_std + fp_std) > 0 else 0.0
-    rec_std = tp_std / (tp_std + fn_std) if (tp_std + fn_std) > 0 else 0.0
-    f1_std = 2 * prec_std * rec_std / (prec_std + rec_std) if (prec_std + rec_std) > 0 else 0.0
-
-    # Point-Adjustment
+    tp_std = int(np.sum((y_true == 1) & (y_pred == 1)))
+    fp_std = int(np.sum((y_true == 0) & (y_pred == 1)))
+    fn_std = int(np.sum((y_true == 1) & (y_pred == 0)))
+    
     adjusted_pred = y_pred.copy()
     in_anomaly = False
     start_idx = -1
@@ -66,21 +48,31 @@ def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: 
         elif label == 0 and in_anomaly:
             in_anomaly = False
             end_idx = i
-            # Nếu có bất kỳ dự đoán = 1 nào trong segment này, mark cả segment là 1
             if np.any(y_pred[start_idx:end_idx] == 1):
                 adjusted_pred[start_idx:end_idx] = 1
                 
-    # Xử lý segment cuối cùng nếu kết thúc bằng anomaly
     if in_anomaly:
         if np.any(y_pred[start_idx:] == 1):
             adjusted_pred[start_idx:] = 1
 
-    tp = np.sum((y_true == 1) & (adjusted_pred == 1))
-    fp = np.sum((y_true == 0) & (adjusted_pred == 1))
-    fn = np.sum((y_true == 1) & (adjusted_pred == 0))
+    tp_pa = int(np.sum((y_true == 1) & (adjusted_pred == 1)))
+    fp_pa = int(np.sum((y_true == 0) & (adjusted_pred == 1)))
+    fn_pa = int(np.sum((y_true == 1) & (adjusted_pred == 0)))
+    
+    return tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std
 
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[float, float, float, float, float, float]:
+    """
+    Tính Point-Adjusted F1 (PA-F1) score và Standard F1 score.
+    """
+    tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = point_adjusted_f1_components(y_true, y_pred_scores, threshold)
+    
+    prec_std = tp_std / (tp_std + fp_std) if (tp_std + fp_std) > 0 else 0.0
+    rec_std = tp_std / (tp_std + fn_std) if (tp_std + fn_std) > 0 else 0.0
+    f1_std = 2 * prec_std * rec_std / (prec_std + rec_std) if (prec_std + rec_std) > 0 else 0.0
+    
+    precision = tp_pa / (tp_pa + fp_pa) if (tp_pa + fp_pa) > 0 else 0.0
+    recall = tp_pa / (tp_pa + fn_pa) if (tp_pa + fn_pa) > 0 else 0.0
     f1_pa = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
     return float(f1_pa), float(precision), float(recall), float(f1_std), float(prec_std), float(rec_std)

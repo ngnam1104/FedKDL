@@ -78,7 +78,7 @@ DATASET_CONFIGS = {
 }
 
 
-def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def load_real_smd(data_dir="datasets/SMD", per_channel_eval: bool = False) -> Tuple:
     import os
     train_file = os.path.join(data_dir, "train", "machine-1-1.txt")
     test_file = os.path.join(data_dir, "test", "machine-1-1.txt")
@@ -87,7 +87,8 @@ def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray, np.n
     if not os.path.exists(train_file):
         print(f"[Warning] Real SMD data not found at {train_file}. Falling back to synthetic.")
         tr_d, tr_l, val_d, val_l = generate_synthetic_timeseries(n_samples=2000, n_features=38, seed=42)
-        # return dummy splits
+        if per_channel_eval:
+            return tr_d, tr_l, [val_d], [val_l], [val_d], [val_l]
         return tr_d, tr_l, val_d, val_l, val_d, val_l
         
     train_data = np.loadtxt(train_file, delimiter=",", dtype=np.float32)
@@ -111,11 +112,14 @@ def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray, np.n
     val_data_split = train_data[split_idx:]
     val_labels_split = train_labels[split_idx:]
     
-    return train_data_split, train_labels_split, val_data_split, val_labels_split, test_data, test_labels
+    if per_channel_eval:
+        return train_data_split, train_labels_split, [val_data_split], [val_labels_split], [test_data], [test_labels]
+    else:
+        return train_data_split, train_labels_split, val_data_split, val_labels_split, test_data, test_labels
 
 
 
-def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL", per_channel_eval: bool = False) -> Tuple:
     """
     Load SMAP hoac MSL tu file .npy (telemanom format).
     SMAP channels: prefix A-* B-* C-* D-* E-* F-* G-* P-* R-* S-* T-*  (n_features=25)
@@ -147,7 +151,10 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
         print(f"[Warning] {labels_csv} not found. Cannot filter channels.")
         data, labels = generate_synthetic_timeseries(n_samples=DATASET_CONFIGS[dataset]['n_samples'], n_features=DATASET_CONFIGS[dataset]['n_features'], seed=42)
         half = len(data) // 2
-        return data[:half], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
+        if per_channel_eval:
+            return data[:half], np.zeros(half, dtype=np.int32), [data[half:]], [np.zeros(half, dtype=np.int32)], [data[half:]], [labels[half:]]
+        else:
+            return data[:half], np.zeros(half, dtype=np.int32), data[half:], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
 
     def collect_files(d):
         return sorted([f for f in d.glob("*.npy") if f.stem in valid_channels])
@@ -161,7 +168,10 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
         data, labels = generate_synthetic_timeseries(
             n_samples=cfg['n_samples'], n_features=cfg['n_features'], seed=42)
         half = len(data) // 2
-        return data[:half], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
+        if per_channel_eval:
+            return data[:half], np.zeros(half, dtype=np.int32), [data[half:]], [np.zeros(half, dtype=np.int32)], [data[half:]], [labels[half:]]
+        else:
+            return data[:half], np.zeros(half, dtype=np.int32), data[half:], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
 
     train_file_map = {f.stem: f for f in train_files}
     test_file_map = {f.stem: f for f in test_files}
@@ -221,25 +231,28 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
         test_labels_parts.append(lbls)
 
     train_data = np.concatenate(train_parts, axis=0)
-    val_data = np.concatenate(val_parts, axis=0)
-    test_data = np.concatenate(test_parts, axis=0)
-    
     train_labels = np.zeros(len(train_data), dtype=np.int32)
-    val_labels = np.zeros(len(val_data), dtype=np.int32)
-    test_labels = np.concatenate(test_labels_parts, axis=0)
+    
+    if per_channel_eval:
+        val_labels_parts = [np.zeros(len(v), dtype=np.int32) for v in val_parts]
+        return train_data, train_labels, val_parts, val_labels_parts, test_parts, test_labels_parts
+    else:
+        val_data = np.concatenate(val_parts, axis=0)
+        test_data = np.concatenate(test_parts, axis=0)
+        val_labels = np.zeros(len(val_data), dtype=np.int32)
+        test_labels = np.concatenate(test_labels_parts, axis=0)
+        return train_data, train_labels, val_data, val_labels, test_data, test_labels
 
-    return train_data, train_labels, val_data, val_labels, test_data, test_labels
 
-
-def load_dataset(name: str, seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def load_dataset(name: str, seed: int = 42, per_channel_eval: bool = False) -> Tuple:
     """
     Load dataset theo ten. Su dung du lieu thuc neu co san, khong fallback synthetic.
     Datasets ho tro: SMD, SMAP, MSL
     """
     if name == 'SMD':
-        return load_real_smd("datasets/SMD")
+        return load_real_smd("datasets/SMD", per_channel_eval=per_channel_eval)
     if name in ('SMAP', 'MSL'):
-        return load_real_smap_msl(name, "datasets/SMAP_MSL")
+        return load_real_smap_msl(name, "datasets/SMAP_MSL", per_channel_eval=per_channel_eval)
     raise ValueError(f"Unknown dataset: {name}. Choose from ['SMD', 'SMAP', 'MSL']")
 
 

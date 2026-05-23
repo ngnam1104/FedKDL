@@ -126,15 +126,27 @@ def main():
             import torch
             
             data_part = EnvironmentManager.load_data_partition(str(data_path))
-            train_data_split, train_labels_split, val_data_split, val_labels_split, test_data, test_labels = load_dataset(dataset, seed=seed)
+            train_data_split, train_labels_split, val_parts, val_labels_parts, test_parts, test_labels_parts = load_dataset(dataset, seed=seed, per_channel_eval=True)
             
             train_ds = SlidingWindowDataset(train_data_split, train_labels_split, window_size=10)
-            val_ds   = SlidingWindowDataset(val_data_split,   val_labels_split,   window_size=10)
-            test_ds  = SlidingWindowDataset(test_data,  test_labels,  window_size=10)
-            
             train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
-            val_loader = DataLoader(val_ds, batch_size=256, shuffle=False)
-            test_loader = DataLoader(test_ds, batch_size=256, shuffle=False)
+            
+            val_loaders_per_channel = []
+            test_loaders_per_channel = []
+            
+            for v_d, v_l in zip(val_parts, val_labels_parts):
+                if len(v_d) >= 10:
+                    ds = SlidingWindowDataset(v_d, v_l, window_size=10)
+                    val_loaders_per_channel.append(DataLoader(ds, batch_size=256, shuffle=False))
+                else:
+                    val_loaders_per_channel.append(None)
+                    
+            for t_d, t_l in zip(test_parts, test_labels_parts):
+                if len(t_d) >= 10:
+                    ds = SlidingWindowDataset(t_d, t_l, window_size=10)
+                    test_loaders_per_channel.append(DataLoader(ds, batch_size=256, shuffle=False))
+                else:
+                    test_loaders_per_channel.append(None)
             
             sample_batch, _ = next(iter(train_loader))
             input_dim = sample_batch.shape[1]
@@ -165,26 +177,60 @@ def main():
                 
                 # Evaluate sau mỗi vòng
                 model.eval()
-                val_errors = []
-                with torch.no_grad():
-                    for x_val, y_val in val_loader:
-                        x_val = x_val.to(device)
-                        errs = model.reconstruction_error(x_val).cpu().numpy()
-                        normal_errs = errs[y_val.numpy() == 0]
-                        val_errors.extend(normal_errs)
                 
-                tau_A = anomaly_threshold(np.array(val_errors), percentile=99.0)
+                from federated_core.metrics import anomaly_threshold, point_adjusted_f1_components
                 
-                test_errors = []
-                test_labels_list = []
-                with torch.no_grad():
-                    for x_test, y_test in test_loader:
-                        x_test = x_test.to(device)
-                        errs = model.reconstruction_error(x_test)
-                        test_errors.extend(errs.cpu().numpy())
-                        test_labels_list.extend(y_test.numpy())
+                total_tp_pa = 0
+                total_fp_pa = 0
+                total_fn_pa = 0
+                total_tp_std = 0
+                total_fp_std = 0
+                total_fn_std = 0
                 
-                pa_f1, prec, rec, f1_std, prec_std, rec_std = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
+                for v_loader, t_loader in zip(val_loaders_per_channel, test_loaders_per_channel):
+                    if v_loader is None or t_loader is None:
+                        continue
+                        
+                    val_errors = []
+                    with torch.no_grad():
+                        for x_val, y_val in v_loader:
+                            x_val = x_val.to(device)
+                            errs = model.reconstruction_error(x_val).cpu().numpy()
+                            normal_errs = errs[y_val.numpy() == 0]
+                            val_errors.extend(normal_errs)
+                            
+                    if len(val_errors) == 0:
+                        continue
+                        
+                    tau_A = anomaly_threshold(np.array(val_errors), percentile=99.0)
+                    
+                    test_errors = []
+                    test_labels_list = []
+                    with torch.no_grad():
+                        for x_test, y_test in t_loader:
+                            x_test = x_test.to(device)
+                            errs = model.reconstruction_error(x_test).cpu().numpy()
+                            test_errors.extend(errs)
+                            test_labels_list.extend(y_test.numpy())
+                            
+                    if len(test_errors) == 0:
+                        continue
+                        
+                    tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = point_adjusted_f1_components(np.array(test_labels_list), np.array(test_errors), tau_A)
+                    total_tp_pa += tp_pa
+                    total_fp_pa += fp_pa
+                    total_fn_pa += fn_pa
+                    total_tp_std += tp_std
+                    total_fp_std += fp_std
+                    total_fn_std += fn_std
+                
+                prec = total_tp_pa / (total_tp_pa + total_fp_pa) if (total_tp_pa + total_fp_pa) > 0 else 0.0
+                rec = total_tp_pa / (total_tp_pa + total_fn_pa) if (total_tp_pa + total_fn_pa) > 0 else 0.0
+                pa_f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+                
+                prec_std = total_tp_std / (total_tp_std + total_fp_std) if (total_tp_std + total_fp_std) > 0 else 0.0
+                rec_std = total_tp_std / (total_tp_std + total_fn_std) if (total_tp_std + total_fn_std) > 0 else 0.0
+                f1_std = 2 * prec_std * rec_std / (prec_std + rec_std) if (prec_std + rec_std) > 0 else 0.0
                 
                 pa_f1_history.append(pa_f1)
                 f1_std_history.append(f1_std)
