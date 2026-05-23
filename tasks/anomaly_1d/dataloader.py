@@ -61,7 +61,14 @@ def generate_synthetic_timeseries(
     scale[scale == 0] = 1.0
     data = (data - data_min) / scale
 
-    return data, labels
+    split_idx = int(len(data) * 0.7)
+    train_data_split = data[:split_idx]
+    train_labels_split = labels[:split_idx]
+    
+    val_data_split = data[split_idx:]
+    val_labels_split = labels[split_idx:]
+    
+    return train_data_split, train_labels_split, val_data_split, val_labels_split
 
 
 DATASET_CONFIGS = {
@@ -79,9 +86,9 @@ def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray, np.n
     
     if not os.path.exists(train_file):
         print(f"[Warning] Real SMD data not found at {train_file}. Falling back to synthetic.")
-        data, labels = generate_synthetic_timeseries(n_samples=2000, n_features=38, seed=42)
-        half = len(data) // 2
-        return data[:half], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
+        tr_d, tr_l, val_d, val_l = generate_synthetic_timeseries(n_samples=2000, n_features=38, seed=42)
+        # return dummy splits
+        return tr_d, tr_l, val_d, val_l, val_d, val_l
         
     train_data = np.loadtxt(train_file, delimiter=",", dtype=np.float32)
     test_data = np.loadtxt(test_file, delimiter=",", dtype=np.float32)
@@ -97,7 +104,14 @@ def load_real_smd(data_dir="datasets/SMD") -> Tuple[np.ndarray, np.ndarray, np.n
     
     train_labels = np.zeros(len(train_data), dtype=np.int32)
     
-    return train_data, train_labels, test_data, test_labels
+    split_idx = int(len(train_data) * 0.7)
+    train_data_split = train_data[:split_idx]
+    train_labels_split = train_labels[:split_idx]
+    
+    val_data_split = train_data[split_idx:]
+    val_labels_split = train_labels[split_idx:]
+    
+    return train_data_split, train_labels_split, val_data_split, val_labels_split, test_data, test_labels
 
 
 
@@ -165,20 +179,26 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
             offset += n
         return labels_arr
 
-    def stack_npy(files):
+    def stack_npy(files, split_ratio=0.7):
         arrays = [np.load(f).astype(np.float32) for f in files]
-        # Moi file la chuoi thoi gian (T_i, n_ch_i) hoac (T_i,)
-        # Chuan hoa: neu 1D thi reshape ve (T,1)
         fixed = []
         for a in arrays:
             if a.ndim == 1:
                 a = a.reshape(-1, 1)
             fixed.append(a)
-        # Concatenate theo truc thoi gian (axis=0)
-        return np.concatenate(fixed, axis=0)
+            
+        part1 = []
+        part2 = []
+        for a in fixed:
+            split_idx = int(len(a) * split_ratio)
+            part1.append(a[:split_idx])
+            if split_ratio < 1.0:
+                part2.append(a[split_idx:])
+            
+        return np.concatenate(part1, axis=0), np.concatenate(part2, axis=0) if part2 else None
 
-    train_data = stack_npy(train_files)
-    test_data  = stack_npy(test_files)
+    train_data, val_data = stack_npy(train_files, split_ratio=0.7)
+    test_data, _  = stack_npy(test_files, split_ratio=1.0)
 
     # MinMaxScaler theo train
     d_min = train_data.min(axis=0, keepdims=True)
@@ -186,15 +206,17 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
     scale = d_max - d_min
     scale[scale == 0] = 1.0
     train_data = (train_data - d_min) / scale
+    val_data   = (val_data - d_min) / scale
     test_data  = (test_data  - d_min) / scale
 
     train_labels = np.zeros(len(train_data), dtype=np.int32)
+    val_labels   = np.zeros(len(val_data), dtype=np.int32)
     test_labels  = build_labels(test_files, label_map, len(test_data))
 
-    return train_data, train_labels, test_data, test_labels
+    return train_data, train_labels, val_data, val_labels, test_data, test_labels
 
 
-def load_dataset(name: str, seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def load_dataset(name: str, seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Load dataset theo ten. Su dung du lieu thuc neu co san, khong fallback synthetic.
     Datasets ho tro: SMD, SMAP, MSL
