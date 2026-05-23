@@ -163,55 +163,70 @@ def load_real_smap_msl(dataset: str, data_dir: str = "datasets/SMAP_MSL") -> Tup
         half = len(data) // 2
         return data[:half], np.zeros(half, dtype=np.int32), data[half:], labels[half:]
 
-    def build_labels(files, segs_map, total_len):
-        labels_arr = np.zeros(total_len, dtype=np.int32)
-        offset = 0
-        for f in files:
-            arr = np.load(f)
-            n = len(arr)
-            chan = f.stem
-            if chan in segs_map:
-                for start, end in segs_map[chan]:
-                    s = max(0, int(start) - offset)
-                    e = min(n, int(end) - offset + 1)
-                    if s < e:
-                        labels_arr[offset + s: offset + e] = 1
-            offset += n
-        return labels_arr
-
-    def stack_npy(files, split_ratio=0.7):
-        arrays = [np.load(f).astype(np.float32) for f in files]
-        fixed = []
-        for a in arrays:
-            if a.ndim == 1:
-                a = a.reshape(-1, 1)
-            fixed.append(a)
+    train_file_map = {f.stem: f for f in train_files}
+    test_file_map = {f.stem: f for f in test_files}
+    
+    sorted_channels = sorted(list(valid_channels))
+    
+    train_parts = []
+    val_parts = []
+    test_parts = []
+    test_labels_parts = []
+    
+    for chan in sorted_channels:
+        if chan not in train_file_map or chan not in test_file_map:
+            continue
             
-        part1 = []
-        part2 = []
-        for a in fixed:
-            split_idx = int(len(a) * split_ratio)
-            part1.append(a[:split_idx])
-            if split_ratio < 1.0:
-                part2.append(a[split_idx:])
+        tr_f = train_file_map[chan]
+        te_f = test_file_map[chan]
+        
+        tr_arr = np.load(tr_f).astype(np.float32)
+        te_arr = np.load(te_f).astype(np.float32)
+        
+        if tr_arr.ndim == 1:
+            tr_arr = tr_arr.reshape(-1, 1)
+        if te_arr.ndim == 1:
+            te_arr = te_arr.reshape(-1, 1)
             
-        return np.concatenate(part1, axis=0), np.concatenate(part2, axis=0) if part2 else None
+        split_idx = int(len(tr_arr) * 0.7)
+        tr_part = tr_arr[:split_idx]
+        val_part = tr_arr[split_idx:]
+        te_part = te_arr
+        
+        # Local Normalization per channel
+        d_min = tr_part.min(axis=0, keepdims=True)
+        d_max = tr_part.max(axis=0, keepdims=True)
+        scale = d_max - d_min
+        scale[scale == 0] = 1.0
+        
+        tr_part = (tr_part - d_min) / scale
+        if len(val_part) > 0:
+            val_part = (val_part - d_min) / scale
+        te_part = (te_part - d_min) / scale
+        
+        train_parts.append(tr_part)
+        if len(val_part) > 0:
+            val_parts.append(val_part)
+        test_parts.append(te_part)
+        
+        # Build labels for this test channel
+        n_te = len(te_part)
+        lbls = np.zeros(n_te, dtype=np.int32)
+        if chan in label_map:
+            for start, end in label_map[chan]:
+                s = max(0, int(start))
+                e = min(n_te, int(end) + 1)
+                if s < e:
+                    lbls[s:e] = 1
+        test_labels_parts.append(lbls)
 
-    train_data, val_data = stack_npy(train_files, split_ratio=0.7)
-    test_data, _  = stack_npy(test_files, split_ratio=1.0)
-
-    # MinMaxScaler theo train
-    d_min = train_data.min(axis=0, keepdims=True)
-    d_max = train_data.max(axis=0, keepdims=True)
-    scale = d_max - d_min
-    scale[scale == 0] = 1.0
-    train_data = (train_data - d_min) / scale
-    val_data   = (val_data - d_min) / scale
-    test_data  = (test_data  - d_min) / scale
-
+    train_data = np.concatenate(train_parts, axis=0)
+    val_data = np.concatenate(val_parts, axis=0)
+    test_data = np.concatenate(test_parts, axis=0)
+    
     train_labels = np.zeros(len(train_data), dtype=np.int32)
-    val_labels   = np.zeros(len(val_data), dtype=np.int32)
-    test_labels  = build_labels(test_files, label_map, len(test_data))
+    val_labels = np.zeros(len(val_data), dtype=np.int32)
+    test_labels = np.concatenate(test_labels_parts, axis=0)
 
     return train_data, train_labels, val_data, val_labels, test_data, test_labels
 

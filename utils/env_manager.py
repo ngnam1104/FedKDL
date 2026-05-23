@@ -120,13 +120,10 @@ class EnvironmentManager:
         window_size: int = 10, val_ratio: float = 0.3
     ) -> DataPartitionSnapshot:
         
-        train_data, train_labels, test_data, test_labels = load_dataset(dataset_name, seed=seed)
-        split_idx = int(len(train_data) * (1.0 - val_ratio))
-        train_data_split, val_data_split     = train_data[:split_idx],   train_data[split_idx:]
-        train_labels_split, val_labels_split = train_labels[:split_idx], train_labels[split_idx:]
-
-        train_ds = SlidingWindowDataset(train_data_split, train_labels_split, window_size=window_size)
-        val_ds   = SlidingWindowDataset(val_data_split,   val_labels_split,   window_size=window_size)
+        train_data, train_labels, val_data, val_labels, test_data, test_labels = load_dataset(dataset_name, seed=seed)
+        
+        train_ds = SlidingWindowDataset(train_data, train_labels, window_size=window_size)
+        val_ds   = SlidingWindowDataset(val_data,   val_labels,   window_size=window_size)
 
         client_indices = non_iid_partition(
             train_ds, net_cfg.N_SENSORS, alpha=alpha, seed=seed
