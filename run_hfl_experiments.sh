@@ -39,21 +39,21 @@ count=0
 echo "[HFL] Generating topologies and data partitions for 1D..."
 "$PYTHON" utils/generate_all_envs.py
 
-for n in "${N_LIST[@]}"; do
+for baseline in "${BASELINES[@]}"; do
   for ds in "${DATASETS[@]}"; do
-    for alpha in "${ALPHAS[@]}"; do
-      for seed in "${SEEDS[@]}"; do
-        topo="${ENVS_DIR}/1d/topo/N_${n}/topo_N${n}_seed${seed}.pkl"
-        alpha_str="${alpha//./p}"
-        data="${ENVS_DIR}/1d/data/${ds}/N_${n}/data_N${n}_${ds}_a${alpha_str}_seed${seed}.pkl"
+    for n in "${N_LIST[@]}"; do
+      for alpha in "${ALPHAS[@]}"; do
+        for seed in "${SEEDS[@]}"; do
+          topo="${ENVS_DIR}/1d/topo/N_${n}/topo_N${n}_seed${seed}.pkl"
+          alpha_str="${alpha//./p}"
+          data="${ENVS_DIR}/1d/data/${ds}/N_${n}/data_N${n}_${ds}_a${alpha_str}_seed${seed}.pkl"
 
-        if [[ ! -f "$topo" || ! -f "$data" ]]; then
-          echo "[Warning] Missing env: N=$n DS=$ds alpha=$alpha seed=$seed — run utils/generate_all_envs.py"
-          count=$(( count + ${#BASELINES[@]} ))
-          continue
-        fi
+          if [[ ! -f "$topo" || ! -f "$data" ]]; then
+            echo "[Warning] Missing env: N=$n DS=$ds alpha=$alpha seed=$seed — run utils/generate_all_envs.py"
+            count=$(( count + 1 ))
+            continue
+          fi
 
-        for baseline in "${BASELINES[@]}"; do
           count=$((count + 1))
           rho_str="${RHO_S//./p}"
           log_json="${OUT_DIR}/log_N${n}_${ds}_a${alpha_str}_${baseline}_rho${rho_str}_seed${seed}.json"
@@ -61,7 +61,7 @@ for n in "${N_LIST[@]}"; do
             echo "[$count/$total] Overwriting existing JSON: $log_json"
           fi
 
-          echo "[$count/$total] N=$n | DS=$ds | alpha=$alpha | seed=$seed | baseline=$baseline"
+          echo "[$count/$total] baseline=$baseline | DS=$ds | N=$n | alpha=$alpha | seed=$seed"
           set +e
           "$PYTHON" main_trainer.py \
             --topo "$topo" --data "$data" \
