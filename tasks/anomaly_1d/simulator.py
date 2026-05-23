@@ -195,7 +195,7 @@ class Simulator1D(BaseSimulator):
         self.model_template.load_state_dict(self.gateway.global_state_dict)
         self.model_template.eval()
         
-        from federated_core.metrics import best_f1_components
+        from federated_core.metrics import anomaly_threshold, point_adjusted_f1_components
         
         total_tp_pa = 0
         total_fp_pa = 0
@@ -217,6 +217,11 @@ class Simulator1D(BaseSimulator):
                     normal_errs = errs[y_val.numpy() == 0]
                     val_errors.extend(normal_errs)
             
+            if len(val_errors) == 0:
+                continue
+                
+            tau_A = anomaly_threshold(np.array(val_errors), percentile=99.0)
+            
             test_errors = []
             test_labels = []
             with torch.no_grad():
@@ -229,7 +234,7 @@ class Simulator1D(BaseSimulator):
             if len(test_errors) == 0:
                 continue
                 
-            tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = best_f1_components(np.array(test_labels), np.array(test_errors), steps=50)
+            tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = point_adjusted_f1_components(np.array(test_labels), np.array(test_errors), tau_A)
             total_tp_pa += tp_pa
             total_fp_pa += fp_pa
             total_fn_pa += fn_pa
