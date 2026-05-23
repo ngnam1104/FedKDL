@@ -179,7 +179,7 @@ def main():
             
             pa_f1, prec, rec, f1_std, prec_std, rec_std = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
             
-            print(f"[Centralized] PA-F1: {pa_f1:.4f} | F1-Score: {f1_std:.4f}")
+            print(f"[Centralized] PA-F1: {pa_f1:.4f} | F1-Score: {f1_std:.4f} | Prec: {prec:.4f} | Rec: {rec:.4f} | Prec-Std: {prec_std:.4f} | Rec-Std: {rec_std:.4f}")
             
             tau_cumul_s = [tau_comp_gw * t for t in range(1, T_rounds + 1)]
             e_cumul = [e_tx_raw_total + e_comp_gw * t for t in range(1, T_rounds + 1)]
