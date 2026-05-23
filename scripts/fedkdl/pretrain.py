@@ -160,10 +160,10 @@ def main():
         
         student_model = YOLO(student_ckpt)
         
-        # Huấn luyện 5 epochs thay vì 3
+        # Huấn luyện 10 epochs thay vì 3
         student_model.train(
             data=str(proxy_yaml_abs),
-            epochs=5,
+            epochs=10,
             batch=16,
             imgsz=640,
             device="0",  
