@@ -1,7 +1,7 @@
 """
 autoencoder.py
-Mô hình Autoencoder đối xứng nhỏ (~1,350 params) cho Anomaly Detection 1D.
-Kiến trúc: D → 32 → 16 → 8 → 16 → 32 → D
+Mô hình Autoencoder đối xứng vừa (~54,000 params) cho Anomaly Detection 1D.
+Kiến trúc: D → 64 → 32 → 16 → 32 → 64 → D
 Loss: MSE Reconstruction Error
 """
 
@@ -14,11 +14,8 @@ class SmallAutoencoder(nn.Module):
     """
     Symmetric Autoencoder cho time-series anomaly detection.
 
-    Encoder: D_in → 32 → 16 → 8  (bottleneck)
-    Decoder: 8 → 16 → 32 → D_in
-
-    Số tham số ≈ 1,350 với D_in = 38 (SMD).
-    Hàm loss: MSE(x, x̂) — Reconstruction Error.
+    Encoder: D_in → 64 → 32 → 16  (bottleneck)
+    Decoder: 16 → 32 → 64 → D_in
     """
 
     def __init__(self, input_dim: int):
@@ -31,21 +28,21 @@ class SmallAutoencoder(nn.Module):
 
         # Encoder
         self.encoder = nn.Sequential(
-            nn.Linear(input_dim, 32),
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
             nn.ReLU(),
             nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Linear(16, 8),
             nn.ReLU(),
         )
 
         # Decoder
         self.decoder = nn.Sequential(
-            nn.Linear(8, 16),
-            nn.ReLU(),
             nn.Linear(16, 32),
             nn.ReLU(),
-            nn.Linear(32, input_dim),
+            nn.Linear(32, 64),
+            nn.ReLU(),
+            nn.Linear(64, input_dim),
             # Không có activation cuối — dữ liệu đã normalize về [0,1]
         )
 
@@ -61,7 +58,7 @@ class SmallAutoencoder(nn.Module):
         return x_hat
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        """Lấy latent representation z ∈ ℝ^8."""
+        """Lấy latent representation z ∈ ℝ^16."""
         return self.encoder(x)
 
     def reconstruction_error(self, x: torch.Tensor) -> torch.Tensor:
