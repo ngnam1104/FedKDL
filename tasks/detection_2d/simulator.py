@@ -373,6 +373,7 @@ class Simulator2D(BaseSimulator):
             'workers': 0,
         }
         trainer = KDDetectionTrainer(overrides=overrides)
+        trainer.student_wrapper = self.global_student
         trainer.kd_lambda = 1.0
         trainer.set_teacher(self.teacher.yolo.model)
         trainer.model = self.global_student.yolo.model

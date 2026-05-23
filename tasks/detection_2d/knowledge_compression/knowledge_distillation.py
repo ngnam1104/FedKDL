@@ -170,6 +170,7 @@ class KDDetectionTrainer(DetectionTrainer):
     def __init__(self, overrides=None, _callbacks=None):
         super().__init__(overrides=overrides, _callbacks=_callbacks)
         self.teacher_model: Optional[nn.Module] = None
+        self.student_wrapper = None
         self.kd_temperature: float = 4.0
         self.kd_lambda: float = 1.0
 
@@ -181,6 +182,23 @@ class KDDetectionTrainer(DetectionTrainer):
             super()._setup_train()
         finally:
             LOGGER.warning = original_warning
+
+    def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
+        optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
+        
+        if self.student_wrapper and not self.student_wrapper.full_param:
+            payload_keys = set(self.student_wrapper.trainable_state_dict().keys())
+            for k, v in model.named_parameters():
+                if k in payload_keys:
+                    v.requires_grad = True
+                else:
+                    v.requires_grad = False
+                
+        # Filter frozen parameters from optimizer to prevent errors
+        for group in optimizer.param_groups:
+            group['params'] = [p for p in group['params'] if getattr(p, 'requires_grad', False)]
+            
+        return optimizer
 
     def validate(self):
         """Bỏ qua validate giữa các epoch để tiết kiệm thời gian cho Tier 3."""
