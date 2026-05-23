@@ -176,8 +176,14 @@ class BaseSimulator(ABC):
                 e_f2f_total += self._aggregate_intra_fog(m, fog, payloads, sensor_n_samples)
 
             # Liên cụm (Inter-cluster Cooperation)
-            rule_map = {'hfl_selective': 'selective', 'hfl_nearest': 'nearest', 'hfl_nocoop': 'nocoop'}
-            coop_rule = rule_map.get(self.baseline, 'nocoop')
+            if self.baseline in ['hfl_selective', 'hfl_nearest', 'hfl_nocoop']:
+                rule_map = {'hfl_selective': 'selective', 'hfl_nearest': 'nearest', 'hfl_nocoop': 'nocoop'}
+                coop_rule = rule_map.get(self.baseline, 'nocoop')
+            elif self.baseline in ['fedavg', 'fedprox', 'centralized']:
+                coop_rule = 'nocoop'
+            else:
+                # FedKDL và các biến thể ablation đều kế thừa cơ chế HFL-Selective
+                coop_rule = 'selective'
             
             all_intra = {m: fog.intra_state_dict for m, fog in self.fogs.items() if fog.intra_state_dict is not None}
             from physics_models.energy import e_tx

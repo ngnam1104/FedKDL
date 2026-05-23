@@ -42,7 +42,7 @@ DS="URPC"
 
 # Hàm chạy chung để tránh lặp code
 # Usage: run_baseline N ALPHA BASELINE
-total_tasks=22
+total_tasks=19
 current_task=0
 
 run_baseline() {
@@ -80,31 +80,31 @@ run_baseline() {
 
 echo ""
 echo "=== GROUP A: Ablation & Comparison ==="
-# N=20, Alpha=1.0, 10 baselines
+# N=30, Alpha=2.0, 10 baselines
 ALL_BASELINES=(
   "fedkdl" "fedkdl_r4" "full_param_kd" "full_param_nokd" 
   "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
   "fedavg" "fedprox" "centralized"
 )
 for b in "${ALL_BASELINES[@]}"; do
-  run_baseline 20 1.0 "$b"
+  run_baseline 30 2.0 "$b"
 done
 
 echo ""
 echo "=== GROUP B: Scalability ==="
-# N=30, 40 (N=20 đã có ở Group A), Alpha=1.0, 3 baselines
+# N=40, 50 (N=30 đã có ở Group A), Alpha=2.0, 3 baselines
 MAIN_BASELINES=("fedkdl" "fedavg" "centralized")
-for n in 30 40; do
+for n in 40 50; do
   for b in "${MAIN_BASELINES[@]}"; do
-    run_baseline "$n" 1.0 "$b"
+    run_baseline "$n" 2.0 "$b"
   done
 done
 
 echo ""
 echo "=== GROUP C: Heterogeneity ==="
-# N=20, Alpha=10000.0, 3 baselines
+# N=30, Alpha=10000.0, 3 baselines
 for b in "${MAIN_BASELINES[@]}"; do
-  run_baseline 20 10000.0 "$b"
+  run_baseline 30 10000.0 "$b"
 done
 
 echo ""
