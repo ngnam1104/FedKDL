@@ -126,14 +126,7 @@ def main():
             import torch
             
             data_part = EnvironmentManager.load_data_partition(str(data_path))
-            train_data, train_labels, test_data, test_labels = load_dataset(dataset, seed=seed)
-            
-            split_idx = int(len(train_data) * 0.7)
-            train_data_split = train_data[:split_idx]
-            train_labels_split = train_labels[:split_idx]
-            
-            val_data_split = train_data[split_idx:]
-            val_labels_split = train_labels[split_idx:]
+            train_data_split, train_labels_split, val_data_split, val_labels_split, test_data, test_labels = load_dataset(dataset, seed=seed)
             
             train_ds = SlidingWindowDataset(train_data_split, train_labels_split, window_size=10)
             val_ds   = SlidingWindowDataset(val_data_split,   val_labels_split,   window_size=10)
