@@ -96,11 +96,11 @@ def main():
     target_teacher_path_full = REPO_ROOT / "yolo12l_pretrained_full.pt"
     
     if teacher_ckpt.exists() and not target_teacher_path_full.exists():
-        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm tối đa 300 epochs (Early Stop=50) trên TOÀN BỘ dữ liệu từ checkpoint {teacher_ckpt}...")
+        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm tối đa 150 epochs (Early Stop=50) trên TOÀN BỘ dữ liệu từ checkpoint {teacher_ckpt}...")
         teacher_model = YOLO(str(teacher_ckpt))
         teacher_model.train(
             data=str(base_yaml_path), # Toàn bộ URPC2020.yaml
-            epochs=300,
+            epochs=150,
             patience=50,
             resume=True, # Resume nếu chạy lại bản đang dở
             batch=16,
