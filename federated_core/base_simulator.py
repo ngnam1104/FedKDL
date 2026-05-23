@@ -105,21 +105,23 @@ class BaseSimulator(ABC):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            print(f"\n{'='*60}")
-            print(f"|  [Simulator] BẮT ĐẦU VÒNG {t}/{T_rounds}  |")
-            print(f"{'='*60}\n")
+            if self.task_key == "2D":
+                print(f"\n{'='*60}")
+                print(f"|  [Simulator] BẮT ĐẦU VÒNG {t}/{T_rounds}  |")
+                print(f"{'='*60}\n")
 
             # --- Phase 1: Sensor Tier ---
             alive_sensors = [s.sensor_id for s in self.sensors.values() if s.alive]
             dead_sensors = [s.sensor_id for s in self.sensors.values() if not s.alive]
             missing_sensors = [i for i in range(self.net_cfg.N_SENSORS) if i not in self.sensors]
 
-            if missing_sensors:
-                print(f"[!] BỎ QUA {len(missing_sensors)} SENSORS (Out of Range / Mất kết nối): {missing_sensors}")
-            if dead_sensors:
-                print(f"[!] BỎ QUA {len(dead_sensors)} SENSORS (Đã chết / Hết pin): {dead_sensors}")
-            
-            print(f"[*] SENSORS ĐANG HOẠT ĐỘNG ({len(alive_sensors)}): {alive_sensors}\n")
+            if self.task_key == "2D":
+                if missing_sensors:
+                    print(f"[!] BỎ QUA {len(missing_sensors)} SENSORS (Out of Range / Mất kết nối): {missing_sensors}")
+                if dead_sensors:
+                    print(f"[!] BỎ QUA {len(dead_sensors)} SENSORS (Đã chết / Hết pin): {dead_sensors}")
+                
+                print(f"[*] SENSORS ĐANG HOẠT ĐỘNG ({len(alive_sensors)}): {alive_sensors}\n")
 
             if not alive_sensors:
                 print(f"[Simulator] All sensors depleted at round {t}. Stopping.")
