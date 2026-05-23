@@ -107,7 +107,7 @@ def main():
             batch=16,
             imgsz=640,
             device="0",  # Sẽ đổi nếu không có GPU
-            project="runs/teacher_pretrain",
+            project=str(REPO_ROOT / "runs/teacher_pretrain"),
             name="yolo12l_oracle",
             exist_ok=True,
             verbose=True
@@ -134,7 +134,7 @@ def main():
             batch=16,
             imgsz=640,
             device="0",
-            project="runs/teacher_pretrain",
+            project=str(REPO_ROOT / "runs/teacher_pretrain"),
             name="yolo12l_oracle_full",
             exist_ok=True,
             verbose=True
@@ -167,7 +167,7 @@ def main():
             batch=16,
             imgsz=640,
             device="0",  
-            project="runs/student_pretrain",
+            project=str(REPO_ROOT / "runs/student_pretrain"),
             name="yolo11n_warmup",
             exist_ok=True,
             verbose=True
