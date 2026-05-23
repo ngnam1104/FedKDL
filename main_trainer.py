@@ -153,6 +153,8 @@ def main():
                     mu=0.0,
                     device=device,
                 )
+                print(f"   -> [Centralized Training] Round {t+1}/{T_rounds} | Loss: {avg_loss:.4f}...", end="\r", flush=True)
+            print() # Xuống dòng khi kết thúc vòng lặp
             
             # Evaluate
             model.eval()
