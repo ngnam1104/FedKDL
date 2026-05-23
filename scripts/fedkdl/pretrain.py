@@ -95,14 +95,30 @@ def main():
     teacher_ckpt = REPO_ROOT / "yolo12l_pretrained.pt"
     target_teacher_path_full = REPO_ROOT / "yolo12l_pretrained_full.pt"
     
-    if teacher_ckpt.exists() and not target_teacher_path_full.exists():
-        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện thêm tối đa 150 epochs (Early Stop=50) trên TOÀN BỘ dữ liệu từ checkpoint {teacher_ckpt}...")
+    last_teacher_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/last.pt"
+    args_yaml = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/args.yaml"
+    
+    if last_teacher_path.exists() and not target_teacher_path_full.exists():
+        print(f"\n[Pre-train Teacher Hack] TÌM THẤY BẢN LAST.PT! Kích hoạt chế độ RESUME CHUẨN...")
+        
+        # Mở args.yaml và ép max epochs lên 300 để mô hình có không gian chạy tiếp (resume thêm)
+        if args_yaml.exists():
+            with open(args_yaml, 'r') as f:
+                args = yaml.safe_load(f)
+            args['epochs'] = 300  
+            with open(args_yaml, 'w') as f:
+                yaml.safe_dump(args, f)
+                
+        teacher_model = YOLO(str(last_teacher_path))
+        teacher_model.train(resume=True)
+        
+    elif teacher_ckpt.exists() and not target_teacher_path_full.exists():
+        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện TỪ ĐẦU (150 epochs) từ checkpoint {teacher_ckpt}...")
         teacher_model = YOLO(str(teacher_ckpt))
         teacher_model.train(
             data=str(base_yaml_path), # Toàn bộ URPC2020.yaml
             epochs=150,
             patience=50,
-            resume=True, # Resume nếu chạy lại bản đang dở
             batch=16,
             imgsz=640,
             device="0",
