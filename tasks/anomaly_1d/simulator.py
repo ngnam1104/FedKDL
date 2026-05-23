@@ -6,7 +6,7 @@ from federated_core.base_simulator import BaseSimulator
 from federated_core.workers import BaseWorker, BaseFogNode, BaseGateway
 # from tasks.anomaly_1d.dataloader import get_dataloaders # Removed since we build it locally
 from tasks.anomaly_1d.autoencoder import SmallAutoencoder, get_model_state_dict_copy
-from federated_core.metrics import anomaly_threshold, point_adjusted_f1
+from federated_core.metrics import anomaly_threshold, point_adjusted_f1, point_adjusted_f1_components
 
 
 class SensorWorker1D(BaseWorker):
