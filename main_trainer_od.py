@@ -52,8 +52,8 @@ def main():
     if args.lora_rank is not None:
         fed_cfg.LORA_RANK = args.lora_rank
         
-    # Ép LOCAL_EPOCHS = 2 cho 2D để cân bằng giữa thời gian huấn luyện và độ hội tụ
-    fed_cfg.LOCAL_EPOCHS = 2
+    # Ép LOCAL_EPOCHS = 3 cho 2D để các thiết bị học sâu hơn trên dữ liệu cục bộ
+    fed_cfg.LOCAL_EPOCHS = 3
 
     T_rounds = fed_cfg.GLOBAL_ROUNDS["2D"]
     
@@ -86,7 +86,7 @@ def main():
             data_path=str(data_path),
             baseline=args.baseline,
             test_yaml="datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml",
-            student_ckpt="yolo11n.pt",
+            student_ckpt="yolo11n_pretrained.pt" if Path("yolo11n_pretrained.pt").exists() else "yolo11n.pt",
             teacher_ckpt="yolo12l_pretrained.pt" if Path("yolo12l_pretrained.pt").exists() else "yolo12l.pt",
             device=device,
         )

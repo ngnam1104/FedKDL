@@ -93,32 +93,68 @@ def main():
     teacher_ckpt = "yolo12l.pt"
     print(f"\n[Pre-train Teacher] Bắt đầu huấn luyện {teacher_ckpt} trên Proxy Data...")
     
-    # Load model
-    model = YOLO(teacher_ckpt)
-    
-    # Huấn luyện 20 epochs (do chỉ dùng làm Oracle, không cần train quá lâu tránh mất thời gian)
-    model.train(
-        data=str(proxy_yaml_abs),
-        epochs=20,
-        batch=16,
-        imgsz=640,
-        device="0",  # Sẽ đổi nếu không có GPU
-        project="runs/teacher_pretrain",
-        name="yolo12l_oracle",
-        exist_ok=True,
-        verbose=True
-    )
-    
-    # 5. Lưu kết quả ra file pretrained
-    best_model_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle/weights/best.pt"
     target_path = REPO_ROOT / "yolo12l_pretrained.pt"
-    
-    if best_model_path.exists():
-        import shutil
-        shutil.copy(best_model_path, target_path)
-        print(f"\n[Pre-train Teacher] HOÀN THÀNH! Đã xuất Teacher Model ra: {target_path}")
+    if not target_path.exists():
+        # Load model
+        model = YOLO(teacher_ckpt)
+        
+        # Huấn luyện 20 epochs
+        model.train(
+            data=str(proxy_yaml_abs),
+            epochs=20,
+            batch=16,
+            imgsz=640,
+            device="0",  # Sẽ đổi nếu không có GPU
+            project="runs/teacher_pretrain",
+            name="yolo12l_oracle",
+            exist_ok=True,
+            verbose=True
+        )
+        
+        # 5. Lưu kết quả ra file pretrained
+        best_model_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle/weights/best.pt"
+        if best_model_path.exists():
+            import shutil
+            shutil.copy(best_model_path, target_path)
+            print(f"\n[Pre-train Teacher] HOÀN THÀNH! Đã xuất Teacher Model ra: {target_path}")
+        else:
+            print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy file {best_model_path}")
     else:
-        print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy file {best_model_path}")
+        print(f"\n[Pre-train Teacher] File {target_path} đã tồn tại, BỎ QUA huấn luyện Teacher.")
+    
+    # 6. Tiến hành Pre-train Student khởi tạo (YOLO11n) - Global Warm-up
+    student_ckpt = "yolo11n.pt"
+    target_student_path = REPO_ROOT / "yolo11n_pretrained.pt"
+    
+    if not target_student_path.exists():
+        print(f"\n[Pre-train Student] Bắt đầu khởi động ấm (Warm-up) {student_ckpt} trên Proxy Data...")
+        
+        student_model = YOLO(student_ckpt)
+        
+        # Huấn luyện 10 epochs
+        student_model.train(
+            data=str(proxy_yaml_abs),
+            epochs=10,
+            batch=16,
+            imgsz=640,
+            device="0",  
+            project="runs/student_pretrain",
+            name="yolo11n_warmup",
+            exist_ok=True,
+            verbose=True
+        )
+        
+        # Lưu kết quả ra file pretrained
+        best_student_path = REPO_ROOT / "runs/student_pretrain/yolo11n_warmup/weights/best.pt"
+        
+        if best_student_path.exists():
+            import shutil
+            shutil.copy(best_student_path, target_student_path)
+            print(f"\n[Pre-train Student] HOÀN THÀNH! Đã xuất Student Model khởi tạo ra: {target_student_path}")
+        else:
+            print(f"\n[Pre-train Student] Lỗi: Không tìm thấy file {best_student_path}")
+    else:
+        print(f"\n[Pre-train Student] File {target_student_path} đã tồn tại, BỎ QUA khởi động ấm Student.")
 
 if __name__ == "__main__":
     main()

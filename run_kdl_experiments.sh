@@ -40,7 +40,7 @@ fi
 
 
 # Cấu hình chung
-ROUNDS=20
+ROUNDS=30
 SEED=42
 DS="URPC"
 
