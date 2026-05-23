@@ -143,8 +143,17 @@ def main():
             model = SmallAutoencoder(input_dim=input_dim).to(device)
             
             from tasks.anomaly_1d.trainer import local_sgd
+            pa_f1_history = []
+            f1_std_history = []
+            prec_history = []
+            rec_history = []
+            prec_std_history = []
+            rec_std_history = []
+            loss_history = []
+            
             # Train T_rounds
             for t in range(T_rounds):
+                model.train()
                 _, avg_loss = local_sgd(
                     model=model,
                     dataloader=train_loader,
@@ -153,33 +162,41 @@ def main():
                     mu=0.0,
                     device=device,
                 )
-                print(f"   -> [Centralized Training] Round {t+1}/{T_rounds} | Loss: {avg_loss:.4f}...", end="\r", flush=True)
+                
+                # Evaluate sau mỗi vòng
+                model.eval()
+                val_errors = []
+                with torch.no_grad():
+                    for x_val, y_val in val_loader:
+                        x_val = x_val.to(device)
+                        errs = model.reconstruction_error(x_val).cpu().numpy()
+                        normal_errs = errs[y_val.numpy() == 0]
+                        val_errors.extend(normal_errs)
+                
+                tau_A = anomaly_threshold(np.array(val_errors), percentile=99.0)
+                
+                test_errors = []
+                test_labels_list = []
+                with torch.no_grad():
+                    for x_test, y_test in test_loader:
+                        x_test = x_test.to(device)
+                        errs = model.reconstruction_error(x_test)
+                        test_errors.extend(errs.cpu().numpy())
+                        test_labels_list.extend(y_test.numpy())
+                
+                pa_f1, prec, rec, f1_std, prec_std, rec_std = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
+                
+                pa_f1_history.append(pa_f1)
+                f1_std_history.append(f1_std)
+                prec_history.append(prec)
+                rec_history.append(rec)
+                prec_std_history.append(prec_std)
+                rec_std_history.append(rec_std)
+                loss_history.append(avg_loss)
+                
+                print(f"   -> [Centralized Training] Round {t+1}/{T_rounds} | Loss: {avg_loss:.4f} | PA-F1: {pa_f1:.4f} | Prec: {prec:.4f} | Rec: {rec:.4f}        ", end="\r", flush=True)
+                
             print() # Xuống dòng khi kết thúc vòng lặp
-            
-            # Evaluate
-            model.eval()
-            val_errors = []
-            with torch.no_grad():
-                for x_val, y_val in val_loader:
-                    x_val = x_val.to(device)
-                    errs = model.reconstruction_error(x_val).cpu().numpy()
-                    normal_errs = errs[y_val.numpy() == 0]
-                    val_errors.extend(normal_errs)
-            
-            tau_A = anomaly_threshold(np.array(val_errors), percentile=99.0)
-            
-            test_errors = []
-            test_labels_list = []
-            with torch.no_grad():
-                for x_test, y_test in test_loader:
-                    x_test = x_test.to(device)
-                    errs = model.reconstruction_error(x_test)
-                    test_errors.extend(errs.cpu().numpy())
-                    test_labels_list.extend(y_test.numpy())
-            
-            pa_f1, prec, rec, f1_std, prec_std, rec_std = point_adjusted_f1(np.array(test_labels_list), np.array(test_errors), tau_A)
-            
-            print(f"[Centralized] PA-F1: {pa_f1:.4f} | F1-Score: {f1_std:.4f} | Prec: {prec:.4f} | Rec: {rec:.4f} | Prec-Std: {prec_std:.4f} | Rec-Std: {rec_std:.4f}")
             
             tau_cumul_s = [tau_comp_gw * t for t in range(1, T_rounds + 1)]
             e_cumul = [e_tx_raw_total + e_comp_gw * t for t in range(1, T_rounds + 1)]
@@ -188,13 +205,13 @@ def main():
             
             history = {
                 'round': list(range(1, T_rounds + 1)),
-                'PA-F1': [pa_f1] * T_rounds,
-                'F1-Score': [f1_std] * T_rounds,
-                'Prec': [prec] * T_rounds,
-                'Rec': [rec] * T_rounds,
-                'Prec-Std': [prec_std] * T_rounds,
-                'Rec-Std': [rec_std] * T_rounds,
-                'loss': [avg_loss] * T_rounds,
+                'PA-F1': pa_f1_history,
+                'F1-Score': f1_std_history,
+                'Prec': prec_history,
+                'Rec': rec_history,
+                'Prec-Std': prec_std_history,
+                'Rec-Std': rec_std_history,
+                'loss': loss_history,
                 'alive': [N] * T_rounds,
                 'tau_round_s': [tau_comp_gw] * T_rounds,
                 'tau_cumul_s': tau_cumul_s,
