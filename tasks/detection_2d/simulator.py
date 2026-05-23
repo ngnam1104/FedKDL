@@ -78,6 +78,10 @@ class SensorWorker2D(BaseWorker):
             payload_kb = (total_params * 4) / 1024.0
             print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB Float32")
 
+        del local_student
+        gc.collect()
+        torch.cuda.empty_cache()
+
         return payload_bytes, payload_kb, delta_norm, train_loss
 
 
@@ -382,8 +386,15 @@ class Simulator2D(BaseSimulator):
         # Cập nhật global state dict sau KD
         self.gateway.global_state_dict = self.global_student.trainable_state_dict()
         print(f"[Gateway KD] Done.")
+        
+        del trainer
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def evaluate(self) -> Dict[str, float]:
         self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
-        return evaluate_od(self.global_student, self.test_yaml, self.device)
+        res = evaluate_od(self.global_student, self.test_yaml, self.device)
+        gc.collect()
+        torch.cuda.empty_cache()
+        return res
 

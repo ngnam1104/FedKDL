@@ -203,6 +203,13 @@ def main():
                 'e_cumul': e_cumul,
             }
             
+            del model
+            del sim
+            import gc
+            gc.collect()
+            import torch
+            torch.cuda.empty_cache()
+            
             return {
                 "metadata": {
                     "task": "2D",
@@ -220,7 +227,8 @@ def main():
         print(f"[Trainer 2D] topo={topo_path}")
         print(f"[Trainer 2D] data={data_path}")
         history = sim.run(T_rounds=T_rounds, baseline=args.baseline)
-        return build_experiment_bundle(
+        
+        bundle = build_experiment_bundle(
             sim,
             history,
             metadata={
@@ -236,6 +244,14 @@ def main():
                 "data_path": str(data_path),
             },
         )
+        
+        del sim
+        import gc
+        gc.collect()
+        import torch
+        torch.cuda.empty_cache()
+        
+        return bundle
 
     run_trainer_with_artifacts(paths, _train, encoder_cls=NumpyEncoder)
 

@@ -7,6 +7,8 @@ tại Gateway TRƯỚC KHI bắt đầu quá trình Federated Learning.
 import os
 import sys
 import yaml
+import gc
+import torch
 from pathlib import Path
 from ultralytics import YOLO
 
@@ -121,6 +123,10 @@ def main():
             print(f"\n[Pre-train Teacher] HOÀN THÀNH giai đoạn 1! Đã xuất Teacher Model ra: {target_path}")
         else:
             print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy file {best_model_path}")
+            
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
     else:
         print(f"\n[Pre-train Teacher] File {target_path} đã tồn tại, BỎ QUA huấn luyện Teacher giai đoạn 1.")
         
@@ -148,6 +154,10 @@ def main():
             print(f"\n[Pre-train Teacher Hack] HOÀN THÀNH! Đã ghi đè Teacher bằng phiên bản Full Data!")
         else:
             print(f"\n[Pre-train Teacher Hack] Lỗi: Không tìm thấy file {best_full_path}")
+            
+        del model_full
+        gc.collect()
+        torch.cuda.empty_cache()
     elif target_path_full.exists():
         print(f"\n[Pre-train Teacher Hack] File {target_path_full} đã tồn tại, BỎ QUA huấn luyện thêm Teacher.")
     
@@ -157,6 +167,27 @@ def main():
     
     if not target_student_path.exists():
         print(f"\n[Pre-train Student] Bắt đầu khởi động ấm (Warm-up) {student_ckpt} trên Proxy Data...")
+        
+        print("\n=== [Kiểm tra bộ nhớ (RAM/VRAM) trước khi Train Student] ===")
+        try:
+            import psutil
+            vm = psutil.virtual_memory()
+            print(f"[-] System RAM: Dùng {vm.used / (1024**3):.2f} GB / Tổng {vm.total / (1024**3):.2f} GB (Trống: {vm.available / (1024**3):.2f} GB)")
+        except ImportError:
+            print("[-] System RAM: (Thư viện psutil chưa cài đặt, không thể đo lường)")
+            
+        import torch
+        if torch.cuda.is_available():
+            device_id = torch.cuda.current_device()
+            vram_total = torch.cuda.get_device_properties(device_id).total_memory
+            vram_allocated = torch.cuda.memory_allocated(device_id)
+            vram_reserved = torch.cuda.memory_reserved(device_id)
+            vram_free = vram_total - vram_reserved
+            print(f"[-] GPU VRAM  : Đã cấp phát {vram_allocated / (1024**3):.2f} GB, Đã giữ {vram_reserved / (1024**3):.2f} GB / Tổng {vram_total / (1024**3):.2f} GB")
+            print(f"[-] GPU VRAM (Trống thực tế): {vram_free / (1024**3):.2f} GB")
+        else:
+            print("[-] GPU VRAM: Không tìm thấy GPU CUDA.")
+        print("============================================================\n")
         
         student_model = YOLO(student_ckpt)
         
@@ -170,7 +201,9 @@ def main():
             project=str(REPO_ROOT / "runs/student_pretrain"),
             name="yolo11n_warmup",
             exist_ok=True,
-            verbose=True
+            verbose=True,
+            workers=2,    # Giảm số luồng load data để tránh tràn RAM hệ thống
+            plots=False   # Tắt vẽ biểu đồ ở cuối epoch 10 để tránh lỗi Crash
         )
         
         # Lưu kết quả ra file pretrained
@@ -182,6 +215,10 @@ def main():
             print(f"\n[Pre-train Student] HOÀN THÀNH! Đã xuất Student Model khởi tạo ra: {target_student_path}")
         else:
             print(f"\n[Pre-train Student] Lỗi: Không tìm thấy file {best_student_path}")
+            
+        del student_model
+        gc.collect()
+        torch.cuda.empty_cache()
     else:
         print(f"\n[Pre-train Student] File {target_student_path} đã tồn tại, BỎ QUA khởi động ấm Student.")
 
