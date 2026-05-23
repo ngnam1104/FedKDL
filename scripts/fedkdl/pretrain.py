@@ -1,8 +1,8 @@
 """
-pretrain_student.py
-Tiền huấn luyện mô hình Student (YOLO11n) - Khởi động ấm (Warm-up) 
-trên 20% dữ liệu Public (Proxy Data) tại Gateway TRƯỚC KHI bắt đầu 
-quá trình Federated Learning.
+pretrain.py
+1. Tiền huấn luyện mô hình Teacher (YOLO12l) trên toàn bộ dữ liệu (5 epochs).
+2. Tiền huấn luyện mô hình Student (YOLO11n) - Khởi động ấm (Warm-up) 
+   trên 20% dữ liệu Public (Proxy Data) (3 epochs).
 """
 import os
 import sys
@@ -91,12 +91,47 @@ def main():
     print(f" -> Đã trích xuất {len(public_images)} ảnh làm Proxy Data.")
     print(f" -> Đã lưu cấu hình tại: {proxy_yaml_abs}")
     
-    # 6. Tiến hành Pre-train Student khởi tạo (YOLO11n) - Global Warm-up
+    # 4. Tiến hành Pre-train Teacher (YOLO12l) trên TOÀN BỘ dữ liệu (5 epochs)
+    teacher_ckpt = "yolo12l.pt"
+    target_teacher_path = REPO_ROOT / "yolo12l_pretrained.pt"
+    
+    if not target_teacher_path.exists():
+        print(f"\n[Pre-train Teacher] Bắt đầu huấn luyện {teacher_ckpt} trên TOÀN BỘ dữ liệu (5 epochs)...")
+        teacher_model = YOLO(teacher_ckpt)
+        teacher_model.train(
+            data=str(base_yaml_path), # Toàn bộ URPC2020.yaml
+            epochs=5,
+            batch=16,
+            imgsz=640,
+            device="0",
+            project=str(REPO_ROOT / "runs/teacher_pretrain"),
+            name="yolo12l_oracle_full",
+            exist_ok=True,
+            verbose=True,
+            workers=4,
+            plots=False
+        )
+        
+        best_teacher_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/best.pt"
+        if best_teacher_path.exists():
+            import shutil
+            shutil.copy(best_teacher_path, target_teacher_path)
+            print(f"\n[Pre-train Teacher] HOÀN THÀNH! Đã ghi Teacher bằng phiên bản Full Data!")
+        else:
+            print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy file {best_teacher_path}")
+            
+        del teacher_model
+        gc.collect()
+        torch.cuda.empty_cache()
+    else:
+        print(f"\n[Pre-train Teacher] File {target_teacher_path} đã tồn tại, BỎ QUA huấn luyện Teacher.")
+
+    # 5. Tiến hành Pre-train Student khởi tạo (YOLO11n) - Global Warm-up
     student_ckpt = "yolo11n.pt"
     target_student_path = REPO_ROOT / "yolo11n_pretrained.pt"
     
     if not target_student_path.exists():
-        print(f"\n[Pre-train Student] Bắt đầu khởi động ấm (Warm-up) {student_ckpt} trên Proxy Data...")
+        print(f"\n[Pre-train Student] Bắt đầu khởi động ấm (Warm-up) {student_ckpt} trên Proxy Data (3 epochs)...")
         
         print("\n=== [Kiểm tra bộ nhớ (RAM/VRAM) trước khi Train Student] ===")
         try:
@@ -121,10 +156,10 @@ def main():
         
         student_model = YOLO(student_ckpt)
         
-        # Huấn luyện 10 epochs
+        # Huấn luyện 3 epochs thay vì 10
         student_model.train(
             data=str(proxy_yaml_abs),
-            epochs=10,
+            epochs=3,
             batch=16,
             imgsz=640,
             device="0",  
@@ -133,7 +168,7 @@ def main():
             exist_ok=True,
             verbose=True,
             workers=2,    # Giảm số luồng load data để tránh tràn RAM hệ thống
-            plots=False   # Tắt vẽ biểu đồ ở cuối epoch 10 để tránh lỗi Crash
+            plots=False   # Tắt vẽ biểu đồ ở cuối epoch để tránh lỗi Crash
         )
         
         # Lưu kết quả ra file pretrained
