@@ -101,7 +101,7 @@ def local_sgd_od(
 
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
     overrides = {
-        'model': "yolo26n.pt",
+        'model': "yolo11n.pt",
         'data': client_yaml,
         'epochs': epochs,
         'batch': batch_size,
