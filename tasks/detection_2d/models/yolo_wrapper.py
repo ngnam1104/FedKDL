@@ -26,6 +26,14 @@ class StudentModel:
         use_lora: Có sử dụng LoRA hay không.
         """
         self.yolo = YOLO(ckpt)
+        
+        # [FIX BUG] Xóa cờ "inference tensor" do Ultralytics EMA lưu vào file best.pt
+        for m in self.yolo.model.modules():
+            for name, param in list(m.named_parameters(recurse=False)):
+                setattr(m, name, torch.nn.Parameter(param.clone().detach(), requires_grad=param.requires_grad))
+            for name, buf in list(m.named_buffers(recurse=False)):
+                setattr(m, name, buf.clone().detach())
+
         self.rank = rank
         self.full_param = full_param
         self.use_lora = use_lora
@@ -121,6 +129,14 @@ class TeacherModel:
 
     def __init__(self, ckpt: str = "yolo12l.pt"):
         self.yolo = YOLO(ckpt)
+        
+        # [FIX BUG] Xóa cờ "inference tensor" do Ultralytics EMA lưu vào file best.pt
+        for m in self.yolo.model.modules():
+            for name, param in list(m.named_parameters(recurse=False)):
+                setattr(m, name, torch.nn.Parameter(param.clone().detach(), requires_grad=False))
+            for name, buf in list(m.named_buffers(recurse=False)):
+                setattr(m, name, buf.clone().detach())
+                
         self.yolo.model.eval()
         for p in self.yolo.model.parameters():
             p.requires_grad_(False)
