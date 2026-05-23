@@ -7,7 +7,7 @@ Mô phỏng **Federated Learning** trên mạng **Internet of Underwater Things 
 | **1D — HFL** | Anomaly detection (Autoencoder), Top-K + INT8 | `main_trainer.py` |
 | **2D — FedKDL** | Object detection (YOLO26n + LoRA), Gateway-side KD | `main_trainer_od.py` |
 
-Kiến trúc: `federated_core/` (chung) + `tasks/anomaly_1d/` + `tasks/detection_2d/`. Chi tiết: [`fedkdl_technical_report.md`](fedkdl_technical_report.md).
+Kiến trúc: `federated_core/` (chung) + `tasks/anomaly_1d/` + `tasks/detection_2d/`.
 
 ---
 
@@ -15,7 +15,7 @@ Kiến trúc: `federated_core/` (chung) + `tasks/anomaly_1d/` + `tasks/detection
 
 - Python 3.10+
 - Linux server khuyến nghị cho train dài
-- **HFL (1D):** CPU đủ (model ~1.3k params)
+- **HFL (1D):** CPU đủ (model ~54k params)
 - **KDL (2D):** GPU + CUDA khuyến nghị
 - **URPC2020:** token Kaggle (xem bên dưới)
 
@@ -48,7 +48,7 @@ tmux new -s fedkdl
 ```bash
 ./quick_start.sh --help
 ./quick_start.sh --setup-only      # chỉ venv
-./quick_start.sh --train-only      # đã có data + environments/
+./quick_start.sh --train-only      # bỏ qua tải data và setup môi trường
 ./quick_start.sh --hfl-only        # chỉ 1D (CPU)
 ./quick_start.sh --kdl-only        # chỉ 2D (GPU)
 ```
@@ -64,7 +64,7 @@ tmux new -s fedkdl
 # Cách 1 — export trong shell / tmux
 export KAGGLE_API_TOKEN=KGAT_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# Cách 2 — file local (đã .gitignore)
+# Cách 2 — file local (đã được khai báo trong .gitignore)
 cp .env.example .env
 # Sửa .env: export KAGGLE_API_TOKEN=...
 ```
@@ -145,10 +145,6 @@ FedKDL/
 └── run_kdl_experiments.ps1 / .sh
 ```
 
-**Không có trong git** (tạo trên server): `datasets/`, `environments/`, `results/`, `.venv/`, `.env`.
-
----
-
 ## Windows (dev)
 
 ```powershell
@@ -158,9 +154,4 @@ FedKDL/
 
 Token Kaggle: `$env:KAGGLE_API_TOKEN = "..."` trước khi tải data.
 
----
 
-## Tài liệu thêm
-
-- [`fedkdl_technical_report.md`](fedkdl_technical_report.md) — kiến trúc, pipeline 2D, debug
-- [`update_2dFL.md`](update_2dFL.md) — quyết định payload / Gateway KD

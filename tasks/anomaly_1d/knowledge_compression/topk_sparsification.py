@@ -5,7 +5,7 @@ Top-K Sparsification với Error Feedback cho gradient compression.
 Triển khai theo bài báo gốc Omeke et al. 2026 (Scenario 1):
     - Giữ lại K tọa độ có |value| lớn nhất (ρ_s = 0.05 → K = 5% params)
     - Error Feedback: cộng residual từ round trước vào Δθ hiện tại
-    - Payload ≈ 1.3 kbit với autoencoder ~1350 params
+    - Payload ≈ 65 kbit với autoencoder ~54,000 params
 """
 
 import torch

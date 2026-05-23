@@ -7,7 +7,7 @@ Triển khai Eq. 37 trong Research Proposal:
     Δ = (max(X) - min(X)) / 255
 
 Dùng sau Top-K để encode topk_values → INT8.
-Payload cuối: ≈ 1.3 kbit (với K ≈ 68 entries cho AE 1350 params).
+Payload cuối: ≈ 65 kbit (với K ≈ 2700 entries cho AE 54,000 params).
 """
 
 import torch
