@@ -68,7 +68,8 @@ def main():
     )
 
     def _train():
-        device = "cpu"
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         # Initialize Simulator first to get dataloaders and network info
         sim = Simulator1D(
             topo_path=str(topo_path),
