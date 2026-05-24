@@ -45,6 +45,7 @@ class BaseSimulator(ABC):
     def _load_environment(self):
         from utils.env_manager import EnvironmentManager
         topo = EnvironmentManager.load_topology(self.topo_path)
+        self.N_actual = topo.N            # Số sensor thực tế trong topology (từ file pkl)
         self.sensor_positions = topo.sensor_positions
         self.fog_positions = topo.fog_positions
         self.gateway_position = topo.gateway_position
@@ -126,7 +127,7 @@ class BaseSimulator(ABC):
             # --- Phase 1: Sensor Tier ---
             alive_sensors = [s.sensor_id for s in self.sensors.values() if s.alive]
             dead_sensors = [s.sensor_id for s in self.sensors.values() if not s.alive]
-            missing_sensors = [i for i in range(self.net_cfg.N_SENSORS) if i not in self.sensors]
+            missing_sensors = [i for i in range(self.N_actual) if i not in self.sensors]
 
             if self.task_key == "2D":
                 if missing_sensors:
@@ -135,7 +136,7 @@ class BaseSimulator(ABC):
                     print(f"[!] BỎ QUA {len(dead_sensors)} SENSORS (Đã chết / Hết pin): {dead_sensors}")
                 print(f"[*] SENSORS ĐANG HOẠT ĐỘNG ({len(alive_sensors)}): {alive_sensors}\n")
             else:
-                total = self.net_cfg.N_SENSORS
+                total = self.N_actual
                 connected = len(alive_sensors)
                 out_of_range = len(missing_sensors)
                 dead = len(dead_sensors)
