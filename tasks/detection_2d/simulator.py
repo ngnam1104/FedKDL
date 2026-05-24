@@ -278,6 +278,7 @@ class Simulator2D(BaseSimulator):
         self.global_student = StudentModel(student_ckpt, rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         
         self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
+        self._last_kd_metrics = {}
         
         self.fog_model_bits = sum(t.numel() for t in self.gateway.global_state_dict.values()) * 32
         
@@ -398,7 +399,15 @@ class Simulator2D(BaseSimulator):
         """
         classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
         if 'nokd' in self.baseline or self.baseline in classic_baselines:
-            return
+            self._last_kd_metrics = {
+                'kd_active': False,
+                'kd_epochs': 0,
+                'kd_kl': 0.0,
+                'kd_hidden': 0.0,
+                'kd_attn': 0.0,
+                'kd_weighted': 0.0,
+            }
+            return self._last_kd_metrics
 
         import os
         from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
@@ -447,6 +456,26 @@ class Simulator2D(BaseSimulator):
         trainer.model = self.global_student.yolo.model
         print(f"[Gateway KD] Distilling global model with Teacher on proxy data...")
         trainer.train()
+
+        kd_metrics = trainer.get_kd_summary() if hasattr(trainer, 'get_kd_summary') else {
+            'kd_active': True,
+            'kd_epochs': 0,
+            'kd_kl': 0.0,
+            'kd_hidden': 0.0,
+            'kd_attn': 0.0,
+            'kd_weighted': 0.0,
+        }
+        self._last_kd_metrics = kd_metrics
+
+        if kd_metrics.get('kd_active', False):
+            print(
+                f"[Gateway KD] Summary | "
+                f"KL={kd_metrics.get('kd_kl', 0.0):.4f}, "
+                f"Hidden={kd_metrics.get('kd_hidden', 0.0):.4f}, "
+                f"Attn={kd_metrics.get('kd_attn', 0.0):.4f}, "
+                f"Weighted={kd_metrics.get('kd_weighted', 0.0):.4f}"
+            )
+
         # Cập nhật global state dict sau KD
         self.gateway.global_state_dict = self.global_student.trainable_state_dict()
         print(f"[Gateway KD] Done.")
@@ -454,6 +483,7 @@ class Simulator2D(BaseSimulator):
         del trainer
         gc.collect()
         torch.cuda.empty_cache()
+        return self._last_kd_metrics
 
     def evaluate(self) -> Dict[str, float]:
         # [FIX] Ultralytics trainer.train() leaves inference-mode tensors on the model

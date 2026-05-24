@@ -105,6 +105,15 @@ class BaseSimulator(ABC):
             self.baseline = baseline
         import concurrent.futures
         
+        # In ra thông tin topology để biết sensor nào thuộc cụm nào
+        print("\n" + "="*60)
+        print("[*] CLUSTER TOPOLOGY INFO:")
+        if self.is_flat:
+            print("    (Flat Topology: Sensors connect directly or via relays to Gateway)")
+        for fog_id, fog in self.fogs.items():
+            print(f"    - Fog {fog_id} manages sensors: {fog.cluster_members}")
+        print("="*60 + "\n")
+        
         cumulative_payload = 0.0
         cumulative_joint_cost = 0.0  # Σ joint_cost^t  — tích lũy Eq.22 qua các round
         
@@ -262,7 +271,7 @@ class BaseSimulator(ABC):
             # --- Phase 3b: Gateway-side Knowledge Distillation (Tier 3) ---
             # Hook: Simulator2D override này để chạy KD với Teacher sau global aggregation.
             # Simulator1D giữ mặc định (no-op).
-            self._gateway_knowledge_distillation()
+            kd_metrics = self._gateway_knowledge_distillation() or {}
 
             # --- Phase 4: Logging ---
             self.energy_tracker.add_round(t, e_s2f_total, e_f2f_total, e_f2g_total, e_comp_total)
@@ -347,6 +356,7 @@ class BaseSimulator(ABC):
                 # ── Per-Sensor Local Evaluation ──────────────────────────────────
                 'sensor_train_metrics': sensor_local_metrics,
             }
+            metrics.update(kd_metrics)
             metrics.update(eval_metrics)
 
             self.metrics_logger.log(t, metrics)

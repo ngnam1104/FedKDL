@@ -66,6 +66,14 @@ def _remove_hooks(handles: List):
         h.remove()
 
 
+def _strip_inference_tensors(module: nn.Module):
+    """Clone-detach all params/buffers to drop inference-mode tensor flags."""
+    for p in module.parameters():
+        p.data = p.data.clone().detach()
+    for b in module.buffers():
+        b.data = b.data.clone().detach()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Adaptive Hidden Loss và Attention Loss
 # ─────────────────────────────────────────────────────────────────────────────
@@ -180,20 +188,42 @@ class KDDetectionTrainer(DetectionTrainer):
         self.epoch_attn_loss = 0.0
         self.epoch_kd_loss = 0.0
         self.batch_count = 0
+        self.kd_epoch_history = []
 
     def _setup_train(self):
         from ultralytics.utils import LOGGER
         original_warning = LOGGER.warning
         LOGGER.warning = lambda *args, **kwargs: None
+
+        # Ensure both student/teacher are regular tensors before training graph is built.
+        _strip_inference_tensors(self.model)
+        if self.teacher_model is not None:
+            _strip_inference_tensors(self.teacher_model)
         
         # Callback để log KD loss ra console
         def log_kd_loss(trainer):
             if hasattr(trainer, 'batch_count') and trainer.batch_count > 0:
-                print(f"\n[KD Epoch {trainer.epoch+1}] "
-                      f"KL: {trainer.epoch_kl_loss/trainer.batch_count:.4f} | "
-                      f"Hidden: {trainer.epoch_hidden_loss/trainer.batch_count:.4f} | "
-                      f"Attn: {trainer.epoch_attn_loss/trainer.batch_count:.4f} | "
-                      f"Weighted KD: {trainer.epoch_kd_loss/trainer.batch_count:.4f}")
+                mean_kl = trainer.epoch_kl_loss / trainer.batch_count
+                mean_hidden = trainer.epoch_hidden_loss / trainer.batch_count
+                mean_attn = trainer.epoch_attn_loss / trainer.batch_count
+                mean_weighted = trainer.epoch_kd_loss / trainer.batch_count
+
+                LOGGER.info(
+                    f"[KD Epoch {trainer.epoch + 1}] "
+                    f"KL: {mean_kl:.4f} | "
+                    f"Hidden: {mean_hidden:.4f} | "
+                    f"Attn: {mean_attn:.4f} | "
+                    f"Weighted KD: {mean_weighted:.4f}"
+                )
+
+                trainer.kd_epoch_history.append({
+                    'epoch': int(trainer.epoch + 1),
+                    'kl': float(mean_kl),
+                    'hidden': float(mean_hidden),
+                    'attn': float(mean_attn),
+                    'weighted': float(mean_weighted),
+                    'batches': int(trainer.batch_count),
+                })
                 trainer.epoch_kl_loss = 0.0
                 trainer.epoch_hidden_loss = 0.0
                 trainer.epoch_attn_loss = 0.0
@@ -261,9 +291,9 @@ class KDDetectionTrainer(DetectionTrainer):
 
         # ── 2. Thu hidden features của Student (trong pha forward hiện tại) ─
         s_hook, s_handles = _register_hooks(self.model)
-        # Re-forward student để lấy features (preds đã có, nhưng cần features)
-        with torch.no_grad():
-            _ = self.model(imgs)
+        # Forward lại student để thu features. Không dùng inference/no_grad để tránh
+        # tạo tensor không theo dõi version counter trong graph huấn luyện.
+        _ = self.model(imgs)
         student_feats = list(s_hook.outputs)
         _remove_hooks(s_handles)
         s_hook.clear()
@@ -326,4 +356,32 @@ class KDDetectionTrainer(DetectionTrainer):
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
 
+        if self.batch_count == 1:
+            from ultralytics.utils import LOGGER
+            LOGGER.info("[KD] Distillation criterion is active (KL/Hidden/Attn terms enabled).")
+
         return total_loss, loss_items
+
+    def get_kd_summary(self) -> dict:
+        """Return round-level KD statistics for external logging/export."""
+        if not self.kd_epoch_history:
+            return {
+                'kd_active': False,
+                'kd_epochs': 0,
+                'kd_kl': 0.0,
+                'kd_hidden': 0.0,
+                'kd_attn': 0.0,
+                'kd_weighted': 0.0,
+            }
+
+        n = float(len(self.kd_epoch_history))
+        return {
+            'kd_active': True,
+            'kd_epochs': int(len(self.kd_epoch_history)),
+            'kd_kl': float(sum(e['kl'] for e in self.kd_epoch_history) / n),
+            'kd_hidden': float(sum(e['hidden'] for e in self.kd_epoch_history) / n),
+            'kd_attn': float(sum(e['attn'] for e in self.kd_epoch_history) / n),
+            'kd_weighted': float(sum(e['weighted'] for e in self.kd_epoch_history) / n),
+            'kd_last_epoch': self.kd_epoch_history[-1],
+            'kd_epoch_history': list(self.kd_epoch_history),
+        }

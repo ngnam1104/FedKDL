@@ -42,6 +42,7 @@ fi
 
 # Sinh dữ liệu môi trường riêng cho mạng lớn (N=20, 30, 40, 50)
 echo "[KDL] Generating topologies and data partitions..."
+"$PYTHON" utils/generate_all_envs.py --n 10 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 20 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 30 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 40 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
@@ -111,14 +112,14 @@ run_baseline() {
 echo ""
 echo ""
 echo "=== GROUP A1: KDL-Accelerated Baselines ==="
-# N=20, Alpha=2.0
+# N=10, Alpha=2.0
 # Đã áp dụng toàn bộ KDL (LoRA+INT8+KD) vào các chiến lược truyền thống.
 # fedkdl (hfl_selective_kdl) chạy ĐẦU TIÊN
 KDL_BASELINES=(
   "fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl"
 )
 for b in "${KDL_BASELINES[@]}"; do
-  run_baseline 20 2.0 "$b"
+  run_baseline 10 2.0 "$b"
 done
 
 echo ""

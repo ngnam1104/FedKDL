@@ -155,6 +155,14 @@ def local_sgd_od(
         new_optimizer_state : dict cần lưu vào SensorWorker cho round tiếp theo.
     """
     # 1. Snapshot trạng thái trước khi train
+    student_model.strip_inference_tensors()
+    if local_teacher is not None and hasattr(local_teacher, 'yolo'):
+        # Teacher có thể đã đi qua đường đánh giá trước đó.
+        for p in local_teacher.yolo.model.parameters():
+            p.data = p.data.clone().detach()
+        for b in local_teacher.yolo.model.buffers():
+            b.data = b.data.clone().detach()
+
     state_before = copy.deepcopy(student_model.trainable_state_dict())
 
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
