@@ -76,7 +76,11 @@ def best_f1_components(y_true: np.ndarray, y_pred_scores: np.ndarray, steps: int
     if min_score == max_score:
         return point_adjusted_f1_components(y_true, y_pred_scores, min_score)
         
-    thresholds = np.linspace(min_score, max_score, steps)
+    # Thay vì dùng linspace trên giá trị tuyệt đối (dễ bị bóp méo bởi extreme outliers)
+    # Ta dùng linspace trên percentiles để rải đều các ngưỡng cần quét theo mật độ dữ liệu
+    # Thường anomalies chiếm < 20% dữ liệu, quét từ phân vị 80 đến 99.99 là đủ bao phủ
+    pct_steps = np.linspace(80.0, 99.99, steps)
+    thresholds = np.percentile(y_pred_scores, pct_steps)
     segments = get_anomaly_segments(y_true)
     
     best_f1 = -1.0
