@@ -168,9 +168,9 @@ done
 
 echo ""
 echo "=== GROUP C: Heterogeneity ==="
-# N=30, Alpha=10000.0 (Non-IID rất thấp -> IID)
+# N=20, Alpha=10000.0 (Non-IID rất thấp -> IID)
 for b in "${MAIN_BASELINES[@]}"; do
-  run_baseline 30 10000.0 "$b"
+  run_baseline 20 10000.0 "$b"
 done
 
 echo ""
