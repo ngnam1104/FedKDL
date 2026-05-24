@@ -309,6 +309,7 @@ class BaseSimulator(ABC):
                 # ── Task Loss ─────────────────────────────────────────────────────
                 'loss': round_loss,
                 'alive': len(alive_sensors),
+                'min_battery': min([s.battery for s in self.sensors.values() if s.alive]) if any(s.alive for s in self.sensors.values()) else 0.0,
 
                 # ── Latency (raw, seconds) — bóc tách từng chặng ─────────────────
                 'tau_round_s': tau_round,
