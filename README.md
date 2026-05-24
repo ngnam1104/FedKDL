@@ -29,27 +29,13 @@ git clone <repo-url> FedKDL && cd FedKDL
 # Đặt Kaggle token — bắt buộc nếu tải URPC qua script
 export KAGGLE_API_TOKEN="your_token_from_kaggle_settings"
 
-chmod +x quick_start.sh run_hfl_experiments.sh run_kdl_experiments.sh
-./quick_start.sh
+chmod +x run_hfl_experiments.sh run_kdl_experiments.sh
 ```
-
-`quick_start.sh` thực hiện tuần tự: tạo venv → `pip install` → tải dataset → sinh môi trường → chạy toàn bộ thực nghiệm HFL và KDL.
 
 Chạy trong **tmux** để tránh mất session khi SSH đứt:
 
 ```bash
 tmux new -s fedkdl
-./quick_start.sh
-```
-
-### Tùy chọn `quick_start.sh`
-
-```bash
-./quick_start.sh --help
-./quick_start.sh --setup-only      # chỉ tạo venv + cài thư viện
-./quick_start.sh --train-only      # bỏ qua tải data và sinh môi trường
-./quick_start.sh --hfl-only        # chỉ chạy kịch bản 1D (CPU)
-./quick_start.sh --kdl-only        # chỉ chạy kịch bản 2D (GPU)
 ```
 
 ---
@@ -244,7 +230,6 @@ FedKDL/
 ├── main_trainer_od.py           # CLI entrypoint cho kịch bản 2D
 ├── run_hfl_experiments.sh       # Grid runner 1D (432 run)
 ├── run_kdl_experiments.sh       # Grid runner 2D (37 run)
-├── quick_start.sh               # One-shot setup + train
 ├── requirements.txt
 └── .env.example                 # Mẫu khai báo KAGGLE_API_TOKEN
 ```

@@ -133,8 +133,14 @@ class BaseSimulator(ABC):
                     print(f"[!] BỎ QUA {len(missing_sensors)} SENSORS (Out of Range / Mất kết nối): {missing_sensors}")
                 if dead_sensors:
                     print(f"[!] BỎ QUA {len(dead_sensors)} SENSORS (Đã chết / Hết pin): {dead_sensors}")
-                
                 print(f"[*] SENSORS ĐANG HOẠT ĐỘNG ({len(alive_sensors)}): {alive_sensors}\n")
+            else:
+                total = self.net_cfg.N_SENSORS
+                connected = len(alive_sensors)
+                out_of_range = len(missing_sensors)
+                dead = len(dead_sensors)
+                participation = connected / total if total > 0 else 0
+                print(f"   -> [1D Round {t}/{T_rounds}] Active={connected}/{total} ({participation:.0%}) | OOR={out_of_range} | Dead={dead}", flush=True)
 
             if not alive_sensors:
                 print(f"[Simulator] All sensors depleted at round {t}. Stopping.")
