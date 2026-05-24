@@ -290,7 +290,7 @@ def load_dataset(name: str, seed: int = 42, per_channel_eval: bool = False) -> T
     Datasets ho tro: SMD, SMAP, MSL
     """
     if name == 'SMD':
-        return load_real_smd("datasets/SMD", per_channel_eval=per_channel_eval, max_machines=9)
+        return load_real_smd("datasets/SMD", per_channel_eval=per_channel_eval, max_machines=5)
     if name in ('SMAP', 'MSL'):
         return load_real_smap_msl(name, "datasets/SMAP_MSL", per_channel_eval=per_channel_eval)
     raise ValueError(f"Unknown dataset: {name}. Choose from ['SMD', 'SMAP', 'MSL']")
