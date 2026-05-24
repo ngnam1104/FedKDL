@@ -380,6 +380,10 @@ class Simulator2D(BaseSimulator):
         trainer.student_wrapper = self.global_student
         trainer.kd_lambda = 1.0
         trainer.set_teacher(self.teacher.yolo.model)
+        
+        # [FIX] Đảm bảo model không bị dính cờ inference tensor từ hàm evaluate vòng trước
+        self.global_student.strip_inference_tensors()
+        
         trainer.model = self.global_student.yolo.model
         print(f"[Gateway KD] Distilling global model with Teacher on proxy data...")
         trainer.train()

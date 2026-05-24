@@ -28,11 +28,7 @@ class StudentModel:
         self.yolo = YOLO(ckpt)
         
         # [FIX BUG] Xóa cờ "inference tensor" do Ultralytics EMA lưu vào file best.pt
-        for m in self.yolo.model.modules():
-            for name, param in list(m.named_parameters(recurse=False)):
-                setattr(m, name, torch.nn.Parameter(param.clone().detach(), requires_grad=param.requires_grad))
-            for name, buf in list(m.named_buffers(recurse=False)):
-                setattr(m, name, buf.clone().detach())
+        self.strip_inference_tensors()
 
         self.rank = rank
         self.full_param = full_param
@@ -96,6 +92,14 @@ class StudentModel:
             if k.endswith(suffix):
                 return True
         return False
+
+    def strip_inference_tensors(self):
+        """Xóa cờ inference tensor khỏi toàn bộ model (để tránh lỗi khi quay lại Train sau Eval)."""
+        for m in self.yolo.model.modules():
+            for name, param in list(m.named_parameters(recurse=False)):
+                setattr(m, name, torch.nn.Parameter(param.clone().detach(), requires_grad=param.requires_grad))
+            for name, buf in list(m.named_buffers(recurse=False)):
+                setattr(m, name, buf.clone().detach())
 
     def trainable_state_dict(self) -> dict:
         """
