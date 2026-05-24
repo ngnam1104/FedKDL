@@ -206,6 +206,9 @@ class Simulator1D(BaseSimulator):
         total_fn_std = 0
         val_loss_list, test_loss_list = [], []
         
+        global_test_labels = []
+        global_test_errors = []
+        
         for v_loader, t_loader in zip(self.val_loaders_per_channel, self.test_loaders_per_channel):
             if v_loader is None or t_loader is None:
                 continue
@@ -233,6 +236,9 @@ class Simulator1D(BaseSimulator):
             if len(test_errors) == 0:
                 continue
                 
+            global_test_labels.extend(test_labels)
+            global_test_errors.extend(test_errors)
+                
             if fed_cfg.ANOMALY_EVAL_MODE == "best_f1":
                 comps = best_f1_components(np.array(test_labels), np.array(test_errors))
                 tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = comps
@@ -259,10 +265,21 @@ class Simulator1D(BaseSimulator):
         rec_std = total_tp_std / (total_tp_std + total_fn_std) if (total_tp_std + total_fn_std) > 0 else 0.0
         f1_std = 2 * prec_std * rec_std / (prec_std + rec_std) if (prec_std + rec_std) > 0 else 0.0
             
+        auc_roc = 0.0
+        pr_auc = 0.0
+        if len(global_test_labels) > 0 and len(np.unique(global_test_labels)) > 1:
+            try:
+                from sklearn.metrics import roc_auc_score, average_precision_score
+                auc_roc = roc_auc_score(global_test_labels, global_test_errors)
+                pr_auc = average_precision_score(global_test_labels, global_test_errors)
+            except ImportError:
+                pass
+                
         def safe_mean(l): return float(np.mean(l)) if len(l) > 0 else 0.0
         
         return {
             'PA-F1': float(pa_f1), 'F1-Score': float(f1_std),
+            'AUC-ROC': float(auc_roc), 'PR-AUC': float(pr_auc),
             'Prec': float(prec), 'Rec': float(rec),
             'Prec-Std': float(prec_std), 'Rec-Std': float(rec_std),
             'val_loss': safe_mean(val_loss_list), 'test_loss': safe_mean(test_loss_list)

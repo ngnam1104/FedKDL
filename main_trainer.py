@@ -161,6 +161,8 @@ def main():
             rec_history = []
             prec_std_history = []
             rec_std_history = []
+            auc_roc_history = []
+            pr_auc_history = []
             loss_history = []
             
             # Train T_rounds
@@ -186,6 +188,9 @@ def main():
                 total_tp_std = 0
                 total_fp_std = 0
                 total_fn_std = 0
+                
+                global_test_labels = []
+                global_test_errors = []
                 
                 for v_loader, t_loader in zip(val_loaders_per_channel, test_loaders_per_channel):
                     if v_loader is None or t_loader is None:
@@ -214,6 +219,9 @@ def main():
                     if len(test_errors) == 0:
                         continue
                         
+                    global_test_labels.extend(test_labels_list)
+                    global_test_errors.extend(test_errors)
+                        
                     if fed_cfg.ANOMALY_EVAL_MODE == "best_f1":
                         comps = best_f1_components(np.array(test_labels_list), np.array(test_errors))
                         tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = comps
@@ -237,15 +245,27 @@ def main():
                 rec_std = total_tp_std / (total_tp_std + total_fn_std) if (total_tp_std + total_fn_std) > 0 else 0.0
                 f1_std = 2 * prec_std * rec_std / (prec_std + rec_std) if (prec_std + rec_std) > 0 else 0.0
                 
+                auc_roc = 0.0
+                pr_auc = 0.0
+                if len(global_test_labels) > 0 and len(np.unique(global_test_labels)) > 1:
+                    try:
+                        from sklearn.metrics import roc_auc_score, average_precision_score
+                        auc_roc = roc_auc_score(global_test_labels, global_test_errors)
+                        pr_auc = average_precision_score(global_test_labels, global_test_errors)
+                    except ImportError:
+                        pass
+                
                 pa_f1_history.append(pa_f1)
                 f1_std_history.append(f1_std)
+                auc_roc_history.append(auc_roc)
+                pr_auc_history.append(pr_auc)
                 prec_history.append(prec)
                 rec_history.append(rec)
                 prec_std_history.append(prec_std)
                 rec_std_history.append(rec_std)
                 loss_history.append(avg_loss)
                 
-                print(f"   -> [Centralized Training] Round {t+1}/{T_rounds} | Loss: {avg_loss:.4f} | PA-F1: {pa_f1:.4f} | Prec: {prec:.4f} | Rec: {rec:.4f}        ", end="\r", flush=True)
+                print(f"   -> [Centralized Training] Round {t+1}/{T_rounds} | Loss: {avg_loss:.4f} | PA-F1: {pa_f1:.4f} | AUC: {auc_roc:.4f} | Prec: {prec:.4f} | Rec: {rec:.4f}        ", end="\r", flush=True)
                 
             print() # Xuống dòng khi kết thúc vòng lặp
             
@@ -258,6 +278,8 @@ def main():
                 'round': list(range(1, T_rounds + 1)),
                 'PA-F1': pa_f1_history,
                 'F1-Score': f1_std_history,
+                'AUC-ROC': auc_roc_history,
+                'PR-AUC': pr_auc_history,
                 'Prec': prec_history,
                 'Rec': rec_history,
                 'Prec-Std': prec_std_history,
