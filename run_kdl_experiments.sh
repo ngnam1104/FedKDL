@@ -2,6 +2,8 @@
 # Scenario 2/3 (2D OD): grid train + plot.
 # Decoupled version to hit the 62-hour budget (~78 hours max).
 set -euo pipefail
+# NOTE: pipefail tắt trong run_baseline() để tránh tee pipe fail dừng script
+
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
@@ -49,6 +51,7 @@ run_baseline() {
   local n=$1
   local alpha=$2
   local baseline=$3
+  local lora_rank=${4:-""}  # Optional: lora rank override
 
   current_task=$((current_task + 1))
   local topo="${ENVS_DIR}/2d/topo/N_${n}/topo_N${n}_seed${SEED}.pkl"
@@ -61,24 +64,37 @@ run_baseline() {
   fi
 
   local log_json="${OUT_DIR}/log_N${n}_${DS}_a${alpha_str}_${baseline}_seed${SEED}.json"
-  if [[ -s "$log_json" ]]; then
-    echo "[$current_task/$total_tasks] OVERWRITING existing log: $log_json"
+  # Skip nếu JSON tồn tại và dủ lớn (> 1KB) — tránh skip file rỗng do crash
+  if [[ -s "$log_json" ]] && [[ $(stat -c%s "$log_json" 2>/dev/null || echo 0) -gt 1024 ]]; then
+    echo "[$current_task/$total_tasks] SKIP (complete log exists): $log_json"
+    return 0
+  elif [[ -f "$log_json" ]]; then
+    echo "[$current_task/$total_tasks] OVERWRITE (incomplete/crash log): $log_json"
+    rm -f "$log_json"
   fi
 
-  echo "[$current_task/$total_tasks] OD | N=$n | alpha=$alpha | baseline=$baseline"
-  set +e
-  
+  echo "[$current_task/$total_tasks] OD | N=$n | alpha=$alpha | baseline=$baseline${lora_rank:+ | lora_rank=$lora_rank}"
+  set +eo pipefail
+
   local TS=$(date +"%Y%m%d_%H%M%S")
   local log_file="$STDOUT_DIR/raw_bash_output_${n}_${alpha_str}_${TS}.log"
-  
+
+  local extra_args=""
+  if [[ -n "$lora_rank" ]]; then
+    extra_args="--lora-rank $lora_rank"
+  fi
+
   "$PYTHON" main_trainer_od.py \
     --topo "$topo" --data "$data" \
     --baseline "$baseline" --rounds "$ROUNDS" \
-    --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" 2>&1 | tee -a "$log_file"
-  local rc=$?
-  set -e
+    --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" \
+    $extra_args 2>&1 | tee -a "$log_file"
+  local rc=${PIPESTATUS[0]}
+  set -eo pipefail
   if [[ $rc -ne 0 ]]; then
     echo "[Error] Run failed (exit $rc). Check $log_file"
+    # Xóa JSON bị viết dở do crash để lần sau sẽ chạy lại
+    rm -f "$log_json"
   fi
 }
 
@@ -91,7 +107,11 @@ ALL_BASELINES=(
   "fedavg" "fedprox" "centralized"
 )
 for b in "${ALL_BASELINES[@]}"; do
-  run_baseline 30 2.0 "$b"
+  if [[ "$b" == "fedkdl_r4" ]]; then
+    run_baseline 30 2.0 "$b" 4  # r=4 ablation
+  else
+    run_baseline 30 2.0 "$b"
+  fi
 done
 
 echo ""
