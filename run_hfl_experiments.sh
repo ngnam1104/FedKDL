@@ -40,7 +40,7 @@ M_FOGS_1D=10
 GEN_ENV_ARGS=()
 if [[ -n "$M_FOGS_1D" ]]; then
   echo "[HFL] Overriding fog count for 1D topologies: M_FOGS_1D=$M_FOGS_1D"
-  GEN_ENV_ARGS=(--m-fogs "$M_FOGS_1D" --force-topo)
+  GEN_ENV_ARGS=(--m-fogs "$M_FOGS_1D")
 fi
 
 echo "[HFL] Generating topologies and data partitions for 1D..."

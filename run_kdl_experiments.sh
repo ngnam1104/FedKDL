@@ -37,7 +37,7 @@ GEN_ENV_ARGS=()
 # Kiểm tra nếu M_FOGS_2D được gán giá trị thì tự động thêm cờ
 if [[ -n "$M_FOGS_2D" ]]; then
   echo "[KDL] Overriding fog count for 2D topologies: M_FOGS_2D=$M_FOGS_2D"
-  GEN_ENV_ARGS=(--m-fogs "$M_FOGS_2D" --force-topo)
+  GEN_ENV_ARGS=(--m-fogs "$M_FOGS_2D")
 fi
 
 # Sinh dữ liệu môi trường riêng cho mạng lớn (N=10, 20, 30, 40, 50)
