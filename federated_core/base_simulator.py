@@ -99,6 +99,7 @@ class BaseSimulator(ABC):
         import concurrent.futures
         
         cumulative_payload = 0.0
+        cumulative_joint_cost = 0.0  # Σ joint_cost^t  — tích lũy Eq.22 qua các round
         
         for t in range(1, T_rounds + 1):
             gc.collect()
@@ -258,7 +259,7 @@ class BaseSimulator(ABC):
                 f_cpu=self.en_cfg.F_CPU
             )
             
-            tau_round = self.latency_tracker.compute_round_latency(
+            latency_info = self.latency_tracker.compute_round_latency(
                 G=self.G,
                 association={s: self.association[s] for s in alive_sensors if s in self.association},
                 cooperation_partners=cooperation_partners,
@@ -266,19 +267,56 @@ class BaseSimulator(ABC):
                 sensor_payload_bits=avg_payload_bits,
                 fog_model_bits=fog_model_bits,
             )
-            self.latency_tracker.add_round(t, tau_round)
+            tau_round = latency_info['tau_round']
+            self.latency_tracker.add_round(t, latency_info)
 
             eval_metrics = self.evaluate()
-            
+
+            # ── Eq. 22: Joint Optimisation Cost ──────────────────────────────────────
+            # min  F(θ^T) + λ_E · Σ E_round^t  +  λ_τ · Σ τ_round^t
+            # joint_cost_round là đóng góp của round t vào tổng trên (chưa gộp F(θ^T)).
+            # F(θ^T) = avg validation/training loss tại round T  —  đại diện bằng 'loss'.
+            # ─────────────────────────────────────────────────────────────────────────
+            e_round_total = e_s2f_total + e_f2f_total + e_f2g_total + e_comp_total
+            round_loss    = float(np.mean(avg_losses)) if avg_losses else 0.0
+            lambda_e      = self.fed_cfg.LAMBDA_E
+            lambda_tau    = self.fed_cfg.LAMBDA_TAU
+
+            joint_cost_round  = round_loss + lambda_e * e_round_total + lambda_tau * tau_round
+            cumulative_joint_cost += joint_cost_round
+
             metrics = {
-                'loss': float(np.mean(avg_losses)) if avg_losses else 0.0,
+                # ── Task Loss ─────────────────────────────────────────────────────
+                'loss': round_loss,
                 'alive': len(alive_sensors),
+
+                # ── Latency (raw, seconds) — bóc tách từng chặng ─────────────────
                 'tau_round_s': tau_round,
+                'tau_s2f':     latency_info['tau_s2f'],   # max Sensor→Fog bottleneck
+                'tau_f2f':     latency_info['tau_f2f'],   # max Fog↔Fog cooperation
+                'tau_f2g':     latency_info['tau_f2g'],   # max Fog→Gateway bottleneck
+                'tau_comp':    latency_info['tau_comp'],  # max local computation
                 'tau_cumul_s': self.latency_tracker.cumulative_latency,
-                'avg_payload_kb': payload_kb,
-                'payload_cumul_kb': cumulative_payload,
-                'e_total': e_s2f_total + e_f2f_total + e_f2g_total + e_comp_total,
-                'e_cumul': self.energy_tracker.cumulative_energy
+
+                # ── Payload ───────────────────────────────────────────────────────
+                'avg_payload_kb':    payload_kb,
+                'payload_cumul_kb':  cumulative_payload,
+
+                # ── Energy (raw, Joules) — bóc tách từng chặng ───────────────────
+                'e_total': e_round_total,
+                'e_s2f':   e_s2f_total,   # Sensor → Fog TX energy
+                'e_f2f':   e_f2f_total,   # Fog ↔ Fog cooperation TX energy
+                'e_f2g':   e_f2g_total,   # Fog → Gateway TX energy
+                'e_comp':  e_comp_total,  # Local computation energy (all active sensors)
+                'e_cumul': self.energy_tracker.cumulative_energy,
+
+                # ── Joint Cost — Eq. 22 (λ_E, λ_τ weighted) ─────────────────────
+                # joint_cost_round  = loss_t + λ_E·E_round^t + λ_τ·τ_round^t
+                # joint_cost_cumul  = Σ_{s=1}^{t} joint_cost_round_s  (running sum)
+                'lambda_e':           lambda_e,
+                'lambda_tau':         lambda_tau,
+                'joint_cost_round':   joint_cost_round,
+                'joint_cost_cumul':   cumulative_joint_cost,
             }
             metrics.update(eval_metrics)
 

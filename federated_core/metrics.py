@@ -285,13 +285,26 @@ class LatencyTracker:
                     f2f_per_fog.get(m, 0.0) +
                     max_f2g
                 )
+        max_s2f = max(s2f_per_fog.values()) if s2f_per_fog else 0.0
+        max_f2f = max(f2f_per_fog.values()) if f2f_per_fog else 0.0
+        
         tau_round = (max(per_fog_total) if per_fog_total else 0.0) + tau_comp
-        return tau_round
+        return {
+            'tau_round': tau_round,
+            'tau_s2f': max_s2f,
+            'tau_f2f': max_f2f,
+            'tau_f2g': max_f2g,
+            'tau_comp': tau_comp
+        }
 
-    def add_round(self, round_idx: int, tau_round: float):
+    def add_round(self, round_idx: int, latency_info: dict):
         """Ghi nhận latency của 1 round."""
+        tau_round = latency_info['tau_round']
         self.cumulative_latency += tau_round
-        self.history.append({'round': round_idx, 'tau_round_s': tau_round, 'tau_cumul_s': self.cumulative_latency})
+        
+        record = {'round': round_idx, 'tau_round_s': tau_round, 'tau_cumul_s': self.cumulative_latency}
+        record.update({k: v for k, v in latency_info.items() if k != 'tau_round'})
+        self.history.append(record)
 
     def get_dataframe(self) -> pd.DataFrame:
         """Trả về lịch sử latency dưới dạng DataFrame."""

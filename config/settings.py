@@ -78,6 +78,17 @@ class FedKDLConfig:
     ANOMALY_EVAL_MODE: str = "best_f1"     # Options: "percentile", "best_f1"
     ANOMALY_PERCENTILE: float = 99.8       # Ngưỡng cắt phân vị nếu dùng ANOMALY_EVAL_MODE = "percentile"
 
+    # Joint Optimisation Cost Coefficients  ──  Eq. 22 trong bài báo
+    # min  F(θ^T) + λ_E · Σ E_round^t  +  λ_τ · Σ τ_round^t
+    #
+    # Đơn vị thô rất lệch nhau (Joules vs. Giây vs. dimensionless loss).
+    # Các hệ số λ dưới đây được chọn để chuẩn hóa tương đối:
+    #   λ_E  ×  300 J  ≈ 0.3  (cùng bậc với loss 1D ~0.07, loss 2D ~8)
+    #   λ_τ  ×  300 s  ≈ 0.3  (tương tự trên)
+    # Người dùng có thể ghi đè khi cần thực nghiệm sensitivity analysis.
+    LAMBDA_E: float = 1e-3   # Trọng số năng lượng  (J⁻¹ — "per Joule cost")
+    LAMBDA_TAU: float = 1e-3 # Trọng số độ trễ     (s⁻¹ — "per second cost")
+
     def __post_init__(self):
         self.DATASETS_1D = ["SMD", "SMAP", "MSL"]
 
