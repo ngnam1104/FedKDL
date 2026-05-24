@@ -99,29 +99,20 @@ run_baseline() {
 }
 
 echo ""
-echo "=== GROUP A1: Classic Full-Param Baselines ==="
-# N=30, Alpha=2.0
-CLASSIC_BASELINES=(
-  "centralized" "fedavg" "fedprox" "hfl_nocoop" "hfl_nearest" "hfl_selective"
-)
-for b in "${CLASSIC_BASELINES[@]}"; do
-  run_baseline 30 2.0 "$b"
-done
-
 echo ""
-echo "=== GROUP A2: KDL-Accelerated Baselines ==="
+echo "=== GROUP A1: KDL-Accelerated Baselines ==="
 # N=30, Alpha=2.0
 # Đã áp dụng toàn bộ KDL (LoRA+INT8+KD) vào các chiến lược truyền thống.
-# fedkdl thực chất chính là hfl_selective_kdl
+# fedkdl (hfl_selective_kdl) chạy ĐẦU TIÊN
 KDL_BASELINES=(
-  "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "fedkdl"
+  "fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl"
 )
 for b in "${KDL_BASELINES[@]}"; do
   run_baseline 30 2.0 "$b"
 done
 
 echo ""
-echo "=== GROUP A3: FedKDL Ablation Studies ==="
+echo "=== GROUP A2: FedKDL Ablation Studies ==="
 # N=30, Alpha=2.0
 ABLATION_BASELINES=(
   "fedkdl_r4" "full_param_kd" "full_param_nokd" 
@@ -136,10 +127,20 @@ for b in "${ABLATION_BASELINES[@]}"; do
 done
 
 echo ""
+echo "=== GROUP A3: Classic Full-Param Baselines ==="
+# N=30, Alpha=2.0
+CLASSIC_BASELINES=(
+  "centralized" "fedavg" "fedprox" "hfl_nocoop" "hfl_nearest" "hfl_selective"
+)
+for b in "${CLASSIC_BASELINES[@]}"; do
+  run_baseline 30 2.0 "$b"
+done
+
+echo ""
 echo "=== GROUP B: Scalability ==="
 # N=40, 50 (N=30 đã có ở Group A)
 # Để công bằng truyền tải mạng lưới, áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm (alg).
-MAIN_BASELINES=("centralized" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "fedkdl")
+MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized")
 for n in 40 50; do
   for b in "${MAIN_BASELINES[@]}"; do
     run_baseline "$n" 2.0 "$b"
