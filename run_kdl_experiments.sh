@@ -38,7 +38,7 @@ echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..
 
 
 # Cấu hình thử nghiệm
-ROUNDS=60
+ROUNDS=1  # TEST MODE — đổi lại thành 60 khi chạy thật
 SEED=42
 DS="URPC"
 
