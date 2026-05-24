@@ -25,14 +25,21 @@ ENVS_DIR="environments"
 STDOUT_DIR="results/train_logs/kdl"
 mkdir -p "$OUT_DIR" "$STDOUT_DIR"
 export PYTHONIOENCODING=utf-8
+M_FOGS_2D="${M_FOGS_2D:-}"
+
+GEN_ENV_ARGS=()
+if [[ -n "$M_FOGS_2D" ]]; then
+  echo "[KDL] Overriding fog count for 2D topologies: M_FOGS_2D=$M_FOGS_2D"
+  GEN_ENV_ARGS=(--m-fogs "$M_FOGS_2D" --force-topo)
+fi
 
 # Sinh dữ liệu môi trường riêng cho mạng lớn (N=30, 40, 50)
 echo "[KDL] Generating topologies and data partitions for N=30, 40, 50..."
-"$PYTHON" utils/generate_all_envs.py --n 10 --dataset URPC
-"$PYTHON" utils/generate_all_envs.py --n 20 --dataset URPC
-"$PYTHON" utils/generate_all_envs.py --n 30 --dataset URPC
-"$PYTHON" utils/generate_all_envs.py --n 40 --dataset URPC
-"$PYTHON" utils/generate_all_envs.py --n 50 --dataset URPC
+"$PYTHON" utils/generate_all_envs.py --n 10 --dataset URPC "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 20 --dataset URPC "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 30 --dataset URPC "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 40 --dataset URPC "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 50 --dataset URPC "${GEN_ENV_ARGS[@]}"
 
 # Pre-train Teacher & Khởi động ấm Student
 echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..."

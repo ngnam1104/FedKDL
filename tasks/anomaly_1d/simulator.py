@@ -23,9 +23,47 @@ class SensorWorker1D(BaseWorker):
         total_params = sum(p.numel() for p in model_template.parameters())
         self.compressor = TopKCompressor(total_params=total_params, rho_s=rho_s)
 
+    def _collect_local_train_metrics(self, avg_loss: float, device: str) -> Dict[str, float]:
+        """
+        Train split của anomaly 1D là normal-only, nên local metric hợp lý nhất là
+        reconstruction quality trên chính loader cục bộ thay vì local F1/PA-F1.
+        """
+        import torch
+
+        was_training = self.model.training
+        self.model.eval()
+
+        errors = []
+        with torch.no_grad():
+            for x_batch, _labels in self.dataloader:
+                x_batch = x_batch.to(device)
+                batch_errors = self.model.reconstruction_error(x_batch).cpu().numpy()
+                errors.append(batch_errors)
+
+        if was_training:
+            self.model.train()
+
+        if not errors:
+            return {
+                'local_train_loss': float(avg_loss),
+                'local_recon_error_mean': 0.0,
+                'local_recon_error_std': 0.0,
+                'local_recon_error_p95': 0.0,
+                'n_train_windows': 0,
+            }
+
+        errors = np.concatenate(errors, axis=0)
+        return {
+            'local_train_loss': float(avg_loss),
+            'local_recon_error_mean': float(np.mean(errors)),
+            'local_recon_error_std': float(np.std(errors)),
+            'local_recon_error_p95': float(np.percentile(errors, 95)),
+            'n_train_windows': int(errors.shape[0]),
+        }
+
     def train_and_get_payload(self, global_state, epochs, lr, mu, device):
         if not self.alive:
-            return None, 0.0
+            return None, 0.0, {}
 
         self.model.load_state_dict(global_state)
         
@@ -40,6 +78,8 @@ class SensorWorker1D(BaseWorker):
             device=device,
         )
 
+        local_metrics = self._collect_local_train_metrics(avg_loss=avg_loss, device=device)
+
         topk_indices, topk_values = self.compressor.compress(delta_theta)
         
         from tasks.anomaly_1d.knowledge_compression.int8_quantization import SparseINT8Payload
@@ -48,7 +88,7 @@ class SensorWorker1D(BaseWorker):
             topk_values=topk_values,
             total_params=self.compressor.total_params,
         )
-        return payload, avg_loss
+        return payload, avg_loss, local_metrics
 
 
 class FogNode1D(BaseFogNode):
@@ -144,7 +184,7 @@ class Simulator1D(BaseSimulator):
     def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
         sensor = self.sensors[s_id]
         
-        payload, avg_loss = sensor.train_and_get_payload(
+        payload, avg_loss, local_metrics = sensor.train_and_get_payload(
             global_state=self.gateway.global_state_dict,
             epochs=self.fed_cfg.LOCAL_EPOCHS,
             lr=getattr(self, 'current_lr', self.fed_cfg.LOCAL_LR),
@@ -175,7 +215,7 @@ class Simulator1D(BaseSimulator):
                     flop_multiplier=self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
                     epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
                 )
-                return s_id, payload, avg_loss, sensor.n_samples, e_tx_cost, e_comp_cost, {}
+                return s_id, payload, avg_loss, sensor.n_samples, e_tx_cost, e_comp_cost, local_metrics
         
         return s_id, None, 0.0, 0, 0.0, 0.0, {}
 

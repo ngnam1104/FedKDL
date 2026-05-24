@@ -336,6 +336,9 @@ class BaseSimulator(ABC):
             metrics.update(eval_metrics)
 
             self.metrics_logger.log(t, metrics)
-            self.metrics_logger.print_latest()
+            try:
+                self.metrics_logger.print_latest()
+            except Exception as exc:
+                print(f"[Warning] Failed to print round {t} metrics: {exc}")
 
         return self.metrics_logger.logs

@@ -318,6 +318,27 @@ class MetricsLogger:
     def __init__(self):
         self.logs = []
 
+    def _format_metric_value(self, key: str, value) -> str:
+        """Format an toàn cho console, tránh crash khi metric là dict/list/numpy scalar."""
+        if isinstance(value, bool):
+            return str(value)
+
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            return f"{float(value):.4f}"
+
+        if isinstance(value, dict):
+            if key == 'sensor_train_metrics':
+                return "{}" if not value else f"{len(value)} sensors"
+            return "{}" if not value else f"dict(n={len(value)})"
+
+        if isinstance(value, (list, tuple, set)):
+            return f"{type(value).__name__}(n={len(value)})"
+
+        if hasattr(value, "shape"):
+            return f"array(shape={tuple(value.shape)})"
+
+        return str(value)
+
     def log(self, round_idx: int, metrics: Dict[str, float]):
         """Ghi nhận metrics của round."""
         entry = {'round': round_idx}
@@ -331,14 +352,15 @@ class MetricsLogger:
         latest = self.logs[-1]
         msg = f"Round {latest['round']:3d} | "
         for k, v in latest.items():
-            if k == 'round': continue
+            if k == 'round':
+                continue
             
             # Kiểm tra nếu giá trị là số thì mới làm tròn 4 chữ số thập phân
             if isinstance(v, (int, float)):
-                msg += f"{k}: {v:.4f} | "
+                msg += f"{k}: {self._format_metric_value(k, v)} | "
             else:
                 # Nếu là dict, list, string,... thì in ra nguyên bản
-                msg += f"{k}: {v} | "
+                msg += f"{k}: {self._format_metric_value(k, v)} | "
                 
         print(msg)
 

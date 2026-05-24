@@ -20,6 +20,8 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help="Khong chay gi ca, chi in ra")
     parser.add_argument('--n', type=int, help="Chi chay cho N nay (vd: 50)")
     parser.add_argument('--dataset', type=str, help="Chi chay dataset nay (vd: SMD)")
+    parser.add_argument('--m-fogs', type=int, help="Override so luong fog nodes khi sinh topology")
+    parser.add_argument('--force-topo', action='store_true', help="Ghi de topology da ton tai")
     args = parser.parse_args()
 
     if args.dataset == 'URPC':
@@ -52,14 +54,17 @@ def main():
         net_cfg.N_SENSORS = n
         
         # Thiết lập Fog node theo yêu cầu: 5 cho 2D (URPC)
-        if len(DATASETS) == 1 and DATASETS[0] == 'URPC':
+        if args.m_fogs is not None:
+            net_cfg.M_FOGS = args.m_fogs
+        elif len(DATASETS) == 1 and DATASETS[0] == 'URPC':
             net_cfg.M_FOGS = 5
         else:
             net_cfg.M_FOGS = 10
+        print(f"  [topology] N={n} -> M_FOGS={net_cfg.M_FOGS}")
         
         for seed in SEEDS:
             topo_path = EnvironmentManager.topo_path(task_type, n, seed)
-            if not topo_path.exists():
+            if args.force_topo or not topo_path.exists():
                 if not args.dry_run:
                     topo = EnvironmentManager.generate_topology(net_cfg, ac_cfg, seed)
                     EnvironmentManager.save_topology(topo, task_type)
