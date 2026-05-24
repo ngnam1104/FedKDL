@@ -44,7 +44,7 @@ DS="URPC"
 
 # Hàm chạy chung để tránh lặp code
 # Usage: run_baseline N ALPHA BASELINE
-total_tasks=19
+total_tasks=37
 current_task=0
 
 run_baseline() {
