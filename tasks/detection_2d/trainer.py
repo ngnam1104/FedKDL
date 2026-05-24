@@ -15,21 +15,75 @@ from ultralytics.models.yolo.detect import DetectionTrainer
 from config.settings import fed_cfg
 
 class CustomDetectionTrainer(DetectionTrainer):
-    def __init__(self, overrides=None, _callbacks=None, student_wrapper=None):
+    def __init__(self, overrides=None, _callbacks=None, student_wrapper=None,
+                 cached_optimizer_state: dict = None):
         super().__init__(overrides=overrides, _callbacks=_callbacks)
         self.student_wrapper = student_wrapper
+        # State dict bởi tên tham số từ round trước (None = round đầu tiên)
+        self.cached_optimizer_state = cached_optimizer_state
 
     def _setup_train(self):
         from ultralytics.utils import LOGGER
-        
+
         # Tắt triệt để cảnh báo của YOLO (trong lúc _setup_train, YOLO sẽ quét và lật lại requires_grad)
         original_warning = LOGGER.warning
         LOGGER.warning = lambda *args, **kwargs: None
-        
+
         try:
             super()._setup_train()
         finally:
             LOGGER.warning = original_warning
+
+        # Inject optimizer state từ round trước (keyed by param name) để simulate
+        # continuous training. Phải chạy SAU super()._setup_train() vì lúc đó
+        # self.optimizer mới được build xong.
+        if self.cached_optimizer_state:
+            self._restore_optimizer_state(self.cached_optimizer_state)
+
+    def _restore_optimizer_state(self, named_state: dict):
+        """
+        Restore AdamW exp_avg / exp_avg_sq từ round trước vào optimizer hiện tại.
+        Key bằng tên tham số (str) thay vì tensor id để vượt qua việc model object
+        bị tạo mới mỗi round.
+        Các tham số không có trong cache (ví dụ round đầu) được bỏ qua.
+        """
+        # Map: id(tensor) -> param_name, chỉ cho các param đang được train
+        id_to_name = {id(p): n for n, p in self.model.named_parameters()}
+
+        # Flatten tất cả params trong optimizer theo thứ tự
+        all_params = [p for g in self.optimizer.param_groups for p in g['params']]
+
+        restored = 0
+        for param in all_params:
+            name = id_to_name.get(id(param))
+            if name is None or name not in named_state:
+                continue
+            cached = named_state[name]
+            self.optimizer.state[param] = {
+                k: v.clone().to(param.device) if isinstance(v, torch.Tensor) else v
+                for k, v in cached.items()
+            }
+            restored += 1
+
+        if restored:
+            print(f"[OptimState] Restored {restored} param states from previous round.")
+
+    def get_named_optimizer_state(self) -> dict:
+        """
+        Extract trạng thái optimizer hiện tại thành dict {param_name: state},
+        lưu trên CPU để tái sử dụng round sau.
+        """
+        id_to_name = {id(p): n for n, p in self.model.named_parameters()}
+        named_state = {}
+        for param, state in self.optimizer.state.items():
+            name = id_to_name.get(id(param))
+            if name is None:
+                continue
+            named_state[name] = {
+                k: v.cpu().clone() if isinstance(v, torch.Tensor) else v
+                for k, v in state.items()
+            }
+        return named_state
 
     def validate(self):
         """Bỏ qua validate giữa các epoch để tiết kiệm thời gian (Lần 1)."""
@@ -47,7 +101,7 @@ class CustomDetectionTrainer(DetectionTrainer):
 
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
-        
+
         if self.student_wrapper and not self.student_wrapper.full_param:
             payload_keys = set(self.student_wrapper.trainable_state_dict().keys())
             for k, v in model.named_parameters():
@@ -55,12 +109,12 @@ class CustomDetectionTrainer(DetectionTrainer):
                     v.requires_grad = True
                 else:
                     v.requires_grad = False
-                
+
         # Loại bỏ các parameter đã bị đóng băng (requires_grad=False) khỏi optimizer param_groups
         # Điều này đảm bảo PyTorch hoàn toàn bỏ qua chúng trong quá trình step()
         for group in optimizer.param_groups:
             group['params'] = [p for p in group['params'] if p.requires_grad]
-            
+
         return optimizer
 
     def optimizer_step(self):
@@ -85,17 +139,20 @@ def local_sgd_od(
     fedprox_mu: float = 0.0,
     global_weights: dict = None,
     local_teacher = None,
+    cached_optimizer_state: dict = None,
 ) -> tuple:
     """
     Thực hiện Local SGD cho OD tại Sensor (Tier 1).
     KHÔNG sử dụng KD — Teacher chỉ chạy tại Gateway (Tier 3).
 
-    student_model : tasks.detection_2d.models.yolo_wrapper.StudentModel
-    client_yaml   : đường dẫn data.yaml của client
+    student_model          : tasks.detection_2d.models.yolo_wrapper.StudentModel
+    client_yaml            : đường dẫn data.yaml của client
+    cached_optimizer_state : dict {param_name: {exp_avg, exp_avg_sq, step}} từ round trước
+                             None → optimizer bắt đầu lạnh (round đầu tiên).
 
     Returns:
-        (new_state, delta_norm)  — new_state là absolute state dict (LoRA + Head partial).
-                                   delta_norm là L2 norm của sự thay đổi (để Lazy Filter).
+        (new_state, delta_norm, train_loss, new_optimizer_state)
+        new_optimizer_state : dict cần lưu vào SensorWorker cho round tiếp theo.
     """
     # 1. Snapshot trạng thái trước khi train
     state_before = copy.deepcopy(student_model.trainable_state_dict())
@@ -129,9 +186,14 @@ def local_sgd_od(
         trainer.student_wrapper = student_model
         trainer.set_teacher(local_teacher.yolo.model)
         trainer.kd_lambda = 1.0  # Hoặc trọng số tuỳ chỉnh
+        # KDDetectionTrainer không hỗ trợ cached_optimizer_state (không cần thiết cho FedKD)
     else:
-        trainer = CustomDetectionTrainer(overrides=overrides, student_wrapper=student_model)
-        
+        trainer = CustomDetectionTrainer(
+            overrides=overrides,
+            student_wrapper=student_model,
+            cached_optimizer_state=cached_optimizer_state,
+        )
+
     trainer.model = student_model.yolo.model
     trainer.fedprox_mu = fedprox_mu
     trainer.global_weights = global_weights
@@ -147,6 +209,15 @@ def local_sgd_od(
 
     # Chạy train
     trainer.train()
+
+    # 3b. Extract optimizer state ngay sau khi train xong (trước khi trainer bị xóa)
+    # Chỉ CustomDetectionTrainer mới hỗ trợ get_named_optimizer_state()
+    new_optimizer_state = None
+    if isinstance(trainer, CustomDetectionTrainer):
+        try:
+            new_optimizer_state = trainer.get_named_optimizer_state()
+        except Exception as e:
+            print(f"[OptimState] Không thể extract optimizer state: {e}")
 
     # Đảm bảo không có bất kỳ trọng số nào ngoài LoRA và head bị thay đổi
     if not student_model.full_param:
@@ -182,7 +253,7 @@ def local_sgd_od(
     except Exception as e:
         print(f"[Trainer] Không thể đọc results.csv để lấy loss: {e}")
 
-    return state_after, delta_norm, train_loss
+    return state_after, delta_norm, train_loss, new_optimizer_state
 
 
 def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:

@@ -19,7 +19,10 @@ class SensorWorker2D(BaseWorker):
     def __init__(self, sensor_id, client_yaml, battery_init):
         super().__init__(sensor_id, battery_init)
         self.client_yaml = client_yaml
-        
+        # Cache optimizer state (exp_avg / exp_avg_sq) giữa các FL round.
+        # None = chưa có (round đầu tiên, optimizer khởi đầu lạnh).
+        self._optimizer_state: dict = None
+
         with open(self.client_yaml, 'r') as f:
             c_cfg = yaml.safe_load(f)
         with open(c_cfg['train'], 'r') as f:
@@ -75,7 +78,7 @@ class SensorWorker2D(BaseWorker):
                 self.local_teacher = TeacherModel("yolo12l_pretrained.pt")
             local_teacher = self.local_teacher
 
-        new_state, delta_norm, train_loss = local_sgd_od(
+        new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
             student_model=local_student,
             client_yaml=self.client_yaml,
             client_id=self.sensor_id,
@@ -85,7 +88,11 @@ class SensorWorker2D(BaseWorker):
             fedprox_mu=fedprox_mu,
             global_weights=global_weights,
             local_teacher=local_teacher,
+            cached_optimizer_state=self._optimizer_state,  # None = lạnh, round sau sẽ warm
         )
+        # Cập nhật optimizer state để dùng lại round tiếp theo
+        if new_opt_state is not None:
+            self._optimizer_state = new_opt_state
 
         # [TỐI ƯU HÓA] Bỏ qua đánh giá local model trên tập train của sensor
         # Việc này tiết kiệm 30% tổng thời gian huấn luyện mà không ảnh hưởng kết quả Global

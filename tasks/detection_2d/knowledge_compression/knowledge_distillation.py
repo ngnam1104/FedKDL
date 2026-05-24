@@ -173,11 +173,35 @@ class KDDetectionTrainer(DetectionTrainer):
         self.student_wrapper = None
         self.kd_temperature: float = 4.0
         self.kd_lambda: float = 1.0
+        
+        # Accumulators for logging KD loss
+        self.epoch_kl_loss = 0.0
+        self.epoch_hidden_loss = 0.0
+        self.epoch_attn_loss = 0.0
+        self.epoch_kd_loss = 0.0
+        self.batch_count = 0
 
     def _setup_train(self):
         from ultralytics.utils import LOGGER
         original_warning = LOGGER.warning
         LOGGER.warning = lambda *args, **kwargs: None
+        
+        # Callback để log KD loss ra console
+        def log_kd_loss(trainer):
+            if hasattr(trainer, 'batch_count') and trainer.batch_count > 0:
+                print(f"\n[KD Epoch {trainer.epoch+1}] "
+                      f"KL: {trainer.epoch_kl_loss/trainer.batch_count:.4f} | "
+                      f"Hidden: {trainer.epoch_hidden_loss/trainer.batch_count:.4f} | "
+                      f"Attn: {trainer.epoch_attn_loss/trainer.batch_count:.4f} | "
+                      f"Weighted KD: {trainer.epoch_kd_loss/trainer.batch_count:.4f}")
+                trainer.epoch_kl_loss = 0.0
+                trainer.epoch_hidden_loss = 0.0
+                trainer.epoch_attn_loss = 0.0
+                trainer.epoch_kd_loss = 0.0
+                trainer.batch_count = 0
+                
+        self.add_callback("on_train_epoch_end", log_kd_loss)
+
         try:
             super()._setup_train()
         finally:
@@ -294,5 +318,12 @@ class KDDetectionTrainer(DetectionTrainer):
 
         loss_dist_adaptive = numerator / denominator
         total_loss = loss_stu + self.kd_lambda * loss_dist_adaptive
+        
+        # Tích lũy log
+        self.epoch_kl_loss += loss_kl.item()
+        self.epoch_hidden_loss += loss_hidden.item()
+        self.epoch_attn_loss += loss_attn.item()
+        self.epoch_kd_loss += loss_dist_adaptive.item()
+        self.batch_count += 1
 
         return total_loss, loss_items

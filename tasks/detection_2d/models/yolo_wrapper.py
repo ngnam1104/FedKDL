@@ -126,12 +126,25 @@ class StudentModel:
 
     def load_trainable_state_dict(self, state_dict: dict):
         """Nạp state dict (LoRA + Head partial) từ server aggregate."""
-        full_sd = self.yolo.model.state_dict()
-        for k, v in state_dict.items():
-            if k in full_sd:
-                # Dùng clone().detach() để lột bỏ cờ "inference tensor" từ FedAvg
-                full_sd[k] = v.clone().detach().to(next(self.yolo.model.parameters()).device)
-        self.yolo.model.load_state_dict(full_sd, strict=False)
+        if not state_dict:
+            return
+            
+        # Lấy device hiện tại của model
+        try:
+            device = next(self.yolo.model.parameters()).device
+        except StopIteration:
+            device = torch.device('cpu')
+
+        # [FIX BUG] Tránh dùng load_state_dict vì hàm này dùng param.copy_() gây lỗi Inplace update
+        # trên các inference tensors (VD: model.0.conv.bias vốn bị đóng băng).
+        # Ta chỉ cập nhật .data cho các tensor thực sự nhận được từ server (LoRA + Head).
+        for name, param in self.yolo.model.named_parameters():
+            if name in state_dict:
+                param.data = state_dict[name].clone().detach().to(device=device, dtype=param.dtype)
+                
+        for name, buf in self.yolo.model.named_buffers():
+            if name in state_dict:
+                buf.data = state_dict[name].clone().detach().to(device=device, dtype=buf.dtype)
 
 
 class TeacherModel:
