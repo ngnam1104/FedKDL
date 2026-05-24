@@ -106,6 +106,10 @@ def local_sgd_od(
         'epochs': epochs,
         'batch': batch_size,
         'lr0': lr,
+        'optimizer': 'AdamW',
+        'warmup_epochs': 0.0,
+        'lrf': 1.0,
+        'cos_lr': False,
         'device': device,
         'project': 'runs/fl_clients',
         'name': f'client_{client_id}',
@@ -194,4 +198,38 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
         'Prec': mp,
         'Rec': mr
     }
+
+
+def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "cpu") -> dict:
+    """
+    Đánh giá Student model trên chính tập TRAIN của client (split='train').
+    Dùng để kiểm tra xem sensor có thực sự cải thiện sau mỗi vòng FL.
+    Dùng YOLO built-in val với split='train' — không ảnh hưởng tập val/test.
+
+    Returns: dict chứa mAP50-95, mAP50, Prec, Rec trên train split của client đó.
+    """
+    try:
+        results = student_model.yolo.val(
+            data=client_yaml,
+            device=device,
+            verbose=False,
+            split='train',  # Eval ngay trên tập train của client
+            workers=0,
+        )
+        mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
+        mr = float(np.mean(results.box.mr)) if hasattr(results.box, 'mr') else 0.0
+        return {
+            'local_mAP50-95': float(results.box.map),
+            'local_mAP50':    float(results.box.map50),
+            'local_Prec':     mp,
+            'local_Rec':      mr,
+        }
+    except Exception as e:
+        print(f"[evaluate_od_on_client_train] Lỗi khi eval trên train split: {e}")
+        return {
+            'local_mAP50-95': 0.0,
+            'local_mAP50':    0.0,
+            'local_Prec':     0.0,
+            'local_Rec':      0.0,
+        }
 

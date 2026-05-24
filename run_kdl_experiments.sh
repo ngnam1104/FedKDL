@@ -99,14 +99,35 @@ run_baseline() {
 }
 
 echo ""
-echo "=== GROUP A: Ablation & Comparison ==="
-# N=30, Alpha=2.0, 10 baselines
-ALL_BASELINES=(
-  "fedkdl" "fedkdl_r4" "full_param_kd" "full_param_nokd" 
-  "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
-  "fedavg" "fedprox" "centralized"
+echo "=== GROUP A1: Classic Full-Param Baselines ==="
+# N=30, Alpha=2.0
+CLASSIC_BASELINES=(
+  "centralized" "fedavg" "fedprox" "hfl_nocoop" "hfl_nearest" "hfl_selective"
 )
-for b in "${ALL_BASELINES[@]}"; do
+for b in "${CLASSIC_BASELINES[@]}"; do
+  run_baseline 30 2.0 "$b"
+done
+
+echo ""
+echo "=== GROUP A2: KDL-Accelerated Baselines ==="
+# N=30, Alpha=2.0
+# Đã áp dụng toàn bộ KDL (LoRA+INT8+KD) vào các chiến lược truyền thống.
+# fedkdl thực chất chính là hfl_selective_kdl
+KDL_BASELINES=(
+  "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "fedkdl"
+)
+for b in "${KDL_BASELINES[@]}"; do
+  run_baseline 30 2.0 "$b"
+done
+
+echo ""
+echo "=== GROUP A3: FedKDL Ablation Studies ==="
+# N=30, Alpha=2.0
+ABLATION_BASELINES=(
+  "fedkdl_r4" "full_param_kd" "full_param_nokd" 
+  "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
+)
+for b in "${ABLATION_BASELINES[@]}"; do
   if [[ "$b" == "fedkdl_r4" ]]; then
     run_baseline 30 2.0 "$b" 4  # r=4 ablation
   else
@@ -116,8 +137,9 @@ done
 
 echo ""
 echo "=== GROUP B: Scalability ==="
-# N=40, 50 (N=30 đã có ở Group A), Alpha=2.0, 3 baselines
-MAIN_BASELINES=("fedkdl" "fedavg" "centralized")
+# N=40, 50 (N=30 đã có ở Group A)
+# Để công bằng truyền tải mạng lưới, áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm (alg).
+MAIN_BASELINES=("centralized" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "fedkdl")
 for n in 40 50; do
   for b in "${MAIN_BASELINES[@]}"; do
     run_baseline "$n" 2.0 "$b"
@@ -126,7 +148,7 @@ done
 
 echo ""
 echo "=== GROUP C: Heterogeneity ==="
-# N=30, Alpha=10000.0, 3 baselines
+# N=30, Alpha=10000.0 (Non-IID rất thấp -> IID)
 for b in "${MAIN_BASELINES[@]}"; do
   run_baseline 30 10000.0 "$b"
 done

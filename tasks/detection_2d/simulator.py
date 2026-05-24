@@ -10,7 +10,7 @@ from typing import Dict, Any, Tuple
 from federated_core.base_simulator import BaseSimulator
 from federated_core.workers import BaseWorker, BaseFogNode, BaseGateway
 from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
-from tasks.detection_2d.trainer import local_sgd_od, evaluate_od
+from tasks.detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_client_train
 from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
 from tasks.detection_2d.knowledge_compression.concept_drift import ConceptDriftMonitor
 
@@ -31,24 +31,33 @@ class SensorWorker2D(BaseWorker):
         KD chỉ chạy tại Gateway (Tier 3) sau global aggregation.
 
         Returns:
-            (payload_bytes, payload_kb, delta_norm)
-            payload_bytes: bytes đã nén INT8 để gửi qua kênh âm thanh
-            payload_kb: kích thước payload tính bằng KB
-            delta_norm: L2 norm của sự thay đổi trọng số (cho Lazy Filter)
+            (payload_bytes, payload_kb, delta_norm, train_loss, local_metrics)
+            payload_bytes : bytes đã nén INT8 để gửi qua kênh âm thanh
+            payload_kb    : kích thước payload tính bằng KB
+            delta_norm    : L2 norm của sự thay đổi trọng số (cho Lazy Filter)
+            train_loss    : tổng box+cls+dfl loss vòng cuối
+            local_metrics : dict mAP50-95/mAP50/Prec/Rec đánh giá trên tập train của chính sensor
         """
         if not self.alive or getattr(self, 'n_samples', 0) == 0:
             if getattr(self, 'n_samples', 0) == 0:
                 print(f"\n[{'='*40}]\n[Sensor {self.sensor_id}] BỎ QUA VÌ KHÔNG CÓ DỮ LIỆU (n_samples = 0)\n[{'='*40}]\n")
-            return None, 0.0, 0.0, 0.0
+            return None, 0.0, 0.0, 0.0, {}
 
         import yaml
         with open(self.client_yaml, 'r') as f:
             c_cfg = yaml.safe_load(f)
         nc = c_cfg.get('nc', 80)
 
-        full_param = 'full_param' in baseline
-        use_lora = 'nolora' not in baseline
-        use_int8 = 'noint8' not in baseline
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop']
+        if baseline in classic_baselines:
+            full_param = True
+            use_lora = False
+            use_int8 = False
+        else:
+            full_param = 'full_param' in baseline
+            use_lora = 'nolora' not in baseline
+            use_int8 = 'noint8' not in baseline
+            
         fedprox_mu = 0.01 if 'fedprox' in baseline else 0.0
         from config.settings import fed_cfg
         rank = 4 if 'r4' in baseline else fed_cfg.LORA_RANK
@@ -66,6 +75,17 @@ class SensorWorker2D(BaseWorker):
             global_weights=global_weights,
         )
 
+        # Đánh giá local model trên chính tập train của sensor (sau khi train xong)
+        # Dùng YOLO built-in val với split='train' — hoàn toàn độc lập với tập val/test toàn cục
+        local_metrics = evaluate_od_on_client_train(
+            student_model=local_student,
+            client_yaml=self.client_yaml,
+            device=device,
+        )
+        print(f"[Sensor {self.sensor_id}] Local train mAP50: {local_metrics['local_mAP50']:.4f} "
+              f"| mAP50-95: {local_metrics['local_mAP50-95']:.4f} "
+              f"| Prec: {local_metrics['local_Prec']:.4f} | Rec: {local_metrics['local_Rec']:.4f}")
+
         if use_int8:
             payload_bytes, payload_kb = pack_payload(new_state)
             print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB INT8 "
@@ -82,7 +102,7 @@ class SensorWorker2D(BaseWorker):
         gc.collect()
         torch.cuda.empty_cache()
 
-        return payload_bytes, payload_kb, delta_norm, train_loss
+        return payload_bytes, payload_kb, delta_norm, train_loss, local_metrics
 
 
 
@@ -258,21 +278,24 @@ class Simulator2D(BaseSimulator):
                 cluster_members=members,
             )
 
-    def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float]:
+    def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
         sensor = self.sensors[s_id]
 
-        payload, payload_kb, delta_norm, train_loss = sensor.train_and_get_payload(
+        payload, payload_kb, delta_norm, train_loss, local_metrics = sensor.train_and_get_payload(
             global_state=self.gateway.global_state_dict,
             epochs=self.fed_cfg.LOCAL_EPOCHS,
-            lr=self.fed_cfg.LOCAL_LR,
+            lr=getattr(self, 'current_lr', self.fed_cfg.LOCAL_LR),
             device=self.device,
             baseline=self.baseline,
             global_weights=self.gateway.global_state_dict if 'fedprox' in self.baseline else None,
         )
 
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop']
+        use_int8 = 'noint8' not in self.baseline and self.baseline not in classic_baselines
+        
         from physics_models.energy import e_tx, e_comp_dynamic
         if payload is not None:
-            if 'noint8' in self.baseline:
+            if not use_int8:
                 S_bits = payload_kb * 1024 * 8
             else:
                 S_bits = len(payload) * 8  # payload luôn là bytes INT8
@@ -301,15 +324,16 @@ class Simulator2D(BaseSimulator):
                 )
 
                 if sensor.battery >= (e_tx_cost + e_comp_cost):
-                    return s_id, payload, train_loss, sensor.n_samples, e_tx_cost, e_comp_cost
+                    return s_id, payload, train_loss, sensor.n_samples, e_tx_cost, e_comp_cost, local_metrics
                 else:
                     sensor.alive = False
 
-        return s_id, None, 0.0, 0, 0.0, 0.0
+        return s_id, None, 0.0, 0, 0.0, 0.0, {}
 
 
     def _aggregate_intra_fog(self, m: int, fog, payloads, sensor_n_samples) -> float:
-        use_int8 = 'noint8' not in self.baseline
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop']
+        use_int8 = 'noint8' not in self.baseline and self.baseline not in classic_baselines
         fog.aggregate_intra_cluster(
             global_state_dict=self.gateway.global_state_dict,
             payloads=payloads,
@@ -335,9 +359,10 @@ class Simulator2D(BaseSimulator):
         Sau global aggregation, Gateway dùng Teacher (YOLO12l, GPU mạnh)
         để distill vào global_student trên tập proxy data (coco8.yaml).
 
-        Chỉ chạy khi có KD (không có 'nokd' trong baseline).
+        Chỉ chạy khi có KD (không có 'nokd' trong baseline và không phải classic baseline).
         """
-        if 'nokd' in self.baseline:
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop']
+        if 'nokd' in self.baseline or self.baseline in classic_baselines:
             return
 
         import os

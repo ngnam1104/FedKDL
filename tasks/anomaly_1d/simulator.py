@@ -141,13 +141,13 @@ class Simulator1D(BaseSimulator):
                 model_template=self.model_template,
             )
 
-    def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float]:
+    def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
         sensor = self.sensors[s_id]
         
         payload, avg_loss = sensor.train_and_get_payload(
             global_state=self.gateway.global_state_dict,
             epochs=self.fed_cfg.LOCAL_EPOCHS,
-            lr=self.fed_cfg.LOCAL_LR,
+            lr=getattr(self, 'current_lr', self.fed_cfg.LOCAL_LR),
             mu=0.0, # fedavg
             device=self.device,
         )
@@ -175,9 +175,9 @@ class Simulator1D(BaseSimulator):
                     flop_multiplier=self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
                     epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
                 )
-                return s_id, payload, avg_loss, sensor.n_samples, e_tx_cost, e_comp_cost
+                return s_id, payload, avg_loss, sensor.n_samples, e_tx_cost, e_comp_cost, {}
         
-        return s_id, None, 0.0, 0, 0.0, 0.0
+        return s_id, None, 0.0, 0, 0.0, 0.0, {}
 
     def _aggregate_intra_fog(self, m: int, fog, payloads, sensor_n_samples) -> float:
         fog.aggregate_intra_cluster(

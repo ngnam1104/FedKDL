@@ -101,7 +101,15 @@ class BaseSimulator(ABC):
         cumulative_payload = 0.0
         cumulative_joint_cost = 0.0  # Σ joint_cost^t  — tích lũy Eq.22 qua các round
         
+        import math
+        initial_lr = self.fed_cfg.LOCAL_LR
+
         for t in range(1, T_rounds + 1):
+            # Tính toán Cosine Annealing Learning Rate cho toàn bộ quá trình FL
+            progress = (t - 1) / max(1, T_rounds - 1)
+            # LRF (Learning Rate Fraction) = 0.01 như mặc định của YOLO
+            self.current_lr = initial_lr * (0.01 + 0.99 * 0.5 * (1 + math.cos(math.pi * progress)))
+
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -133,6 +141,8 @@ class BaseSimulator(ABC):
             payloads = {}
             sensor_n_samples = {}
             avg_losses = []
+            sensor_local_metrics = {}
+
             
             e_s2f_total = 0.0
             e_comp_total = 0.0
@@ -140,11 +150,13 @@ class BaseSimulator(ABC):
             if self.task_key == "2D":
                 # Chạy tuần tự cho YOLO 2D vì Ultralytics trainer gây deadlock/crash nếu chạy đa luồng CUDA
                 for s_id in alive_sensors:
-                    sid, payload, loss, n_samp, e_tx_cost, e_comp_cost = self._process_sensor(s_id)
+                    sid, payload, loss, n_samp, e_tx_cost, e_comp_cost, local_metrics = self._process_sensor(s_id)
                     if payload is not None:
                         payloads[sid] = payload
                         sensor_n_samples[sid] = n_samp
                         avg_losses.append(loss)
+                        if local_metrics:
+                            sensor_local_metrics[sid] = local_metrics
                         self.sensors[sid].deduct_battery(e_tx_cost + e_comp_cost)
                     e_s2f_total += e_tx_cost
                     e_comp_total += e_comp_cost
@@ -155,12 +167,14 @@ class BaseSimulator(ABC):
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
                     futures = {executor.submit(self._process_sensor, s_id): s_id for s_id in alive_sensors}
                     for future in concurrent.futures.as_completed(futures):
-                        sid, payload, loss, n_samp, e_tx_cost, e_comp_cost = future.result()
+                        sid, payload, loss, n_samp, e_tx_cost, e_comp_cost, local_metrics = future.result()
                         
                         if payload is not None:
                             payloads[sid] = payload
                             sensor_n_samples[sid] = n_samp
                             avg_losses.append(loss)
+                            if local_metrics:
+                                sensor_local_metrics[sid] = local_metrics
                             
                             self.sensors[sid].deduct_battery(e_tx_cost + e_comp_cost)
                             
@@ -181,14 +195,12 @@ class BaseSimulator(ABC):
                 e_f2f_total += self._aggregate_intra_fog(m, fog, payloads, sensor_n_samples)
 
             # Liên cụm (Inter-cluster Cooperation)
-            if self.baseline in ['hfl_selective', 'hfl_nearest', 'hfl_nocoop']:
-                rule_map = {'hfl_selective': 'selective', 'hfl_nearest': 'nearest', 'hfl_nocoop': 'nocoop'}
-                coop_rule = rule_map.get(self.baseline, 'nocoop')
-            elif self.baseline in ['fedavg', 'fedprox', 'centralized']:
-                coop_rule = 'nocoop'
-            else:
-                # FedKDL và các biến thể ablation đều kế thừa cơ chế HFL-Selective
+            if 'selective' in self.baseline or 'fedkdl' in self.baseline:
                 coop_rule = 'selective'
+            elif 'nearest' in self.baseline:
+                coop_rule = 'nearest'
+            else:
+                coop_rule = 'nocoop'
             
             all_intra = {m: fog.intra_state_dict for m, fog in self.fogs.items() if fog.intra_state_dict is not None}
             from physics_models.energy import e_tx
@@ -317,6 +329,9 @@ class BaseSimulator(ABC):
                 'lambda_tau':         lambda_tau,
                 'joint_cost_round':   joint_cost_round,
                 'joint_cost_cumul':   cumulative_joint_cost,
+                
+                # ── Per-Sensor Local Evaluation ──────────────────────────────────
+                'sensor_train_metrics': sensor_local_metrics,
             }
             metrics.update(eval_metrics)
 
