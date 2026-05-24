@@ -83,12 +83,23 @@ def fedavg_global(
     else:
         weights = [n / N for n in cluster_total_samples]
 
-    # Khởi tạo từ fog đầu tiên
-    global_sd = {k: torch.zeros_like(v, dtype=torch.float32)
-                 for k, v in fog_state_dicts[0].items()}
+    # Lấy UNION tất cả keys từ mọi fog để tránh KeyError khi fog empty fallback về partial dict
+    all_keys = set()
+    for fog_sd in fog_state_dicts:
+        all_keys.update(fog_sd.keys())
 
+    # Tìm tensor shape từ fog đầu tiên có key đó
+    global_sd = {}
+    for key in all_keys:
+        for fog_sd in fog_state_dicts:
+            if key in fog_sd:
+                global_sd[key] = torch.zeros_like(fog_sd[key], dtype=torch.float32)
+                break
+
+    # Weighted average — bỏ qua fog nào không có key đó (fog empty cluster)
     for fog_sd, w in zip(fog_state_dicts, weights):
         for key in global_sd:
-            global_sd[key] += w * fog_sd[key].float()
+            if key in fog_sd:
+                global_sd[key] += w * fog_sd[key].float()
 
     return global_sd
