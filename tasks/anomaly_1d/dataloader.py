@@ -97,7 +97,7 @@ def load_real_smd(data_dir="datasets/SMD", per_channel_eval: bool = False,
     else:
         print(f"[SMD] Nạp toàn bộ {len(train_files)} máy.")
         if not train_files:
-        print(f"[Warning] Real SMD data not found in {data_dir}. Falling back to synthetic.")
+            print(f"[Warning] Real SMD data not found in {data_dir}. Falling back to synthetic.")
         tr_d, tr_l, val_d, val_l = generate_synthetic_timeseries(n_samples=2000, n_features=38, seed=42)
         if per_channel_eval:
             return tr_d, tr_l, [val_d], [val_l], [val_d], [val_l]
