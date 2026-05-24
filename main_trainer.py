@@ -92,7 +92,7 @@ def main():
             
             tau_comp_gw = comp_delay_dynamic(
                 n_samples=total_samples,
-                n_local_epochs=1,
+                n_local_epochs=fed_cfg.LOCAL_EPOCHS,
                 flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["1D"],
                 flop_multiplier=fed_cfg.FLOP_MULTIPLIER["1D"],
                 f_cpu=en_cfg.F_CPU * 5
@@ -100,7 +100,7 @@ def main():
             
             e_comp_gw = e_comp_dynamic(
                 n_samples=total_samples,
-                n_local_epochs=1,
+                n_local_epochs=fed_cfg.LOCAL_EPOCHS,
                 flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["1D"],
                 epsilon_op=en_cfg.EPSILON_OP["1D"],
                 flop_multiplier=fed_cfg.FLOP_MULTIPLIER["1D"]
@@ -171,7 +171,7 @@ def main():
                 _, avg_loss = local_sgd(
                     model=model,
                     dataloader=train_loader,
-                    epochs=1, # Giảm xuống 1 cho 1D để tương đương với thiết lập local
+                    epochs=fed_cfg.LOCAL_EPOCHS,
                     lr=fed_cfg.LOCAL_LR,
                     mu=0.0,
                     device=device,

@@ -183,10 +183,9 @@ class Simulator1D(BaseSimulator):
 
     def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
         sensor = self.sensors[s_id]
-        
         payload, avg_loss, local_metrics = sensor.train_and_get_payload(
             global_state=self.gateway.global_state_dict,
-            epochs=1, # Giảm epochs xuống 1 cho 1D để học từ từ qua các vòng
+            epochs=self.fed_cfg.LOCAL_EPOCHS,
             lr=getattr(self, 'current_lr', self.fed_cfg.LOCAL_LR),
             mu=0.0, # fedavg
             device=self.device,
