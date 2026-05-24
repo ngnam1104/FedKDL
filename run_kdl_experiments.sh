@@ -28,6 +28,8 @@ export PYTHONIOENCODING=utf-8
 
 # Sinh dữ liệu môi trường riêng cho mạng lớn (N=30, 40, 50)
 echo "[KDL] Generating topologies and data partitions for N=30, 40, 50..."
+"$PYTHON" utils/generate_all_envs.py --n 10 --dataset URPC
+"$PYTHON" utils/generate_all_envs.py --n 20 --dataset URPC
 "$PYTHON" utils/generate_all_envs.py --n 30 --dataset URPC
 "$PYTHON" utils/generate_all_envs.py --n 40 --dataset URPC
 "$PYTHON" utils/generate_all_envs.py --n 50 --dataset URPC
@@ -101,39 +103,39 @@ run_baseline() {
 echo ""
 echo ""
 echo "=== GROUP A1: KDL-Accelerated Baselines ==="
-# N=30, Alpha=2.0
+# N=10, Alpha=2.0
 # Đã áp dụng toàn bộ KDL (LoRA+INT8+KD) vào các chiến lược truyền thống.
 # fedkdl (hfl_selective_kdl) chạy ĐẦU TIÊN
 KDL_BASELINES=(
   "fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl"
 )
 for b in "${KDL_BASELINES[@]}"; do
-  run_baseline 30 2.0 "$b"
+  run_baseline 10 2.0 "$b"
 done
 
 echo ""
 echo "=== GROUP A2: FedKDL Ablation Studies ==="
-# N=30, Alpha=2.0
+# N=10, Alpha=2.0
 ABLATION_BASELINES=(
   "fedkdl_r4" "full_param_kd" "full_param_nokd" 
   "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
 )
 for b in "${ABLATION_BASELINES[@]}"; do
   if [[ "$b" == "fedkdl_r4" ]]; then
-    run_baseline 30 2.0 "$b" 4  # r=4 ablation
+    run_baseline 10 2.0 "$b" 4  # r=4 ablation
   else
-    run_baseline 30 2.0 "$b"
+    run_baseline 10 2.0 "$b"
   fi
 done
 
 echo ""
 echo "=== GROUP A3: Classic Full-Param Baselines ==="
-# N=30, Alpha=2.0
+# N=10, Alpha=2.0
 CLASSIC_BASELINES=(
   "centralized" "fedavg" "fedprox" "fedkd" "hfl_nocoop" "hfl_nearest" "hfl_selective"
 )
 for b in "${CLASSIC_BASELINES[@]}"; do
-  run_baseline 30 2.0 "$b"
+  run_baseline 10 2.0 "$b"
 done
 
 echo ""
