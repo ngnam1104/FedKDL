@@ -171,7 +171,7 @@ def main():
                 _, avg_loss = local_sgd(
                     model=model,
                     dataloader=train_loader,
-                    epochs=fed_cfg.LOCAL_EPOCHS,
+                    epochs=1, # Giảm xuống 1 cho 1D để tương đương với thiết lập local
                     lr=fed_cfg.LOCAL_LR,
                     mu=0.0,
                     device=device,

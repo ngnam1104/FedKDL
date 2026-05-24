@@ -125,6 +125,11 @@ done
 echo ""
 echo "=== GROUP A2: FedKDL Ablation Studies ==="
 # N=10, Alpha=2.0
+# GIẢI THÍCH CƠ CHẾ PARSE TÊN BASELINE TRONG CODE:
+# 1. Mặc định các chiến lược ablation KHÔNG CÓ chữ 'noint8' đều được áp dụng nén INT8 (giảm 4 lần payload).
+#    VD: 'full_param_kd' gửi toàn bộ 2.6M tham số, nhưng được ép xuống INT8 (1 byte/param) nên payload chỉ còn ~2.5 MB.
+# 2. Nếu tên có chữ 'noint8' (như 'lora_head_kd_noint8'), code sẽ giữ nguyên định dạng Float32 (4 bytes/param).
+# 3. Tương tự: 'nolora' sẽ gửi full param; 'nokd' sẽ bỏ qua bước Knowledge Distillation tại Gateway.
 ABLATION_BASELINES=(
   "fedkdl_r4" "full_param_kd" "full_param_nokd" 
   "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
@@ -140,6 +145,10 @@ done
 echo ""
 echo "=== GROUP A3: Classic Full-Param Baselines ==="
 # N=10, Alpha=2.0
+# GIẢI THÍCH:
+# Với các thuật toán truyền thống (nằm trong mảng classic_baselines của python code),
+# hệ thống sẽ tự động ép cờ: use_lora=False và use_int8=False.
+# Do đó các thuật toán dưới đây sẽ truyền 100% tham số ở chuẩn FP32 nguyên bản (Payload ~10.5 MB).
 CLASSIC_BASELINES=(
   "centralized" "fedavg" "fedprox" "fedkd" "hfl_nocoop" "hfl_nearest" "hfl_selective"
 )

@@ -290,6 +290,18 @@ class Simulator2D(BaseSimulator):
                 cluster_members=members,
             )
 
+    def get_flop_multiplier(self) -> float:
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
+        if self.baseline == 'fedkd':
+            # FedKD chạy Teacher (YOLOv12l) Forward pass + Student (YOLOv11n) Full pass.
+            # Tỷ lệ FLOPs của YOLOv12l so với YOLOv11n là ~30 lần. Cộng thêm 3 lần cho Student.
+            return 33.0 
+        elif 'full_param' in self.baseline or self.baseline in classic_baselines:
+            # Full param update (Forward + Backward qua tất cả tham số)
+            return 3.0
+        # Mặc định (LoRA)
+        return self.fed_cfg.FLOP_MULTIPLIER[self.task_key]
+
     def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
         sensor = self.sensors[s_id]
 
@@ -331,7 +343,7 @@ class Simulator2D(BaseSimulator):
                     n_samples=sensor.n_samples,
                     n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                     flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
-                    flop_multiplier=self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
+                    flop_multiplier=self.get_flop_multiplier(),
                     epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
                 )
 

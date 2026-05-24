@@ -55,6 +55,10 @@ class BaseSimulator(ABC):
         self.association = topo.flat_association if self.is_flat else topo.hfl_association
         self.clusters = topo.clusters
 
+    def get_flop_multiplier(self) -> float:
+        """Cho phép các lớp con (ví dụ 2D Simulator) định nghĩa lại Flop Multiplier dựa theo logic của Local KD hay LoRA."""
+        return self.fed_cfg.FLOP_MULTIPLIER[self.task_key]
+
     @abstractmethod
     def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float]:
         """
@@ -276,7 +280,7 @@ class BaseSimulator(ABC):
                 n_samples=int(avg_n_samples),
                 n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                 flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
-                flop_multiplier=self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
+                flop_multiplier=self.get_flop_multiplier(),
                 f_cpu=self.en_cfg.F_CPU
             )
             
