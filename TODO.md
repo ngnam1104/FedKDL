@@ -1,97 +1,35 @@
-# 🗺️ Hướng dẫn Khám phá Codebase FedKDL (Advanced Reading Roadmap)
+Viewed run_kdl_experiments.sh:98-135
+Searched for "epochs"
+Viewed simulator.py:50-85
+Viewed simulator.py:1-49
+Searched for "train_and_get_payload"
+Searched for "train_and_get_payload"
+Viewed simulator.py:300-320
+Viewed settings.py:1-102
+Edited settings.py
+Edited run_kdl_experiments.sh
+Ran command: `git add run_kdl_experiments.sh config/settings.py ; git commit -m "Reduce rounds to 50 and local epochs to 2 to optimize training time" ; git push`
+Used tool: manage_task
 
-Codebase của dự án **FedKDL** kết hợp mô phỏng vật lý đại dương (IoUT) và Học máy phân tán (Federated Learning). Để hiểu trọn vẹn, hãy đọc theo lộ trình từ vĩ mô đến vi mô dưới đây:
-
----
-
-## 📍 Bước 1: Khởi tạo Vũ trụ và Luật lệ (Configurations & Entrypoints)
-
-1. **`config/settings.py`**: Trái tim của cấu hình.
-   - **Vật lý**: `AcousticChannelConfig` (Tốc độ âm thanh 1500m/s, suy hao Thorp, SNR). `EnergyConfig` định nghĩa tiêu hao pin trên mỗi FLOP và mỗi byte gửi đi.
-   - **Học máy**: `FedKDLConfig` cấu hình tỷ lệ LORA_RANK (r=4 hoặc r=8), payload mục tiêu, số lượng Epoch.
-2. **`main_trainer_od.py`** (2D Object Detection): Kịch bản chính của hệ thống. File này đóng vai trò Orchestrator, kết nối lưới vật lý và bộ mô phỏng FL.
-
----
-
-## 🌊 Bước 2: Nền tảng Vật lý Đại dương (Physics Tier)
-
-Bỏ qua các framework FL thông thường, FedKDL ép hệ thống hoạt động dưới ràng buộc vật lý. Đọc thư mục **`physics_models/`**:
-
-- **`topology.py`**: Sinh tọa độ 3D. AUV lặn sâu (500m-1000m), Cluster Head lơ lửng (100m-400m), Gateway nằm trên mặt nước (z=0).
-- **`communication.py`**: Tính toán `link_budget` và suy hao âm thanh (Thorp-Wenz model). Quyết định xem thiết bị có đủ công suất để gửi tin đi không.
-- **`energy.py`**: Trừ pin. Năng lượng tiêu hao được tính chi tiết cho từng byte gửi đi (truyền thông) và từng dấu phẩy động (FLOPs) khi vi xử lý ARM nội suy gradient.
+Quyết định rất hợp lý! Việc giảm `ROUNDS=50` và giảm `LOCAL_EPOCHS=2` là đòn bẩy kép giúp cắt giảm thời gian huấn luyện một cách đáng kinh ngạc. Mình đã sửa 2 thông số này (trong `run_kdl_experiments.sh` và `config/settings.py`) và push lên GitHub (Commit `ea76373`).
 
 ---
 
-## 🧠 Bước 3: Động cơ Học liên kết (Federated Core)
+### 📉 Bảng Ước Tính Thời Gian MỚI (Giảm 42% tổng thời gian)
 
-Đọc thư mục **`federated_core/`** để hiểu cách các nút hợp tác:
+Nhờ việc mỗi sensor chỉ chạy 2 epoch thay vì 3 (giảm $\frac{1}{3}$ thời gian local train), kết hợp với số vòng giảm xuống 50:
 
-- **`base_simulator.py`**: Vòng lặp thời gian thực (Round 1 to T).
-  - *Phase 1 (Tier 1)*: Khởi chạy huấn luyện local tại các AUV, tính toán Payload và trừ Pin.
-  - *Phase 2 (Tier 2)*: Khởi chạy `aggregate_intra_fog` để Cluster Head tổng hợp `payloads` (chỉ dùng các phép cộng và nhân vô hướng nhẹ bén). Ở đây có áp dụng **Selective Cooperation** (Hợp tác chọn lọc) để các Cluster Head chia sẻ tải cho nhau.
-  - *Phase 3 (Tier 3)*: Gửi trọng số lên Gateway và kích hoạt `_gateway_knowledge_distillation`.
+* **Tốc độ trung bình mới:**
+  * `N=20`: **~8.1 phút / vòng** $\rightarrow$ **~6.7 tiếng / kịch bản** (50 vòng). *(Trước đây là 11.5 tiếng)*
+  * `N=30`: **~11.5 phút / vòng** $\rightarrow$ **~9.6 tiếng / kịch bản**. *(Trước đây là 16.5 tiếng)*
+  * `N=40`: **~14.8 phút / vòng** $\rightarrow$ **~12.3 tiếng / kịch bản**. *(Trước đây là 21.5 tiếng)*
+  * `N=50`: **~18.1 phút / vòng** $\rightarrow$ **~15.1 tiếng / kịch bản**. *(Trước đây là 26.5 tiếng)*
 
----
+* **Tổng thời gian phân bổ (cho 53 kịch bản):**
+  * **Group A (N=20):** 18 × 6.7h = **~120.6 tiếng**.
+  * **Group B (N=20,30,40,50):** 7 × (6.7h + 9.6h + 12.3h + 15.1h) = **~305.9 tiếng**.
+  * **Group C (N=30):** 7 × 9.6h = **~67.2 tiếng**.
 
-## 🚀 Bước 4: Ứng dụng AI đột phá (Detection 2D Task)
+🔥 **TỔNG CỘNG:** Từ mức khủng khiếp ~854.5 tiếng (gần 36 ngày), bây giờ toàn bộ thực nghiệm chỉ còn mất khoảng **493 tiếng (~20.5 ngày)** trên 1 GPU. Bạn đã tiết kiệm được hơn **15 ngày** chạy máy!
 
-Đây là nơi chứa đóng góp khoa học chính. Đọc thư mục **`tasks/detection_2d/`**:
-
-### 1. Phía Thiết bị biên (Sensor-side)
-
-- **`models/yolo_wrapper.py`**: File này bọc mạng YOLO. Ở đây, một mạng Student (YOLO26n) được đóng băng (`freeze`) toàn bộ trọng số gốc, chỉ chèn thêm các ma trận **LoRA**. Việc này giúp triệt tiêu hàng tỷ FLOPs backward pass.
-- **`simulator.py -> train_and_get_payload()`**: Gọi quá trình Local SGD. Sau khi hội tụ, gradient của các module LoRA được lượng tử hóa thành số nguyên 8-bit bằng cơ chế trong `knowledge_compression/int8_quantization.py`.
-
-### 2. Phía Trạm nổi Mặt nước (Gateway-side KD)
-
-Điểm nhấn lớn nhất là việc Gateway phải gánh vác toàn bộ quá trình Knowledge Distillation (KD).
-
-- **`knowledge_compression/knowledge_distillation.py`**: Lớp `KDDetectionTrainer` kế thừa Ultralytics.
-  - **Logic hoạt động**:
-    1. Gateway nhận một tập dữ liệu đại diện $\mathcal{D}_{proxy}$.
-    2. Chạy quá trình **Lan truyền xuôi (Forward pass) trên mạng Student** (vừa được cập nhật từ biển sâu) để trích xuất *soft logits* và các biểu diễn đặc trưng (hidden features, attention maps).
-    3. Chạy quá trình **Lan truyền xuôi trên mạng Oracle Teacher** (YOLO12-Large) đóng băng, để lấy câu trả lời "mẫu" xuất sắc nhất.
-    4. Tính toán hàm mất mát Eq.37 bao gồm: KL Divergence (khoảng cách phân phối dự đoán), MSE của Hidden layers, và MSE của Attention layers.
-    5. Cập nhật trọng số mạng Student, ép mô hình nhỏ này tiệm cận năng lực của Oracle, sau đó gửi ngược mô hình này xuống đáy biển.
-- **`knowledge_association.py`**: Nơi tính toán khoảng cách EMD (Earth Mover's Distance) để đánh giá độ chệch dữ liệu.
-
----
-
-## 🛠️ Bước 5: Tiện ích & Triển khai (Utils & Scripts)
-
-- **`utils/generate_all_envs.py`**: Sinh sẵn các kịch bản môi trường (Non-IID $\alpha=0.1$, $\alpha=1.0$) ra file YAML để chạy đối chứng đồng loạt.
-- **`run_kdl_experiments.sh`**: Kịch bản tự động hóa Bash để vứt lên server chạy hằng ngày mà không cần tương tác.
-- **`scripts/fedkdl/plot_od_comparison.py`**: Script thu thập file log JSON và chuyển đổi thành các biểu đồ đẹp mắt cho báo cáo khoa học.
-
-
-
-
-
-
-# Vấn đề chính: điểm PA‑F1 gần như “đóng băng” (không thay đổi theo round và giữa nhiều thuật toán). Nguyên nhân do kết hợp hai cơ chế:
-
-  - `anomaly_threshold()` trong metrics.py dùng phân vị tĩnh (np.percentile) trên lỗi validation (99.8 / 99.9) — tức ngưỡng τ_A cố định theo phần trăm của mảng lỗi Normal.
-  - Point‑Adjusted (PA) post‑processing in `point_adjusted_f1*` tô nguyên đoạn anomaly nếu có ít nhất 1 điểm được phát hiện, làm PA‑Recall dễ đạt 1.0 khi các anomalies rải rác.
-  => Kết quả toán học: với percentile cố định, số False Positives (FP) trên tập Test gần như hằng số (tỉ lệ phần trăm của Normal bị gán sai), PA‑Recall bị bó buộc (thường =1) → PA‑F1 trở thành một hằng số xuyên suốt rounds và thuật toán.
-
-- Đã kiểm chứng trong code:
-  - metrics.py: `anomaly_threshold()` dùng `np.percentile(...)`; `best_f1_components()` tồn tại (grid search) nhưng không được dùng trong `Simulator1D`.
-  - simulator.py: gọi `anomaly_threshold(..., percentile=99.8)` trong `evaluate()`.
-  - main_trainer.py: trong nhánh centralized dùng `percentile=99.9`.
-  - Sliding window + Dirichlet partition (in dataloader.py và env_manager.py) là bước tiền xử lý/partition — đúng như bạn mô tả — nhưng nó không gây “đóng băng metrics”; đóng băng đến từ ngưỡng phân vị + PA.
-
-- Hệ quả thực nghiệm:
-  - Mặc dù loss giảm theo rounds, ngưỡng τ_A (về mặt phần trăm) khoá tỷ lệ FP; PA hậu xử lý làm Recall ổn định cao → PA‑F1 không phản ánh tiến bộ thực sự giữa thuật toán.
-
-- Tùy chọn khắc phục (ngắn gọn):
-  1. Bật `best_f1_components()` (grid search) khi đánh giá để tìm ngưỡng “best‑F1” thay vì percentile cố định.
-  2. Tìm ngưỡng động dựa trên validation aggregated hoặc scaling (ví dụ: percentile nhưng trên distribution toàn hệ hoặc normalized errors).
-  3. Báo cáo thêm metrics không phụ thuộc ngưỡng: AUC‑ROC / PR‑AUC trên reconstruction score.
-  4. Trong báo cáo giữ percentile cố định để công bằng, nhưng thêm kèm phân tích phụ (best‑F1 / AUC) để phân biệt thuật toán.
-  5. (Ngắn hạn) tắt PA khi muốn thấy biến động Recall chuẩn; hoặc báo cả Standard F1 và PA‑F1 (đang có).
-
-Bạn muốn mình:
-- a) sửa code ngay (ví dụ thay `anomaly_threshold` → gọi `best_f1_components` trong `Simulator1D`/main_trainer.py), hay
-- b) thêm tuỳ chọn config (`fed_cfg` flag) để chuyển giữa `percentile` vs `best_f1`/`auc` đánh giá, hoặc
-- c) chỉ tạo một PR đề xuất + unit test và để bạn review?
+Bạn có thể tiến hành `git pull` để bắt đầu thực nghiệm ngay nhé. Budget đã hợp lý hơn rất nhiều rồi!

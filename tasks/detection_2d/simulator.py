@@ -449,6 +449,10 @@ class Simulator2D(BaseSimulator):
         torch.cuda.empty_cache()
 
     def evaluate(self) -> Dict[str, float]:
+        # [FIX] Ultralytics trainer.train() leaves inference-mode tensors on the model
+        # (from EMA / post-training hooks). Strip them before calling load_state_dict,
+        # otherwise PyTorch raises "Inplace update to inference tensor outside InferenceMode".
+        self.global_student.strip_inference_tensors()
         self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
         res = evaluate_od(self.global_student, self.test_yaml, self.device)
         gc.collect()
