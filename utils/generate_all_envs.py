@@ -57,9 +57,9 @@ def main():
         if args.m_fogs is not None:
             net_cfg.M_FOGS = args.m_fogs
         elif len(DATASETS) == 1 and DATASETS[0] == 'URPC':
-            net_cfg.M_FOGS = 5
+            net_cfg.M_FOGS = net_cfg.M_FOGS_2D
         else:
-            net_cfg.M_FOGS = 10
+            net_cfg.M_FOGS = net_cfg.M_FOGS_1D
         print(f"  [topology] N={n} -> M_FOGS={net_cfg.M_FOGS}")
         
         for seed in SEEDS:

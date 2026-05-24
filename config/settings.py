@@ -10,7 +10,9 @@ from typing import Tuple, List
 class NetworkConfig:
     """Cấu hình Topology và quy mô bầy đàn"""
     N_SENSORS: int = 100         # Số lượng AUV cảm biến (Tầng Deep)
-    M_FOGS: int = 10             # Số lượng Trạm Fog trung gian
+    M_FOGS: int = 10             # Số lượng Trạm Fog trung gian (hiện tại - có thể bị override)
+    M_FOGS_1D: int = 10          # Số lượng Trạm Fog trung gian cho tác vụ 1D
+    M_FOGS_2D: int = 5           # Số lượng Trạm Fog trung gian cho tác vụ 2D
     AREA_X: float = 2500.0       # Không gian X (m)
     AREA_Y: float = 2500.0       # Không gian Y (m)
     MAX_DEPTH: float = 1000.0    # Độ sâu tối đa (m)

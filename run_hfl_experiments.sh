@@ -36,8 +36,15 @@ export PYTHONIOENCODING=utf-8
 total=$(( ${#N_LIST[@]} * ${#DATASETS[@]} * ${#ALPHAS[@]} * ${#SEEDS[@]} * ${#BASELINES[@]} ))
 count=0
 
+M_FOGS_1D=10
+GEN_ENV_ARGS=()
+if [[ -n "$M_FOGS_1D" ]]; then
+  echo "[HFL] Overriding fog count for 1D topologies: M_FOGS_1D=$M_FOGS_1D"
+  GEN_ENV_ARGS=(--m-fogs "$M_FOGS_1D" --force-topo)
+fi
+
 echo "[HFL] Generating topologies and data partitions for 1D..."
-"$PYTHON" utils/generate_all_envs.py
+"$PYTHON" utils/generate_all_envs.py "${GEN_ENV_ARGS[@]}"
 
 for n in "${N_LIST[@]}"; do
   for alpha in "${ALPHAS[@]}"; do
