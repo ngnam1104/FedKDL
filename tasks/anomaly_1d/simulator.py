@@ -169,10 +169,11 @@ class Simulator1D(BaseSimulator):
                 )
                 # comp cost
                 e_comp_cost = e_comp_dynamic(
-                    sensor.n_samples, self.fed_cfg.LOCAL_EPOCHS,
-                    self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
-                    self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
-                    self.en_cfg.EPSILON_OP[self.task_key]
+                    n_samples=sensor.n_samples,
+                    n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
+                    flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
+                    flop_multiplier=self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
+                    epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
                 )
                 return s_id, payload, avg_loss, sensor.n_samples, e_tx_cost, e_comp_cost
         
