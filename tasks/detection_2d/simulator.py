@@ -25,7 +25,7 @@ class SensorWorker2D(BaseWorker):
         with open(c_cfg['train'], 'r') as f:
             self.n_samples = sum(1 for _ in f)
 
-    def train_and_get_payload(self, global_state, epochs, lr, device, baseline: str = 'fedkdl', global_weights: dict = None):
+    def train_and_get_payload(self, global_state, epochs, lr, device, baseline: str = 'fedkdl', global_weights: dict = None, local_teacher=None):
         """
         Train local SGD (Tier 1, KHÔNG dùng KD) và đóng gói payload INT8.
         KD chỉ chạy tại Gateway (Tier 3) sau global aggregation.
@@ -48,7 +48,7 @@ class SensorWorker2D(BaseWorker):
             c_cfg = yaml.safe_load(f)
         nc = c_cfg.get('nc', 80)
 
-        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop']
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
         if baseline in classic_baselines:
             full_param = True
             use_lora = False
@@ -65,6 +65,16 @@ class SensorWorker2D(BaseWorker):
         local_student = StudentModel("yolo11n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 
+        # Cấp phát Teacher cục bộ nếu chạy thuật toán FedKD (Local KD)
+        local_teacher = None
+        if baseline == 'fedkd':
+            if not hasattr(self, 'local_teacher'):
+                from tasks.detection_2d.models.yolo_wrapper import TeacherModel
+                print(f"[Simulator2D] Khởi tạo Local Teacher (YOLO12l) dùng chung cho thuật toán FedKD...")
+                # Teacher load sẵn weights pretrained
+                self.local_teacher = TeacherModel("yolo12l_pretrained.pt")
+            local_teacher = self.local_teacher
+
         new_state, delta_norm, train_loss = local_sgd_od(
             student_model=local_student,
             client_yaml=self.client_yaml,
@@ -73,6 +83,7 @@ class SensorWorker2D(BaseWorker):
             device=device,
             fedprox_mu=fedprox_mu,
             global_weights=global_weights,
+            local_teacher=local_teacher,
         )
 
         # Đánh giá local model trên chính tập train của sensor (sau khi train xong)
@@ -290,7 +301,7 @@ class Simulator2D(BaseSimulator):
             global_weights=self.gateway.global_state_dict if 'fedprox' in self.baseline else None,
         )
 
-        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop']
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
         use_int8 = 'noint8' not in self.baseline and self.baseline not in classic_baselines
         
         from physics_models.energy import e_tx, e_comp_dynamic
@@ -332,7 +343,7 @@ class Simulator2D(BaseSimulator):
 
 
     def _aggregate_intra_fog(self, m: int, fog, payloads, sensor_n_samples) -> float:
-        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop']
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
         use_int8 = 'noint8' not in self.baseline and self.baseline not in classic_baselines
         fog.aggregate_intra_cluster(
             global_state_dict=self.gateway.global_state_dict,
@@ -361,7 +372,7 @@ class Simulator2D(BaseSimulator):
 
         Chỉ chạy khi có KD (không có 'nokd' trong baseline và không phải classic baseline).
         """
-        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop']
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
         if 'nokd' in self.baseline or self.baseline in classic_baselines:
             return
 

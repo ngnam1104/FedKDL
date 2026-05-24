@@ -84,6 +84,7 @@ def local_sgd_od(
     device: str = "cpu",
     fedprox_mu: float = 0.0,
     global_weights: dict = None,
+    local_teacher = None,
 ) -> tuple:
     """
     Thực hiện Local SGD cho OD tại Sensor (Tier 1).
@@ -121,8 +122,16 @@ def local_sgd_od(
         'workers': 0,
     }
 
-    # 3. Khởi tạo CustomDetectionTrainer
-    trainer = CustomDetectionTrainer(overrides=overrides, student_wrapper=student_model)
+    # 3. Khởi tạo Trainer phù hợp
+    if local_teacher is not None:
+        from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
+        trainer = KDDetectionTrainer(overrides=overrides)
+        trainer.student_wrapper = student_model
+        trainer.set_teacher(local_teacher.yolo.model)
+        trainer.kd_lambda = 1.0  # Hoặc trọng số tuỳ chỉnh
+    else:
+        trainer = CustomDetectionTrainer(overrides=overrides, student_wrapper=student_model)
+        
     trainer.model = student_model.yolo.model
     trainer.fedprox_mu = fedprox_mu
     trainer.global_weights = global_weights

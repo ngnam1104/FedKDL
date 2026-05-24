@@ -130,7 +130,7 @@ echo ""
 echo "=== GROUP A3: Classic Full-Param Baselines ==="
 # N=30, Alpha=2.0
 CLASSIC_BASELINES=(
-  "centralized" "fedavg" "fedprox" "hfl_nocoop" "hfl_nearest" "hfl_selective"
+  "centralized" "fedavg" "fedprox" "fedkd" "hfl_nocoop" "hfl_nearest" "hfl_selective"
 )
 for b in "${CLASSIC_BASELINES[@]}"; do
   run_baseline 30 2.0 "$b"
