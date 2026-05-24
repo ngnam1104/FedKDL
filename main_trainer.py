@@ -69,7 +69,7 @@ def main():
 
     def _train():
         import torch
-        device = "cpu" # Ép buộc chạy CPU cho mạng 1D để tránh nghẽn cổ chai GPU
+        device = "cpu"  # 2D đang chạy GPU; 1D dùng CPU để tránh xung đột VRAM. Sau khi 2D xong, đổi thành: "cuda" if torch.cuda.is_available() else "cpu"
         # Initialize Simulator first to get dataloaders and network info
         sim = Simulator1D(
             topo_path=str(topo_path),

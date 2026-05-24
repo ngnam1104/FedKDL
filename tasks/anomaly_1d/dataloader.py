@@ -78,13 +78,25 @@ DATASET_CONFIGS = {
 }
 
 
-def load_real_smd(data_dir="datasets/SMD", per_channel_eval: bool = False) -> Tuple:
+def load_real_smd(data_dir="datasets/SMD", per_channel_eval: bool = False,
+                  max_machines: int = 9) -> Tuple:
+    """
+    Load SMD dataset.
+    max_machines: Giới hạn số máy nạp vào (mặc định 9 để cân bằng đa dạng dữ liệu vs tốc độ).
+                  Đặt None hoặc 0 để nạp toàn bộ 28 máy.
+    """
     import os, glob
     train_files = sorted(glob.glob(os.path.join(data_dir, "train", "machine-*.txt")))
     test_files = sorted(glob.glob(os.path.join(data_dir, "test", "machine-*.txt")))
     label_files = sorted(glob.glob(os.path.join(data_dir, "test_label", "machine-*.txt")))
-    
-    if not train_files:
+
+    # Giới hạn số máy nếu max_machines được chỉ định
+    if max_machines and max_machines > 0:
+        train_files = train_files[:max_machines]
+        print(f"[SMD] Giới hạn nạp {len(train_files)}/{max_machines} máy (tổng 28 máy).")
+    else:
+        print(f"[SMD] Nạp toàn bộ {len(train_files)} máy.")
+        if not train_files:
         print(f"[Warning] Real SMD data not found in {data_dir}. Falling back to synthetic.")
         tr_d, tr_l, val_d, val_l = generate_synthetic_timeseries(n_samples=2000, n_features=38, seed=42)
         if per_channel_eval:
@@ -278,7 +290,7 @@ def load_dataset(name: str, seed: int = 42, per_channel_eval: bool = False) -> T
     Datasets ho tro: SMD, SMAP, MSL
     """
     if name == 'SMD':
-        return load_real_smd("datasets/SMD", per_channel_eval=per_channel_eval)
+        return load_real_smd("datasets/SMD", per_channel_eval=per_channel_eval, max_machines=9)
     if name in ('SMAP', 'MSL'):
         return load_real_smap_msl(name, "datasets/SMAP_MSL", per_channel_eval=per_channel_eval)
     raise ValueError(f"Unknown dataset: {name}. Choose from ['SMD', 'SMAP', 'MSL']")
