@@ -324,7 +324,7 @@ class MetricsLogger:
         entry.update(metrics)
         self.logs.append(entry)
 
-    def print_latest(self):
+   def print_latest(self):
         """In log mới nhất ra console."""
         if not self.logs:
             return
@@ -332,7 +332,14 @@ class MetricsLogger:
         msg = f"Round {latest['round']:3d} | "
         for k, v in latest.items():
             if k == 'round': continue
-            msg += f"{k}: {v:.4f} | "
+            
+            # Kiểm tra nếu giá trị là số thì mới làm tròn 4 chữ số thập phân
+            if isinstance(v, (int, float)):
+                msg += f"{k}: {v:.4f} | "
+            else:
+                # Nếu là dict, list, string,... thì in ra nguyên bản
+                msg += f"{k}: {v} | "
+                
         print(msg)
 
     def get_dataframe(self) -> pd.DataFrame:
