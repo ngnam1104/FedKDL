@@ -52,8 +52,8 @@ def main():
     if args.lora_rank is not None:
         fed_cfg.LORA_RANK = args.lora_rank
         
-    # Ép LOCAL_EPOCHS = 3 cho 2D để các thiết bị học sâu hơn trên dữ liệu cục bộ
-    fed_cfg.LOCAL_EPOCHS = 3
+    # [TỐI ƯU HÓA] Bỏ hardcode ép LOCAL_EPOCHS=3 để tôn trọng LOCAL_EPOCHS=2 từ config/settings.py
+    # fed_cfg.LOCAL_EPOCHS = 3
 
     T_rounds = fed_cfg.GLOBAL_ROUNDS["2D"]
     
