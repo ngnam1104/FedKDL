@@ -27,7 +27,7 @@ export PYTHONIOENCODING=utf-8
 # =========================================================
 # Cấu hình thử nghiệm (Chỉnh sửa các tham số tại đây)
 # =========================================================
-ROUNDS=60
+ROUNDS=50
 SEED=42
 DS="URPC"
 M_FOGS_2D=4       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
