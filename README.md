@@ -4,39 +4,38 @@ Mô phỏng **Federated Learning** trên mạng **Internet of Underwater Things 
 
 | Kịch bản | Mô tả | Entrypoint |
 |----------|--------|------------|
-| **1D — HFL** | Anomaly detection (Autoencoder), Top-K + INT8 | `main_trainer.py` |
-| **2D — FedKDL** | Object detection (YOLO26n + LoRA), Gateway-side KD | `main_trainer_od.py` |
+| **1D — HFL** | Phát hiện bất thường (Autoencoder), Top-K + INT8 | `main_trainer.py` |
+| **2D — FedKDL** | Phát hiện vật thể (YOLOv26n + LoRA + INT8), Gateway-side KD | `main_trainer_od.py` |
 
-Kiến trúc: `federated_core/` (chung) + `tasks/anomaly_1d/` + `tasks/detection_2d/`.
+Kiến trúc phân cấp 3 tầng: **Sensor → Fog → Gateway**. Mô hình vật lý kênh âm dưới nước sử dụng Thorp-Wenz, vùng mô phỏng 2000 × 2000 × 1000 m.
 
 ---
 
 ## Yêu cầu
 
 - Python 3.10+
-- Linux server khuyến nghị cho train dài
-- **HFL (1D):** CPU đủ (model ~54k params)
-- **KDL (2D):** GPU + CUDA khuyến nghị
-- **URPC2020:** token Kaggle (xem bên dưới)
+- Linux server khuyến nghị cho train dài hơi
+- **HFL (1D):** CPU đủ dùng (Autoencoder ~54k params)
+- **KDL (2D):** GPU + CUDA (YOLOv26n + LoRA rank-8)
+- **Dataset URPC2020:** cần Kaggle API token (xem bên dưới)
 
 ---
 
-## Quick start (server)
+## Quick Start (Server Linux)
 
 ```bash
 git clone <repo-url> FedKDL && cd FedKDL
 
-# Token Kaggle — bắt buộc nếu tải URPC qua script (KHÔNG commit token vào git)
+# Đặt Kaggle token — bắt buộc nếu tải URPC qua script
 export KAGGLE_API_TOKEN="your_token_from_kaggle_settings"
-# hoặc: cp .env.example .env && nano .env
 
 chmod +x quick_start.sh run_hfl_experiments.sh run_kdl_experiments.sh
 ./quick_start.sh
 ```
 
-`quick_start.sh` lần lượt: venv → `pip install` → tải dataset → `generate_all_envs.py` → chạy grid HFL + KDL.
+`quick_start.sh` thực hiện tuần tự: tạo venv → `pip install` → tải dataset → sinh môi trường → chạy toàn bộ thực nghiệm HFL và KDL.
 
-Chạy trong **tmux** nếu SSH có thể đứt:
+Chạy trong **tmux** để tránh mất session khi SSH đứt:
 
 ```bash
 tmux new -s fedkdl
@@ -47,58 +46,119 @@ tmux new -s fedkdl
 
 ```bash
 ./quick_start.sh --help
-./quick_start.sh --setup-only      # chỉ venv
-./quick_start.sh --train-only      # bỏ qua tải data và setup môi trường
-./quick_start.sh --hfl-only        # chỉ 1D (CPU)
-./quick_start.sh --kdl-only        # chỉ 2D (GPU)
+./quick_start.sh --setup-only      # chỉ tạo venv + cài thư viện
+./quick_start.sh --train-only      # bỏ qua tải data và sinh môi trường
+./quick_start.sh --hfl-only        # chỉ chạy kịch bản 1D (CPU)
+./quick_start.sh --kdl-only        # chỉ chạy kịch bản 2D (GPU)
 ```
 
 ---
 
-## Kaggle API token (URPC / SMAP)
+## Kaggle API Token (URPC2020 / SMAP)
 
 1. Vào [Kaggle Settings → API](https://www.kaggle.com/settings) → **Generate New Token**.
 2. Trên server, **một trong hai cách** (không đưa token vào git):
 
 ```bash
 # Cách 1 — export trong shell / tmux
-export KAGGLE_API_TOKEN=KGAT_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export KAGGLE_API_TOKEN=KGAT_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# Cách 2 — file local (đã được khai báo trong .gitignore)
+# Cách 2 — file local (đã khai báo trong .gitignore)
 cp .env.example .env
-# Sửa .env: export KAGGLE_API_TOKEN=...
+# Sửa .env: KAGGLE_API_TOKEN=...
 ```
 
-3. Kiểm tra tải URPC:
+3. Kiểm tra tải dataset URPC:
 
 ```bash
 source .venv/bin/activate
-export KAGGLE_API_TOKEN=...   # hoặc source .env
 python utils/download_datasets.py --urpc
 ```
 
-> **Bảo mật:** Không commit `.env`, không ghi token vào README hay mã nguồn. Nếu token đã lộ (chat, log), hãy **thu hồi và tạo token mới** trên Kaggle.
+> **Bảo mật:** Không commit `.env`, không ghi token vào README hay mã nguồn. Nếu token đã lộ, hãy **thu hồi và tạo token mới** trên Kaggle.
 
 ---
 
 ## Chạy thủ công từng bước
 
 ```bash
+# 1. Môi trường Python
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pip install kagglehub
 
-export KAGGLE_API_TOKEN=...    # nếu cần Kaggle
+# 2. Tải dataset (cần KAGGLE_API_TOKEN)
+export KAGGLE_API_TOKEN=...
 python utils/download_datasets.py --all
-python utils/generate_all_envs.py
 
-./run_hfl_experiments.sh       # ~360 run, CPU
-./run_kdl_experiments.sh       # ~48 run, GPU
+# 3. Sinh Topology và Data Partition
+python utils/generate_all_envs.py              # 1D (SMD, SMAP, MSL)
+python utils/generate_all_envs.py --dataset URPC  # 2D (URPC2020)
+
+# 4. Pre-train Teacher model (chỉ cần làm 1 lần cho 2D)
+python scripts/fedkdl/pretrain.py
+
+# 5. Chạy thực nghiệm
+./run_hfl_experiments.sh   # ~432 run, 1D, CPU
+./run_kdl_experiments.sh   # ~37 run,  2D, GPU
 ```
 
 ---
 
-## Kết quả train (JSON + log)
+## Cấu hình thực nghiệm
+
+Chỉnh sửa các biến đầu tập lệnh, không cần sửa code Python:
+
+### `run_kdl_experiments.sh` (2D)
+
+| Biến | Mặc định | Mô tả |
+|------|----------|-------|
+| `ROUNDS` | `1` (test) / `60` (full) | Số vòng liên kết toàn cầu |
+| `M_FOGS_2D` | `5` | Số Fog node cho kịch bản 2D |
+| `DS` | `URPC` | Tên dataset (hiện tại chỉ URPC) |
+| `SEED` | `42` | Seed ngẫu nhiên |
+
+Ví dụ chạy trên server với ít fog hơn:
+```bash
+ROUNDS=60 M_FOGS_2D=4 ./run_kdl_experiments.sh
+```
+
+### `run_hfl_experiments.sh` (1D)
+
+| Biến | Mặc định | Mô tả |
+|------|----------|-------|
+| `ROUNDS` | `30` | Số vòng liên kết |
+| `M_FOGS_1D` | `10` | Số Fog node cho kịch bản 1D |
+| `N_LIST` | `50 100 150 200` | Danh sách số lượng sensor |
+| `DATASETS` | `SMD SMAP MSL` | Các dataset 1D |
+| `ALPHAS` | `1.0 10000.0` | Mức độ non-IID (Dirichlet α) |
+| `SEEDS` | `42 123 2024` | Seeds thực nghiệm |
+
+---
+
+## Các Baseline
+
+### Kịch bản 2D — `run_kdl_experiments.sh`
+
+| Group | Baseline | Mô tả |
+|-------|----------|-------|
+| **A1** | `fedkdl` | **Đề xuất**: HFL-Selective + LoRA + INT8 + Gateway KD |
+| A1 | `fedavg_kdl`, `fedprox_kdl` | FedAvg/FedProx với nén KDL |
+| A1 | `hfl_nocoop_kdl`, `hfl_nearest_kdl` | HFL không hợp tác / hợp tác gần nhất + KDL |
+| **A2** | `fedkdl_r4` | Ablation: LoRA rank-4 |
+| A2 | `full_param_kd`, `full_param_nokd` | Không LoRA/INT8 ± KD |
+| A2 | `lora_head_kd_noint8`, `head_kd_int8_nolora`, `lora_head_int8_nokd` | Các tổ hợp ablation |
+| **A3** | `centralized`, `fedavg`, `fedprox` | Flat baselines không nén |
+| A3 | `fedkd`, `hfl_nocoop`, `hfl_nearest`, `hfl_selective` | Local KD / HFL không nén |
+| **B** | N=40,50 | Scalability: MAIN_BASELINES |
+| **C** | α=10000 | Heterogeneity: MAIN_BASELINES |
+
+### Kịch bản 1D — `run_hfl_experiments.sh`
+
+`hfl_selective`, `hfl_nearest`, `hfl_nocoop`, `fedprox`, `fedavg`, `centralized`
+
+---
+
+## Kết quả train (JSON + Stdout log)
 
 Mỗi run lưu **hai file** cùng tên gốc:
 
@@ -107,51 +167,101 @@ Mỗi run lưu **hai file** cùng tên gốc:
 | **JSON** (cho plot) | `results/logs/` | `results/logs_kdl/` |
 | **Stdout log** | `results/train_logs/hfl/` | `results/train_logs/kdl/` |
 
-Ví dụ 2D:
-
-```text
-results/logs_kdl/log_N50_URPC_a0p1_fedkdl_seed42.json
-results/train_logs/kdl/log_N50_URPC_a0p1_fedkdl_seed42.stdout.log
+Ví dụ tên file 2D:
+```
+results/logs_kdl/log_N10_URPC_a2p0_fedkdl_seed42.json
+results/train_logs/kdl/log_N10_URPC_a2p0_fedkdl_seed42.stdout.log
 ```
 
-Vẽ đồ thị (sau khi có JSON):
+Cấu trúc JSON: `metadata` → `metrics` (theo round) → `energy_consumption` → `latency_history`.
 
+> Các thư mục `results/` và `environments/` bị gitignore — chỉ tồn tại trên máy chạy thực nghiệm.
+
+---
+
+## Vẽ đồ thị (sau khi có JSON)
+
+### 1D (HFL)
 ```bash
 python scripts/hfl/plot_convergence.py
+python scripts/hfl/plot_scalability.py
+python scripts/hfl/plot_heterogeneity.py
+python scripts/hfl/plot_real_benchmark.py
+python scripts/hfl/plot_tradeoff.py
+```
+
+### 2D (KDL)
+```bash
 python scripts/fedkdl/plot_od_comparison.py
+python scripts/fedkdl/plot_od_scalability.py
+python scripts/fedkdl/plot_heterogeneity.py
+python scripts/fedkdl/eval_baselines.py --results-dir results/logs_kdl
 ```
 
 ---
 
-## Cấu trúc thư mục (rút gọn)
+## Cấu trúc thư mục
 
-```text
+```
 FedKDL/
-├── config/settings.py
-├── federated_core/          # FL chung (aggregator, HFL rules, metrics, base_simulator)
+├── config/
+│   └── settings.py              # Cấu hình vật lý toàn cục (NetworkConfig, AcousticChannelConfig, ...)
+├── federated_core/              # FL chung cho cả 2 kịch bản
+│   ├── base_simulator.py        # Vòng lặp chính, phân phối flat vs. HFL
+│   ├── aggregator.py            # FedAvg / FedProx global aggregation
+│   ├── hfl_rules.py             # Luật hợp tác inter-cluster (selective / nearest / nocoop)
+│   ├── metrics.py               # Thu thập, format và lưu metric
+│   └── workers.py               # SensorWorker, FogWorker abstraction
 ├── tasks/
-│   ├── anomaly_1d/        # Kịch bản 1D
-│   └── detection_2d/      # Kịch bản 2D (YOLO + LoRA)
-├── physics_models/          # Kênh âm, năng lượng, độ trễ
+│   ├── anomaly_1d/              # Kịch bản 1D
+│   │   ├── autoencoder.py       # Student Autoencoder model
+│   │   ├── dataloader.py        # Load SMD/SMAP/MSL + non-IID partition
+│   │   ├── simulator.py         # Simulator1D
+│   │   └── trainer.py           # Training loop 1D
+│   └── detection_2d/            # Kịch bản 2D
+│       ├── simulator.py         # Simulator2D (FedKDL, ablation, baselines)
+│       ├── trainer.py           # KDDetectionTrainer (LoRA, INT8, KD loss)
+│       ├── models/              # StudentModel, TeacherModel, LoRA adapters
+│       └── knowledge_compression/  # Quantization INT8, payload encoding
+├── physics_models/              # Mô hình vật lý kênh âm dưới nước
+│   ├── communication.py         # Thorp-Wenz TL, Wenz NL, Shannon capacity, feasibility
+│   ├── energy.py                # Tiêu hao năng lượng phát/thu/tính toán
+│   ├── latency.py               # Mô hình độ trễ truyền dẫn
+│   └── topology.py              # Topology3D, feasibility graph, association
 ├── utils/
-│   ├── download_datasets.py
-│   ├── generate_all_envs.py
-│   ├── log_export.py
-│   └── train_io.py
-├── scripts/hfl/             # Plot 1D
-├── scripts/fedkdl/          # Plot 2D
-├── quick_start.sh
-├── run_hfl_experiments.sh
-└── run_kdl_experiments.ps1 / .sh
+│   ├── download_datasets.py     # Tải SMD, SMAP/MSL, URPC2020 qua Kaggle
+│   ├── env_manager.py           # Sinh/lưu/tải Topology và Data Partition (pkl)
+│   ├── generate_all_envs.py     # CLI wrapper: sinh môi trường theo grid N × seed × dataset
+│   ├── kaggle_auth.py           # Xác thực Kaggle API token
+│   ├── log_export.py            # Export JSON artifact sau mỗi run
+│   ├── plot_styles.py           # Màu sắc, font chung cho các script vẽ
+│   └── train_io.py              # Quản lý stdout log + artifact JSON
+├── scripts/
+│   ├── hfl/                     # 5 script vẽ đồ thị cho kịch bản 1D
+│   ├── fedkdl/                  # 5 script vẽ + pretrain Teacher cho kịch bản 2D
+│   └── od/                      # plot_ablation.py
+├── main_trainer.py              # CLI entrypoint cho kịch bản 1D
+├── main_trainer_od.py           # CLI entrypoint cho kịch bản 2D
+├── run_hfl_experiments.sh       # Grid runner 1D (432 run)
+├── run_kdl_experiments.sh       # Grid runner 2D (37 run)
+├── quick_start.sh               # One-shot setup + train
+├── requirements.txt
+└── .env.example                 # Mẫu khai báo KAGGLE_API_TOKEN
 ```
 
-## Windows (dev)
+---
 
-```powershell
-.\run_hfl_experiments.ps1
-.\run_kdl_experiments.ps1
-```
+## Thông số vật lý mặc định
 
-Token Kaggle: `$env:KAGGLE_API_TOKEN = "..."` trước khi tải data.
-
-
+| Tham số | Giá trị | Mô tả |
+|---------|---------|-------|
+| Vùng mô phỏng | 2000 × 2000 m | Mặt phẳng XY |
+| Độ sâu Sensor | 500 – 1000 m | Tầng Deep |
+| Độ sâu Fog | 100 – 400 m | Tầng Middle |
+| Tần số sóng mang | 12 kHz | Acoustic |
+| Băng thông | 4000 Hz | ~15 kbps |
+| SL_MAX | 140 dB re 1µPa@1m | Giới hạn công suất phát |
+| Bán kính tối đa | ~1.09 km | Tính theo Thorp-Wenz |
+| Fog nodes (1D) | 10 | Mặc định, đổi qua `M_FOGS_1D` |
+| Fog nodes (2D) | 5 | Mặc định, đổi qua `M_FOGS_2D` |
+| Pin mỗi node | 500 J | `EnergyConfig.E_INIT` |
