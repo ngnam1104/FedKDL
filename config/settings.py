@@ -13,8 +13,8 @@ class NetworkConfig:
     M_FOGS: int = 10             # Số lượng Trạm Fog trung gian (hiện tại - có thể bị override)
     M_FOGS_1D: int = 10          # Số lượng Trạm Fog trung gian cho tác vụ 1D
     M_FOGS_2D: int = 5           # Số lượng Trạm Fog trung gian cho tác vụ 2D
-    AREA_X: float = 2500.0       # Không gian X (m)
-    AREA_Y: float = 2500.0       # Không gian Y (m)
+    AREA_X: float = 2000.0       # Không gian X (m)
+    AREA_Y: float = 2000.0       # Không gian Y (m)
     MAX_DEPTH: float = 1000.0    # Độ sâu tối đa (m)
     SENSOR_DEPTH: Tuple[float, float] = (500.0, 1000.0)
     FOG_DEPTH: Tuple[float, float] = (100.0, 400.0)
