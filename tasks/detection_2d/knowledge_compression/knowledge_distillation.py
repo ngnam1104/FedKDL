@@ -74,6 +74,26 @@ def _strip_inference_tensors(module: nn.Module):
         b.data = b.data.clone().detach()
 
 
+def _count_inference_tensors(module: nn.Module) -> tuple[int, list[str]]:
+    """Count tensors carrying inference-mode flag and return a few sample names."""
+    count = 0
+    sample_names = []
+
+    for name, param in module.named_parameters():
+        if hasattr(param, 'is_inference') and param.is_inference():
+            count += 1
+            if len(sample_names) < 5:
+                sample_names.append(f"param:{name}")
+
+    for name, buf in module.named_buffers():
+        if hasattr(buf, 'is_inference') and buf.is_inference():
+            count += 1
+            if len(sample_names) < 5:
+                sample_names.append(f"buffer:{name}")
+
+    return count, sample_names
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Adaptive Hidden Loss và Attention Loss
 # ─────────────────────────────────────────────────────────────────────────────
@@ -195,10 +215,42 @@ class KDDetectionTrainer(DetectionTrainer):
         original_warning = LOGGER.warning
         LOGGER.warning = lambda *args, **kwargs: None
 
+        student_before, student_samples_before = _count_inference_tensors(self.model)
+        if student_before > 0:
+            LOGGER.info(
+                f"[InferenceCheck][KD] Student has {student_before} inference tensors before strip. "
+                f"Samples: {student_samples_before}"
+            )
+
+        teacher_before = 0
+        teacher_samples_before = []
+        if self.teacher_model is not None:
+            teacher_before, teacher_samples_before = _count_inference_tensors(self.teacher_model)
+            if teacher_before > 0:
+                LOGGER.info(
+                    f"[InferenceCheck][KD] Teacher has {teacher_before} inference tensors before strip. "
+                    f"Samples: {teacher_samples_before}"
+                )
+
         # Ensure both student/teacher are regular tensors before training graph is built.
         _strip_inference_tensors(self.model)
         if self.teacher_model is not None:
             _strip_inference_tensors(self.teacher_model)
+
+        student_after, student_samples_after = _count_inference_tensors(self.model)
+        if student_after > 0:
+            raise RuntimeError(
+                f"[InferenceCheck][KD] Student still has {student_after} inference tensors after strip. "
+                f"Samples: {student_samples_after}"
+            )
+
+        if self.teacher_model is not None:
+            teacher_after, teacher_samples_after = _count_inference_tensors(self.teacher_model)
+            if teacher_after > 0:
+                raise RuntimeError(
+                    f"[InferenceCheck][KD] Teacher still has {teacher_after} inference tensors after strip. "
+                    f"Samples: {teacher_samples_after}"
+                )
         
         # Callback để log KD loss ra console
         def log_kd_loss(trainer):

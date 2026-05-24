@@ -14,6 +14,26 @@ import numpy as np
 from ultralytics.models.yolo.detect import DetectionTrainer
 from config.settings import fed_cfg
 
+
+def _count_inference_tensors(module: torch.nn.Module) -> tuple[int, list[str]]:
+    """Count tensors carrying inference-mode flag and return a few sample names."""
+    count = 0
+    sample_names = []
+
+    for name, param in module.named_parameters():
+        if hasattr(param, 'is_inference') and param.is_inference():
+            count += 1
+            if len(sample_names) < 5:
+                sample_names.append(f"param:{name}")
+
+    for name, buf in module.named_buffers():
+        if hasattr(buf, 'is_inference') and buf.is_inference():
+            count += 1
+            if len(sample_names) < 5:
+                sample_names.append(f"buffer:{name}")
+
+    return count, sample_names
+
 class CustomDetectionTrainer(DetectionTrainer):
     def __init__(self, overrides=None, _callbacks=None, student_wrapper=None,
                  cached_optimizer_state: dict = None):
@@ -38,7 +58,10 @@ class CustomDetectionTrainer(DetectionTrainer):
         # continuous training. Phải chạy SAU super()._setup_train() vì lúc đó
         # self.optimizer mới được build xong.
         if self.cached_optimizer_state:
+            print(f"[OptimState] Warm-start cache detected: {len(self.cached_optimizer_state)} tensors.")
             self._restore_optimizer_state(self.cached_optimizer_state)
+        else:
+            print("[OptimState] Cold-start optimizer (no cache from previous FL round).")
 
     def _restore_optimizer_state(self, named_state: dict):
         """
@@ -154,14 +177,49 @@ def local_sgd_od(
         (new_state, delta_norm, train_loss, new_optimizer_state)
         new_optimizer_state : dict cần lưu vào SensorWorker cho round tiếp theo.
     """
+    has_optim_cache = cached_optimizer_state is not None and len(cached_optimizer_state) > 0
+    print(
+        f"[LocalSGD][Sensor {client_id}] lr0={lr:.8f}, epochs={epochs}, "
+        f"optimizer_cache={'ON' if has_optim_cache else 'OFF'}"
+    )
+
+    student_infer_before, student_names_before = _count_inference_tensors(student_model.yolo.model)
+    if student_infer_before > 0:
+        print(
+            f"[InferenceCheck][Sensor {client_id}] Student has {student_infer_before} inference tensors before strip. "
+            f"Samples: {student_names_before}"
+        )
+
     # 1. Snapshot trạng thái trước khi train
     student_model.strip_inference_tensors()
+
+    student_infer_after, student_names_after = _count_inference_tensors(student_model.yolo.model)
+    if student_infer_after > 0:
+        raise RuntimeError(
+            f"[InferenceCheck][Sensor {client_id}] Student still has {student_infer_after} inference tensors "
+            f"after strip. Samples: {student_names_after}"
+        )
+
     if local_teacher is not None and hasattr(local_teacher, 'yolo'):
+        teacher_infer_before, teacher_names_before = _count_inference_tensors(local_teacher.yolo.model)
+        if teacher_infer_before > 0:
+            print(
+                f"[InferenceCheck][Sensor {client_id}] Teacher has {teacher_infer_before} inference tensors before strip. "
+                f"Samples: {teacher_names_before}"
+            )
+
         # Teacher có thể đã đi qua đường đánh giá trước đó.
         for p in local_teacher.yolo.model.parameters():
             p.data = p.data.clone().detach()
         for b in local_teacher.yolo.model.buffers():
             b.data = b.data.clone().detach()
+
+        teacher_infer_after, teacher_names_after = _count_inference_tensors(local_teacher.yolo.model)
+        if teacher_infer_after > 0:
+            raise RuntimeError(
+                f"[InferenceCheck][Sensor {client_id}] Teacher still has {teacher_infer_after} inference tensors "
+                f"after strip. Samples: {teacher_names_after}"
+            )
 
     state_before = copy.deepcopy(student_model.trainable_state_dict())
 
@@ -224,6 +282,8 @@ def local_sgd_od(
     if isinstance(trainer, CustomDetectionTrainer):
         try:
             new_optimizer_state = trainer.get_named_optimizer_state()
+            if new_optimizer_state is not None:
+                print(f"[OptimState] Saved {len(new_optimizer_state)} tensors for next FL round.")
         except Exception as e:
             print(f"[OptimState] Không thể extract optimizer state: {e}")
 
