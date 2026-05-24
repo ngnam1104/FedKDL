@@ -50,6 +50,15 @@ class StudentModel:
                            if k in new_sd and v.shape == new_sd[k].shape}
             
             new_model.load_state_dict(transfer_sd, strict=False)
+            
+            # [FIX BUG] Khởi tạo stride và bias chuẩn YOLO để tránh mất mAP
+            if hasattr(self.yolo.model, 'stride'):
+                new_model.stride = self.yolo.model.stride
+                m = new_model.model[-1]
+                m.stride = new_model.stride
+                if hasattr(m, 'bias_init'):
+                    m.bias_init()
+                    
             self.yolo.model = new_model
             print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
@@ -95,11 +104,10 @@ class StudentModel:
 
     def strip_inference_tensors(self):
         """Xóa cờ inference tensor khỏi toàn bộ model (để tránh lỗi khi quay lại Train sau Eval)."""
-        for m in self.yolo.model.modules():
-            for name, param in list(m.named_parameters(recurse=False)):
-                setattr(m, name, torch.nn.Parameter(param.clone().detach(), requires_grad=param.requires_grad))
-            for name, buf in list(m.named_buffers(recurse=False)):
-                setattr(m, name, buf.clone().detach())
+        for param in self.yolo.model.parameters():
+            param.data = param.data.clone().detach()
+        for buf in self.yolo.model.buffers():
+            buf.data = buf.data.clone().detach()
 
     def trainable_state_dict(self) -> dict:
         """
@@ -135,12 +143,12 @@ class TeacherModel:
     def __init__(self, ckpt: str = "yolo12l.pt"):
         self.yolo = YOLO(ckpt)
         
-        # [FIX BUG] Xóa cờ "inference tensor" do Ultralytics EMA lưu vào file best.pt
-        for m in self.yolo.model.modules():
-            for name, param in list(m.named_parameters(recurse=False)):
-                setattr(m, name, torch.nn.Parameter(param.clone().detach(), requires_grad=False))
-            for name, buf in list(m.named_buffers(recurse=False)):
-                setattr(m, name, buf.clone().detach())
+        # [FIX BUG] Xóa cờ "inference tensor" an toàn
+        for param in self.yolo.model.parameters():
+            param.data = param.data.clone().detach()
+            param.requires_grad = False
+        for buf in self.yolo.model.buffers():
+            buf.data = buf.data.clone().detach()
                 
         self.yolo.model.eval()
         for p in self.yolo.model.parameters():

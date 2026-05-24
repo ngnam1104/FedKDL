@@ -259,8 +259,13 @@ class Simulator2D(BaseSimulator):
 
         # Models
         nc = base_cfg.get('nc', 80) if 'base_cfg' in locals() else 80
-        full_param = 'full_param' in self.baseline
-        use_lora = 'nolora' not in self.baseline
+        classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
+        if self.baseline in classic_baselines:
+            full_param = True
+            use_lora = False
+        else:
+            full_param = 'full_param' in self.baseline
+            use_lora = 'nolora' not in self.baseline
         rank = 4 if 'r4' in self.baseline else self.fed_cfg.LORA_RANK
         
         self.teacher = TeacherModel(teacher_ckpt)
