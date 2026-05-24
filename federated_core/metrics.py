@@ -324,7 +324,7 @@ class MetricsLogger:
         entry.update(metrics)
         self.logs.append(entry)
 
-   def print_latest(self):
+    def print_latest(self):
         """In log mới nhất ra console."""
         if not self.logs:
             return
