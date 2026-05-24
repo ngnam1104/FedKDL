@@ -79,7 +79,7 @@ DATASET_CONFIGS = {
 
 
 def load_real_smd(data_dir="datasets/SMD", per_channel_eval: bool = False,
-                  max_machines: int = 9) -> Tuple:
+                  max_machines: int = 5) -> Tuple:
     """
     Load SMD dataset.
     max_machines: Giới hạn số máy nạp vào (mặc định 9 để cân bằng đa dạng dữ liệu vs tốc độ).
