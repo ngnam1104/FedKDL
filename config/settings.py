@@ -73,6 +73,10 @@ class FedKDLConfig:
     BETA_EMD: float = 0.5             # Trọng số lai D_joint giữa Tri thức (EMD) và Địa lý
     EPSILON_DRIFT: float = 0.05       # Ngưỡng dung sai báo động Concept Drift
     DELTA_SKIP: float = 0.01          # Ngưỡng kích hoạt Bộ lọc truyền thông lười (Lazy Filter)
+    
+    # Anomaly Evaluation Parameters
+    ANOMALY_EVAL_MODE: str = "best_f1"     # Options: "percentile", "best_f1"
+    ANOMALY_PERCENTILE: float = 99.8       # Ngưỡng cắt phân vị nếu dùng ANOMALY_EVAL_MODE = "percentile"
 
     def __post_init__(self):
         self.DATASETS_1D = ["SMD", "SMAP", "MSL"]

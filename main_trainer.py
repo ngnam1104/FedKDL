@@ -178,7 +178,7 @@ def main():
                 # Evaluate sau mỗi vòng
                 model.eval()
                 
-                from federated_core.metrics import anomaly_threshold, point_adjusted_f1_components
+                from federated_core.metrics import anomaly_threshold, point_adjusted_f1_components, best_f1_components
                 
                 total_tp_pa = 0
                 total_fp_pa = 0
@@ -202,8 +202,6 @@ def main():
                     if len(val_errors) == 0:
                         continue
                         
-                    tau_A = anomaly_threshold(np.array(val_errors), percentile=99.9)
-                    
                     test_errors = []
                     test_labels_list = []
                     with torch.no_grad():
@@ -216,7 +214,14 @@ def main():
                     if len(test_errors) == 0:
                         continue
                         
-                    tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = point_adjusted_f1_components(np.array(test_labels_list), np.array(test_errors), tau_A)
+                    if fed_cfg.ANOMALY_EVAL_MODE == "best_f1":
+                        comps = best_f1_components(np.array(test_labels_list), np.array(test_errors))
+                        tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = comps
+                    else:
+                        tau_A = anomaly_threshold(np.array(val_errors), percentile=fed_cfg.ANOMALY_PERCENTILE)
+                        comps = point_adjusted_f1_components(np.array(test_labels_list), np.array(test_errors), tau_A)
+                        tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = comps
+                        
                     total_tp_pa += tp_pa
                     total_fp_pa += fp_pa
                     total_fn_pa += fn_pa
