@@ -68,14 +68,18 @@ run_baseline() {
 
   echo "[$current_task/$total_tasks] OD | N=$n | alpha=$alpha | baseline=$baseline"
   set +e
+  
+  local TS=$(date +"%Y%m%d_%H%M%S")
+  local log_file="$STDOUT_DIR/raw_bash_output_${n}_${alpha_str}_${TS}.log"
+  
   "$PYTHON" main_trainer_od.py \
     --topo "$topo" --data "$data" \
     --baseline "$baseline" --rounds "$ROUNDS" \
-    --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" 2>&1 | tee -a "$STDOUT_DIR/raw_bash_output_${n}_${alpha_str}.log"
+    --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" 2>&1 | tee -a "$log_file"
   local rc=$?
   set -e
   if [[ $rc -ne 0 ]]; then
-    echo "[Error] Run failed (exit $rc). Check ${STDOUT_DIR}/raw_bash_output_${n}_${alpha_str}.log"
+    echo "[Error] Run failed (exit $rc). Check $log_file"
   fi
 }
 

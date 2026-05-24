@@ -117,7 +117,8 @@ class StudentModel:
         full_sd = self.yolo.model.state_dict()
         for k, v in state_dict.items():
             if k in full_sd:
-                full_sd[k] = v.to(next(self.yolo.model.parameters()).device)
+                # Dùng clone().detach() để lột bỏ cờ "inference tensor" từ FedAvg
+                full_sd[k] = v.clone().detach().to(next(self.yolo.model.parameters()).device)
         self.yolo.model.load_state_dict(full_sd, strict=False)
 
 
