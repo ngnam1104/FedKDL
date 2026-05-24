@@ -27,7 +27,7 @@ export PYTHONIOENCODING=utf-8
 # =========================================================
 # Cấu hình thử nghiệm (Chỉnh sửa các tham số tại đây)
 # =========================================================
-ROUNDS=1          # TEST MODE — đổi lại thành 60 khi chạy thật
+ROUNDS=60
 SEED=42
 DS="URPC"
 M_FOGS_2D=5       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
@@ -55,7 +55,7 @@ echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..
 # =========================================================
 # Hàm chạy chung để tránh lặp code (Giữ nguyên đoạn này trở xuống)
 # =========================================================
-total_tasks=37
+total_tasks=39
 current_task=0
 
 run_baseline() {
