@@ -40,13 +40,12 @@ if [[ -n "$M_FOGS_2D" ]]; then
   GEN_ENV_ARGS=(--m-fogs "$M_FOGS_2D")
 fi
 
-# Sinh dữ liệu môi trường riêng cho mạng lớn (N=10, 20, 30, 40, 50)
+# Sinh dữ liệu môi trường riêng cho mạng lớn (N=10, 20, 30, 40)
 echo "[KDL] Generating topologies and data partitions..."
 "$PYTHON" utils/generate_all_envs.py --n 10 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 20 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 30 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 40 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
-"$PYTHON" utils/generate_all_envs.py --n 50 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 
 # Pre-train Teacher & Khởi động ấm Student
 echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..."
@@ -55,7 +54,7 @@ echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..
 # =========================================================
 # Hàm chạy chung để tránh lặp code (Giữ nguyên đoạn này trở xuống)
 # =========================================================
-total_tasks=39
+total_tasks=46
 current_task=0
 
 run_baseline() {
@@ -158,10 +157,10 @@ done
 
 echo ""
 echo "=== GROUP B: Scalability ==="
-# N=40, 50 (N=30 đã có ở Group A)
+# N=20, 30, 40 (N=10 đã có ở Group A)
 # Để công bằng truyền tải mạng lưới, áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm (alg).
 MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized" "fedkd")
-for n in 40 50; do
+for n in 20 30 40; do
   for b in "${MAIN_BASELINES[@]}"; do
     run_baseline "$n" 2.0 "$b"
   done
