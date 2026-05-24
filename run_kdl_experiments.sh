@@ -2,8 +2,6 @@
 # Scenario 2/3 (2D OD): grid train + plot.
 # Decoupled version to hit the 62-hour budget (~78 hours max).
 set -euo pipefail
-# NOTE: pipefail tắt trong run_baseline() để tránh tee pipe fail dừng script
-
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
@@ -25,34 +23,38 @@ ENVS_DIR="environments"
 STDOUT_DIR="results/train_logs/kdl"
 mkdir -p "$OUT_DIR" "$STDOUT_DIR"
 export PYTHONIOENCODING=utf-8
-M_FOGS_2D="${M_FOGS_2D:-}"
+
+# =========================================================
+# Cấu hình thử nghiệm (Chỉnh sửa các tham số tại đây)
+# =========================================================
+ROUNDS=1          # TEST MODE — đổi lại thành 60 khi chạy thật
+SEED=42
+DS="URPC"
+M_FOGS_2D=5       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
+# =========================================================
 
 GEN_ENV_ARGS=()
+# Kiểm tra nếu M_FOGS_2D được gán giá trị thì tự động thêm cờ
 if [[ -n "$M_FOGS_2D" ]]; then
   echo "[KDL] Overriding fog count for 2D topologies: M_FOGS_2D=$M_FOGS_2D"
   GEN_ENV_ARGS=(--m-fogs "$M_FOGS_2D" --force-topo)
 fi
 
-# Sinh dữ liệu môi trường riêng cho mạng lớn (N=30, 40, 50)
-echo "[KDL] Generating topologies and data partitions for N=30, 40, 50..."
-"$PYTHON" utils/generate_all_envs.py --n 10 --dataset URPC "${GEN_ENV_ARGS[@]}"
-"$PYTHON" utils/generate_all_envs.py --n 20 --dataset URPC "${GEN_ENV_ARGS[@]}"
-"$PYTHON" utils/generate_all_envs.py --n 30 --dataset URPC "${GEN_ENV_ARGS[@]}"
-"$PYTHON" utils/generate_all_envs.py --n 40 --dataset URPC "${GEN_ENV_ARGS[@]}"
-"$PYTHON" utils/generate_all_envs.py --n 50 --dataset URPC "${GEN_ENV_ARGS[@]}"
+# Sinh dữ liệu môi trường riêng cho mạng lớn (N=10, 20, 30, 40, 50)
+echo "[KDL] Generating topologies and data partitions..."
+"$PYTHON" utils/generate_all_envs.py --n 10 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 20 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 30 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 40 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 50 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 
 # Pre-train Teacher & Khởi động ấm Student
 echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..."
 "$PYTHON" scripts/fedkdl/pretrain.py
 
-
-# Cấu hình thử nghiệm
-ROUNDS=1  # TEST MODE — đổi lại thành 60 khi chạy thật
-SEED=42
-DS="URPC"
-
-# Hàm chạy chung để tránh lặp code
-# Usage: run_baseline N ALPHA BASELINE
+# =========================================================
+# Hàm chạy chung để tránh lặp code (Giữ nguyên đoạn này trở xuống)
+# =========================================================
 total_tasks=37
 current_task=0
 

@@ -11,8 +11,8 @@ class NetworkConfig:
     """Cấu hình Topology và quy mô bầy đàn"""
     N_SENSORS: int = 100         # Số lượng AUV cảm biến (Tầng Deep)
     M_FOGS: int = 10             # Số lượng Trạm Fog trung gian
-    AREA_X: float = 2000.0       # Không gian X (m)
-    AREA_Y: float = 2000.0       # Không gian Y (m)
+    AREA_X: float = 2500.0       # Không gian X (m)
+    AREA_Y: float = 2500.0       # Không gian Y (m)
     MAX_DEPTH: float = 1000.0    # Độ sâu tối đa (m)
     SENSOR_DEPTH: Tuple[float, float] = (500.0, 1000.0)
     FOG_DEPTH: Tuple[float, float] = (100.0, 400.0)
