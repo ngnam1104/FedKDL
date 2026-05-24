@@ -49,7 +49,9 @@ class BaseSimulator(ABC):
         self.fog_positions = topo.fog_positions
         self.gateway_position = topo.gateway_position
         self.G = EnvironmentManager.restore_graph(topo)
-        self.association = topo.hfl_association if self.baseline not in ['fedavg', 'fedprox'] else topo.flat_association
+        flat_baselines = ['fedavg', 'fedprox', 'centralized', 'fedkd']
+        is_flat = any(b in self.baseline for b in flat_baselines) and 'hfl' not in self.baseline and 'fedkdl' not in self.baseline
+        self.association = topo.flat_association if is_flat else topo.hfl_association
         self.clusters = topo.clusters
 
     @abstractmethod
@@ -230,7 +232,7 @@ class BaseSimulator(ABC):
             
             # Tính năng lượng gửi Fog -> Gateway
             from physics_models.energy import e_tx
-            if self.baseline not in ['fedavg', 'fedprox']:
+            if not is_flat:
                 for m, fog in self.fogs.items():
                     if fog.final_state_dict is not None:
                         link_key = ('fog', m, 'gateway', 0)
