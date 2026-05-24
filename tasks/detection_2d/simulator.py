@@ -25,7 +25,7 @@ class SensorWorker2D(BaseWorker):
         with open(c_cfg['train'], 'r') as f:
             self.n_samples = sum(1 for _ in f)
 
-    def train_and_get_payload(self, global_state, epochs, lr, device, baseline: str = 'fedkdl', global_weights: dict = None, local_teacher=None):
+    def train_and_get_payload(self, global_state, epochs, lr, device, baseline: str = 'fedkdl', global_weights: dict = None):
         """
         Train local SGD (Tier 1, KHÔNG dùng KD) và đóng gói payload INT8.
         KD chỉ chạy tại Gateway (Tier 3) sau global aggregation.
@@ -80,6 +80,7 @@ class SensorWorker2D(BaseWorker):
             client_yaml=self.client_yaml,
             client_id=self.sensor_id,
             epochs=epochs,
+            lr=lr,           # Truyền Cosine LR liên tục (không bị reset)
             device=device,
             fedprox_mu=fedprox_mu,
             global_weights=global_weights,

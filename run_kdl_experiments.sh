@@ -140,7 +140,7 @@ echo ""
 echo "=== GROUP B: Scalability ==="
 # N=40, 50 (N=30 đã có ở Group A)
 # Để công bằng truyền tải mạng lưới, áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm (alg).
-MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized")
+MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized" "fedkd")
 for n in 40 50; do
   for b in "${MAIN_BASELINES[@]}"; do
     run_baseline "$n" 2.0 "$b"
