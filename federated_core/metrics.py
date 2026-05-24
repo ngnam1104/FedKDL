@@ -83,13 +83,34 @@ def best_f1_components(y_true: np.ndarray, y_pred_scores: np.ndarray, steps: int
     thresholds = np.percentile(y_pred_scores, pct_steps)
     segments = get_anomaly_segments(y_true)
     
+    total_anomalies = int(np.sum(y_true == 1))
+    
+    # [Tối ưu hoá siêu tốc O(1)] - Precompute Segment Max Scores và độ dài
+    if len(segments) > 0:
+        seg_max = np.array([np.max(y_pred_scores[start:end]) for start, end in segments])
+        seg_len = np.array([end - start for start, end in segments])
+    else:
+        seg_max = np.array([])
+        seg_len = np.array([])
+        
+    # Precompute mảng normal đã sort để dùng Binary Search tính FP cực nhanh
+    normal_scores = np.sort(y_pred_scores[y_true == 0])
+    N_normal = len(normal_scores)
+    
     best_f1 = -1.0
-    best_comps = (0, 0, 0, 0, 0, 0)
+    best_th = thresholds[0]
     
     for th in thresholds:
-        y_pred = (y_pred_scores > th).astype(int)
-        comps = point_adjusted_f1_components_fast(y_true, y_pred, segments)
-        tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std = comps
+        # Số lượng False Positives: số điểm Normal > th (Dùng Binary Search O(logN))
+        fp_pa = N_normal - np.searchsorted(normal_scores, th, side='right')
+        
+        # Số lượng True Positives PA: tổng độ dài các segment có max > th
+        if len(segments) > 0:
+            tp_pa = int(np.sum(seg_len[seg_max > th]))
+        else:
+            tp_pa = 0
+            
+        fn_pa = total_anomalies - tp_pa
         
         prec = tp_pa / (tp_pa + fp_pa) if (tp_pa + fp_pa) > 0 else 0.0
         rec = tp_pa / (tp_pa + fn_pa) if (tp_pa + fn_pa) > 0 else 0.0
@@ -97,9 +118,19 @@ def best_f1_components(y_true: np.ndarray, y_pred_scores: np.ndarray, steps: int
         
         if f1_pa > best_f1:
             best_f1 = f1_pa
-            best_comps = comps
+            best_th = th
             
-    return best_comps
+    # Tính lại std metrics cho best threshold
+    y_pred = (y_pred_scores > best_th).astype(int)
+    tp_std = int(np.sum((y_true == 1) & (y_pred == 1)))
+    fp_std = int(np.sum((y_true == 0) & (y_pred == 1)))
+    fn_std = int(np.sum((y_true == 1) & (y_pred == 0)))
+    
+    fp_pa = fp_std # Trong PA logic, fp_pa luôn bằng fp_std
+    tp_pa = int(np.sum(seg_len[seg_max > best_th])) if len(segments) > 0 else 0
+    fn_pa = total_anomalies - tp_pa
+    
+    return tp_pa, fp_pa, fn_pa, tp_std, fp_std, fn_std
 
 def point_adjusted_f1(y_true: np.ndarray, y_pred_scores: np.ndarray, threshold: float) -> Tuple[float, float, float, float, float, float]:
     """
