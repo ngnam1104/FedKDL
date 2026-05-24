@@ -30,7 +30,7 @@ export PYTHONIOENCODING=utf-8
 ROUNDS=60
 SEED=42
 DS="URPC"
-M_FOGS_2D=5       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
+M_FOGS_2D=4       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
 # =========================================================
 
 GEN_ENV_ARGS=()
@@ -40,12 +40,12 @@ if [[ -n "$M_FOGS_2D" ]]; then
   GEN_ENV_ARGS=(--m-fogs "$M_FOGS_2D")
 fi
 
-# Sinh dữ liệu môi trường riêng cho mạng lớn (N=10, 20, 30, 40)
+# Sinh dữ liệu môi trường riêng cho mạng lớn (N=20, 30, 40, 50)
 echo "[KDL] Generating topologies and data partitions..."
-"$PYTHON" utils/generate_all_envs.py --n 10 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 20 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 30 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 40 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py --n 50 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 
 # Pre-train Teacher & Khởi động ấm Student
 echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..."
@@ -54,7 +54,7 @@ echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..
 # =========================================================
 # Hàm chạy chung để tránh lặp code (Giữ nguyên đoạn này trở xuống)
 # =========================================================
-total_tasks=46
+total_tasks=53
 current_task=0
 
 run_baseline() {
@@ -111,19 +111,19 @@ run_baseline() {
 echo ""
 echo ""
 echo "=== GROUP A1: KDL-Accelerated Baselines ==="
-# N=10, Alpha=2.0
+# N=20, Alpha=2.0
 # Đã áp dụng toàn bộ KDL (LoRA+INT8+KD) vào các chiến lược truyền thống.
 # fedkdl (hfl_selective_kdl) chạy ĐẦU TIÊN
 KDL_BASELINES=(
   "fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl"
 )
 for b in "${KDL_BASELINES[@]}"; do
-  run_baseline 10 2.0 "$b"
+  run_baseline 20 2.0 "$b"
 done
 
 echo ""
 echo "=== GROUP A2: FedKDL Ablation Studies ==="
-# N=10, Alpha=2.0
+# N=20, Alpha=2.0
 # GIẢI THÍCH CƠ CHẾ PARSE TÊN BASELINE TRONG CODE:
 # 1. Mặc định các chiến lược ablation KHÔNG CÓ chữ 'noint8' đều được áp dụng nén INT8 (giảm 4 lần payload).
 #    VD: 'full_param_kd' gửi toàn bộ 2.6M tham số, nhưng được ép xuống INT8 (1 byte/param) nên payload chỉ còn ~2.5 MB.
@@ -135,15 +135,15 @@ ABLATION_BASELINES=(
 )
 for b in "${ABLATION_BASELINES[@]}"; do
   if [[ "$b" == "fedkdl_r4" ]]; then
-    run_baseline 10 2.0 "$b" 4  # r=4 ablation
+    run_baseline 20 2.0 "$b" 4  # r=4 ablation
   else
-    run_baseline 10 2.0 "$b"
+    run_baseline 20 2.0 "$b"
   fi
 done
 
 echo ""
 echo "=== GROUP A3: Classic Full-Param Baselines ==="
-# N=10, Alpha=2.0
+# N=20, Alpha=2.0
 # GIẢI THÍCH:
 # Với các thuật toán truyền thống (nằm trong mảng classic_baselines của python code),
 # hệ thống sẽ tự động ép cờ: use_lora=False và use_int8=False.
@@ -152,15 +152,15 @@ CLASSIC_BASELINES=(
   "centralized" "fedavg" "fedprox" "fedkd" "hfl_nocoop" "hfl_nearest" "hfl_selective"
 )
 for b in "${CLASSIC_BASELINES[@]}"; do
-  run_baseline 10 2.0 "$b"
+  run_baseline 20 2.0 "$b"
 done
 
 echo ""
 echo "=== GROUP B: Scalability ==="
-# N=20, 30, 40 (N=10 đã có ở Group A)
-# Để công bằng truyền tải mạng lưới, áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm (alg).
+# N=20, 30, 40, 50 — với 5 Fog, cần ít nhất N=20 để ý nghĩa thống kê (4 sensor/fog)
+# Áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm.
 MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized" "fedkd")
-for n in 20 30 40; do
+for n in 20 30 40 50; do
   for b in "${MAIN_BASELINES[@]}"; do
     run_baseline "$n" 2.0 "$b"
   done
