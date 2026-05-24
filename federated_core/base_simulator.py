@@ -134,8 +134,16 @@ class BaseSimulator(ABC):
                 print(f"\n{'='*60}")
                 print(f"|  [Simulator] BẮT ĐẦU VÒNG {t}/{T_rounds}  |")
                 print(f"{'='*60}\n")
+                print(
+                    f"[*] LR Schedule | round={t}/{T_rounds} | "
+                    f"base_lr={initial_lr:.6f} -> current_lr={self.current_lr:.8f}"
+                )
             else:
-                print(f"   -> [FL Simulator 1D] Processing Round {t}/{T_rounds}...", end="\r", flush=True)
+                print(
+                    f"   -> [FL Simulator 1D] Round {t}/{T_rounds} | "
+                    f"current_lr={self.current_lr:.8f}",
+                    flush=True,
+                )
 
             # --- Phase 1: Sensor Tier ---
             alive_sensors = [s.sensor_id for s in self.sensors.values() if s.alive]
