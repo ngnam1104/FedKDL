@@ -57,6 +57,11 @@ class CustomDetectionTrainer(DetectionTrainer):
         # Inject optimizer state từ round trước (keyed by param name) để simulate
         # continuous training. Phải chạy SAU super()._setup_train() vì lúc đó
         # self.optimizer mới được build xong.
+        
+        # [FIX] Force accumulate = 1 so that small clients (e.g. 1 batch) 
+        # still trigger optimizer.step() and populate self.optimizer.state.
+        self.accumulate = 1
+        
         if self.cached_optimizer_state:
             print(f"[OptimState] Warm-start cache detected: {len(self.cached_optimizer_state)} tensors.")
             self._restore_optimizer_state(self.cached_optimizer_state)
@@ -97,6 +102,8 @@ class CustomDetectionTrainer(DetectionTrainer):
         lưu trên CPU để tái sử dụng round sau.
         """
         id_to_name = {id(p): n for n, p in self.model.named_parameters()}
+        print(f"[DEBUG OptimState] Model params: {len(id_to_name)}, Optimizer state items: {len(self.optimizer.state)}")
+        
         named_state = {}
         for param, state in self.optimizer.state.items():
             name = id_to_name.get(id(param))
@@ -106,6 +113,7 @@ class CustomDetectionTrainer(DetectionTrainer):
                 k: v.cpu().clone() if isinstance(v, torch.Tensor) else v
                 for k, v in state.items()
             }
+        print(f"[DEBUG OptimState] Extracted {len(named_state)} tensors")
         return named_state
 
     def validate(self):
