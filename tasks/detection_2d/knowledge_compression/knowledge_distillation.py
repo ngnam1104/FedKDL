@@ -289,11 +289,17 @@ class KDDetectionTrainer(DetectionTrainer):
         finally:
             LOGGER.warning = original_warning
             
-        # [FIX] Ultralytics BaseTrainer._setup_train creates an instance attribute `self.criterion`
-        # which shadows any method named `criterion`. We must wrap it AFTER it's created.
+        # [FIX] Ultralytics YOLOv8 stores the criterion inside the model (self.model.criterion) lazily,
+        # not in the Trainer. We must initialize it and wrap it there.
+        from ultralytics.utils.torch_utils import unwrap_model
+        model_unwrapped = unwrap_model(self.model)
+        
+        if getattr(model_unwrapped, "criterion", None) is None:
+            model_unwrapped.criterion = model_unwrapped.init_criterion()
+            
         if not hasattr(self, 'original_criterion'):
-            self.original_criterion = self.criterion
-            self.criterion = self._kd_criterion_wrapper
+            self.original_criterion = model_unwrapped.criterion
+            model_unwrapped.criterion = self._kd_criterion_wrapper
 
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
