@@ -284,6 +284,16 @@ class KDDetectionTrainer(DetectionTrainer):
                 
         self.add_callback("on_train_epoch_end", log_kd_loss)
 
+        # [FIX] Prevent ModelEMA from deepcopying a bound method (circular reference to Trainer)
+        # which contains an unpicklable DataLoaderIter from the previous FL round.
+        from ultralytics.utils.torch_utils import unwrap_model
+        model_unwrapped = unwrap_model(self.model)
+        if getattr(model_unwrapped, 'criterion', None) is getattr(self, '_kd_criterion_wrapper', None):
+            if hasattr(self, 'original_criterion'):
+                model_unwrapped.criterion = self.original_criterion
+            else:
+                del model_unwrapped.criterion
+
         try:
             super()._setup_train()
         finally:
@@ -324,7 +334,13 @@ class KDDetectionTrainer(DetectionTrainer):
 
     def final_eval(self):
         """Bỏ qua bước Validate dư thừa ở cuối quá trình KD."""
-        from ultralytics.utils.torch_utils import strip_optimizer
+        from ultralytics.utils.torch_utils import strip_optimizer, unwrap_model
+        
+        # [FIX] Trả lại hàm loss gốc để tránh memory leak/circular reference sang Trainer cũ
+        model_unwrapped = unwrap_model(self.model)
+        if hasattr(self, 'original_criterion'):
+            model_unwrapped.criterion = self.original_criterion
+            
         model = self.best if self.best.exists() else None
         if self.last.exists():
             strip_optimizer(self.last)
