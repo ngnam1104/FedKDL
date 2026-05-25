@@ -148,7 +148,7 @@ def main():
                 device=device,
                 project=args.out_dir,
                 name=f"centralized_{stem}",
-                verbose=False
+                verbose=True
             )
             
             map50_95 = float(results.box.map)
