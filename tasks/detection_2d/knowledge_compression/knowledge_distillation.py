@@ -354,6 +354,8 @@ class KDDetectionTrainer(DetectionTrainer):
         imgs = batch['img']
 
         # ── 2. Thu hidden features của Student (trong pha forward hiện tại) ─
+        if self.batch_count == 0:
+            print(f"\n[KD - Batch 1] Đang forward Student ({self.model.__class__.__name__}) để trích xuất features...")
         s_hook, s_handles = _register_hooks(self.model)
         # Forward lại student để thu features. Không dùng inference/no_grad để tránh
         # tạo tensor không theo dõi version counter trong graph huấn luyện.
@@ -363,6 +365,8 @@ class KDDetectionTrainer(DetectionTrainer):
         s_hook.clear()
 
         # ── 3. Forward Teacher (no gradient) + thu features ──────────────
+        if self.batch_count == 0:
+            print(f"[KD - Batch 1] Đang forward Teacher ({self.teacher_model.__class__.__name__}) để trích xuất features...")
         t_hook, t_handles = _register_hooks(self.teacher_model)
         with torch.no_grad():
             t_preds = self.teacher_model(imgs)
@@ -378,6 +382,8 @@ class KDDetectionTrainer(DetectionTrainer):
         t_hook.clear()
 
         # ── 4. KL Divergence trên soft logits ────────────────────────────
+        if self.batch_count == 0:
+            print("[KD - Batch 1] Đang tính toán Distillation Loss (KL/Hidden/Attn)...")
         T = self.kd_temperature
         try:
             # Ultralytics v8/v11 returns a tuple where [1] is the dict, or just the dict
@@ -440,14 +446,6 @@ class KDDetectionTrainer(DetectionTrainer):
         self.epoch_attn_loss += loss_attn.item()
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
-
-        if self.batch_count == 1:
-            print("\n" + "="*50)
-            print("[Gateway KD - Batch 1] XÁC NHẬN HAI MODEL ĐANG CÙNG HOẠT ĐỘNG:")
-            print("  [1] Forward pass Teacher (YOLOv12l) -> Trích xuất Soft-labels & Hidden Features.")
-            print("  [2] Forward pass Student (YOLOv11n) -> Trích xuất Predicted-labels & Hidden Features.")
-            print("  [3] Tính toán Distillation Loss (KL/Hidden/Attn) để ép Student học theo Teacher.")
-            print("="*50 + "\n")
 
         return total_loss, loss_items
 
