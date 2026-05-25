@@ -288,6 +288,12 @@ class KDDetectionTrainer(DetectionTrainer):
             super()._setup_train()
         finally:
             LOGGER.warning = original_warning
+            
+        # [FIX] Ultralytics BaseTrainer._setup_train creates an instance attribute `self.criterion`
+        # which shadows any method named `criterion`. We must wrap it AFTER it's created.
+        if not hasattr(self, 'original_criterion'):
+            self.original_criterion = self.criterion
+            self.criterion = self._kd_criterion_wrapper
 
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
@@ -326,7 +332,7 @@ class KDDetectionTrainer(DetectionTrainer):
         """
         self.teacher_model = teacher_nn_module
 
-    def criterion(self, preds, batch):
+    def _kd_criterion_wrapper(self, preds, batch):
         """
         Override: Hàm loss đầy đủ theo Eq. 37.
 
@@ -334,7 +340,7 @@ class KDDetectionTrainer(DetectionTrainer):
         batch : dict chứa 'img', 'cls', 'bboxes', ...
         """
         # ── 1. Task Loss của Student ──────────────────────────────────────
-        loss_stu, loss_items = super().criterion(preds, batch)
+        loss_stu, loss_items = self.original_criterion(preds, batch)
 
         if self.teacher_model is None:
             return loss_stu, loss_items
@@ -356,7 +362,7 @@ class KDDetectionTrainer(DetectionTrainer):
             t_preds = self.teacher_model(imgs)
             # Task loss của Teacher (để tính adaptive denominator)
             try:
-                loss_tch, _ = super().criterion(t_preds, batch)
+                loss_tch, _ = self.original_criterion(t_preds, batch)
                 loss_tch = loss_tch.detach()
             except Exception:
                 loss_tch = torch.tensor(1.0, device=loss_stu.device)
