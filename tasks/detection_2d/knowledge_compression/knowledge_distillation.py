@@ -426,11 +426,12 @@ class KDDetectionTrainer(DetectionTrainer):
             if isinstance(s_logits, torch.Tensor) and isinstance(t_logits, torch.Tensor):
                 if s_logits.shape == t_logits.shape:
                     # Softmax theo chiều class (dim=1) thay vì anchor (dim=-1)
+                    num_anchors = s_logits.shape[2] if len(s_logits.shape) > 2 else 1
                     loss_kl = F.kl_div(
                         F.log_softmax(s_logits / T, dim=1),
                         F.softmax(t_logits / T, dim=1).detach(),
                         reduction='batchmean',
-                    ) * (T * T)
+                    ) * (T * T) / num_anchors
                 else:
                     # Shape mismatch (ví dụ số class khác nhau do custom head)
                     if self.batch_count == 0:

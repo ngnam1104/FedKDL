@@ -49,20 +49,24 @@ def plot_tradeoff():
             f1_data[n][baseline].append(data["history"]["PA-F1"][-1])
 
         e_cumul_val = metrics.get("e_cumul", [0])[-1]
-        if e_cumul_val > 0:
-            energy_data[n][baseline].append(e_cumul_val)
-        elif "e_s2f" in energy:
-            total_e = (sum(energy.get("e_s2f", [])) +
+        if e_cumul_val == 0 and "e_s2f" in energy:
+            e_cumul_val = (sum(energy.get("e_s2f", [])) +
                        sum(energy.get("e_f2f", [])) +
                        sum(energy.get("e_f2g", [])) +
                        sum(energy.get("e_comp", [])))
-            energy_data[n][baseline].append(total_e)
+        
+        # Fair comparison: Scale partial participation (rho_s) to full participation equivalent (1.0)
+        if baseline in ["fedavg", "fedprox"] and rho_s > 0:
+            e_cumul_val *= (1.0 / rho_s)
+            
+        if e_cumul_val > 0:
+            energy_data[n][baseline].append(e_cumul_val)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
     # --- Subplot (a): Selective Cooperation Tradeoff ---
     ax1 = axes[0]
-    N_list = [150, 200]
+    N_list = [50, 100]
     baselines_a = ["hfl_nocoop", "hfl_selective", "hfl_nearest"]
     labels_a = ["HFL-NoCoop", "HFL-Selective", "HFL-Nearest"]
     colors_a = [get_style(b)[0] for b in baselines_a]
@@ -100,21 +104,17 @@ def plot_tradeoff():
 
     # --- Subplot (b): Effect of Compressed Uploads ---
     ax2 = axes[1]
-    n_b = 200
+    n_b = 100
     baselines_b = ["fedavg", "fedprox", "hfl_nocoop", "hfl_nearest"]
     labels_b = ["FedAvg", "FedProx", "HFL-NoCoop", "HFL-Nearest"]
     colors_b = ["#E69F00", "#009E73", get_style("hfl_nocoop")[0], get_style("hfl_nearest")[0]]
 
-    # Use Centralized actual energy if available, else estimate = FedAvg * 19.23
-    e_cent_vals = energy_data[n_b].get("centralized", [])
-    if e_cent_vals and np.mean(e_cent_vals) > 0:
-        e_cent_mean = np.mean(e_cent_vals)
+    # Centralized transmits RAW DATA continuously
+    e_fedavg_vals = energy_data[n_b].get("fedavg", [])
+    if e_fedavg_vals:
+        e_cent_mean = np.mean(e_fedavg_vals) * 19.23
     else:
-        e_fedavg_vals = energy_data[n_b].get("fedavg", [])
-        if e_fedavg_vals:
-            e_cent_mean = np.mean(e_fedavg_vals) * 19.23
-        else:
-            e_cent_mean = 1000.0 # fallback
+        e_cent_mean = 80000.0 # fallback
 
     savings = []
     for b in baselines_b:

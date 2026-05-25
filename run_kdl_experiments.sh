@@ -28,7 +28,7 @@ export PYTHONIOENCODING=utf-8
 # Cấu hình thử nghiệm (Chỉnh sửa các tham số tại đây)
 # =========================================================
 # ROUNDS=50
-ROUNDS=3
+ROUNDS=50
 SEED=42
 DS="URPC"
 M_FOGS_2D=4       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
@@ -56,7 +56,7 @@ echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..
 # =========================================================
 # Hàm chạy chung để tránh lặp code (Giữ nguyên đoạn này trở xuống)
 # =========================================================
-total_tasks=53
+total_tasks=46
 current_task=0
 
 run_baseline() {
@@ -113,14 +113,14 @@ run_baseline() {
 echo ""
 echo ""
 echo "=== GROUP A1: KDL-Accelerated Baselines ==="
-# N=10, Alpha=2.0
+# N=20, Alpha=2.0
 # Đã áp dụng toàn bộ KDL (LoRA+INT8+KD) vào các chiến lược truyền thống.
 # fedkdl (hfl_selective_kdl) chạy ĐẦU TIÊN
 KDL_BASELINES=(
   "fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl"
 )
 for b in "${KDL_BASELINES[@]}"; do
-  run_baseline 10 2.0 "$b"
+  run_baseline 20 2.0 "$b"
 done
 
 echo ""
@@ -162,7 +162,7 @@ echo "=== GROUP B: Scalability ==="
 # N=20, 30, 40, 50 — với 5 Fog, cần ít nhất N=20 để ý nghĩa thống kê (4 sensor/fog)
 # Áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm.
 MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized" "fedkd")
-for n in 20 30 40 50; do
+for n in 30 40 50; do
   for b in "${MAIN_BASELINES[@]}"; do
     run_baseline "$n" 2.0 "$b"
   done

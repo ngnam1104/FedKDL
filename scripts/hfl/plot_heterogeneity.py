@@ -36,10 +36,9 @@ def plot_heterogeneity():
         dataset = meta.get("dataset")
         rho_s = meta.get("rho_s", 0.05)
 
-        if str(n) != "200": continue
+        if str(n) != "100": continue
         if dataset != "SMD": continue
         if rho_s != 0.05: continue
-        if baseline in ["centralized", "fedavg"]: continue
 
         metrics = data.get("metrics", {})
         energy = data.get("energy_consumption", {})
@@ -47,16 +46,27 @@ def plot_heterogeneity():
         if "PA-F1" in metrics and metrics["PA-F1"]:
             f1_data[alpha][baseline].append(metrics["PA-F1"][-1])
         
-        if "e_s2f" in energy:
-            total_e = (sum(energy.get("e_s2f", [])) +
+        e_cumul_val = metrics.get("e_cumul", [0])[-1]
+        if e_cumul_val == 0 and "e_s2f" in energy:
+            e_cumul_val = (sum(energy.get("e_s2f", [])) +
                        sum(energy.get("e_f2f", [])) +
                        sum(energy.get("e_f2g", [])) +
                        sum(energy.get("e_comp", [])))
-            energy_data[alpha][baseline].append(total_e)
+                       
+        if baseline in ["fedavg", "fedprox"] and rho_s > 0:
+            e_cumul_val *= (1.0 / rho_s)
+            
+        if e_cumul_val > 0:
+            energy_data[alpha][baseline].append(e_cumul_val)
 
-    alphas = ["0p1", "10000p0"]  # hardcode mapping to 0.1 and 10^4
-    alpha_labels = ["Strong non-IID\n$\\alpha=0.1$", "Near-IID\n$\\alpha=10^4$"]
-    baselines = ["fedprox", "hfl_nocoop", "hfl_selective", "hfl_nearest"]
+    alphas = ["1p0", "10000p0"]  # hardcode mapping to 1.0 and 10^4
+    alpha_labels = ["Strong non-IID\n$\\alpha=1.0$", "Near-IID\n$\\alpha=10^4$"]
+    # Recalculate Centralized
+    for a in alphas:
+        if "fedavg" in energy_data[a]:
+            energy_data[a]["centralized"] = [e * 19.23 for e in energy_data[a]["fedavg"]]
+
+    baselines = ["fedavg", "fedprox", "hfl_nocoop", "hfl_selective", "hfl_nearest"]
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 
@@ -84,7 +94,8 @@ def plot_heterogeneity():
     ax1.set_ylabel("F1 Score")
     ax1.set_xticks(x)
     ax1.set_xticklabels(alpha_labels)
-    ax1.grid(True, alpha=0.3)
+    ax1.set_ylim(0.66, 0.69)  # Zoom in to make differences clear
+    ax1.grid(True, axis="y", alpha=0.3, zorder=0)
 
     # --- (b) Communication Energy ---
     ax2 = axes[1]

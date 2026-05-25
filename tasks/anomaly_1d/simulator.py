@@ -249,8 +249,24 @@ class Simulator1D(BaseSimulator):
         global_test_labels = []
         global_test_errors = []
         
-        for v_loader, t_loader in zip(self.val_loaders_per_channel, self.test_loaders_per_channel):
+        for sensor_id, (v_loader, t_loader) in enumerate(zip(self.val_loaders_per_channel, self.test_loaders_per_channel)):
             if v_loader is None or t_loader is None:
+                continue
+                
+            is_connected = False
+            if sensor_id in self.sensors:
+                is_connected = self.sensors[sensor_id].alive
+                
+            if not is_connected:
+                # Sensor is dead/disconnected. It cannot detect anything.
+                # Predictions = 0, so TP=0, FP=0, FN=actual_anomalies
+                for _, y_test in t_loader:
+                    labels = y_test.numpy()
+                    global_test_labels.extend(labels)
+                    global_test_errors.extend(np.zeros_like(labels))
+                    
+                    total_fn_pa += int(np.sum(labels))
+                    total_fn_std += int(np.sum(labels))
                 continue
                 
             val_errors = []
