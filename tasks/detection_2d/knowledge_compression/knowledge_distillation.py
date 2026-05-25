@@ -289,7 +289,7 @@ class KDDetectionTrainer(DetectionTrainer):
         finally:
             LOGGER.warning = original_warning
             
-        # [FIX] Ultralytics YOLOv8 stores the criterion inside the model (self.model.criterion) lazily,
+        # [FIX] Ultralytics stores the criterion inside the model (self.model.criterion) lazily,
         # not in the Trainer. We must initialize it and wrap it there.
         from ultralytics.utils.torch_utils import unwrap_model
         model_unwrapped = unwrap_model(self.model)
