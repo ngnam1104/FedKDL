@@ -76,6 +76,7 @@ class SensorWorker2D(BaseWorker):
                 print(f"[Simulator2D] Khởi tạo Local Teacher (YOLO12l) dùng chung cho thuật toán FedKD...")
                 # Teacher load sẵn weights pretrained
                 self.local_teacher = TeacherModel("yolo12l_pretrained.pt")
+                self.local_teacher.yolo.to(device)
             local_teacher = self.local_teacher
 
         new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
@@ -275,6 +276,7 @@ class Simulator2D(BaseSimulator):
         rank = 4 if 'r4' in self.baseline else self.fed_cfg.LORA_RANK
         
         self.teacher = TeacherModel(teacher_ckpt)
+        self.teacher.yolo.to(self.device)
         self.global_student = StudentModel(student_ckpt, rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         
         self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
