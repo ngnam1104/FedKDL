@@ -334,6 +334,8 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
         device=device,
         verbose=False,
         split='val',
+        fuse=False,  # [FIX] Ngăn Ultralytics fuse model (xoá BatchNorm) trong inference_mode
+        half=False,  # [FIX] Ngăn cast model sang FP16 in-place
     )
     
     # Lấy precision và recall (mean)
@@ -363,6 +365,8 @@ def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "
             verbose=False,
             split='train',  # Eval ngay trên tập train của client
             workers=0,
+            fuse=False,
+            half=False,
         )
         mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
         mr = float(np.mean(results.box.mr)) if hasattr(results.box, 'mr') else 0.0

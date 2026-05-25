@@ -260,7 +260,7 @@ class KDDetectionTrainer(DetectionTrainer):
                 mean_attn = trainer.epoch_attn_loss / trainer.batch_count
                 mean_weighted = trainer.epoch_kd_loss / trainer.batch_count
 
-                LOGGER.info(
+                print(
                     f"[KD Epoch {trainer.epoch + 1}] "
                     f"KL: {mean_kl:.4f} | "
                     f"Hidden: {mean_hidden:.4f} | "
@@ -409,8 +409,7 @@ class KDDetectionTrainer(DetectionTrainer):
         self.batch_count += 1
 
         if self.batch_count == 1:
-            from ultralytics.utils import LOGGER
-            LOGGER.info("[KD] Distillation criterion is active (KL/Hidden/Attn terms enabled).")
+            print("[KD] Distillation criterion is active (KL/Hidden/Attn terms enabled).")
 
         return total_loss, loss_items
 
