@@ -442,7 +442,12 @@ class KDDetectionTrainer(DetectionTrainer):
         self.batch_count += 1
 
         if self.batch_count == 1:
-            print("[KD] Distillation criterion is active (KL/Hidden/Attn terms enabled).")
+            print("\n" + "="*50)
+            print("[Gateway KD - Batch 1] XÁC NHẬN HAI MODEL ĐANG CÙNG HOẠT ĐỘNG:")
+            print("  [1] Forward pass Teacher (YOLOv12l) -> Trích xuất Soft-labels & Hidden Features.")
+            print("  [2] Forward pass Student (YOLOv11n) -> Trích xuất Predicted-labels & Hidden Features.")
+            print("  [3] Tính toán Distillation Loss (KL/Hidden/Attn) để ép Student học theo Teacher.")
+            print("="*50 + "\n")
 
         return total_loss, loss_items
 
