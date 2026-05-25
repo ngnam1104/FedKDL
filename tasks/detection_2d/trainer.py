@@ -341,16 +341,24 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
     # [CRITICAL FIX] Lưu lại kiến trúc mạng gốc chưa bị Fuse (gộp BatchNorm)
     unfused_model = copy.deepcopy(student_model.yolo.model)
     
+    import gc
+    torch.cuda.empty_cache()
+    gc.collect()
+    
     results = student_model.yolo.val(
         data=test_yaml,
         device=device,
         verbose=False,
         split='val',
         half=False,  # [FIX] Ngăn cast model sang FP16 in-place
+        workers=0,   # [CRITICAL FIX] Tránh đóng băng multiprocessing/SHM
+        batch=16     # Giới hạn batch size để tránh tràn VRAM
     )
     
     # Khôi phục lại mạng chưa Fuse cho các vòng FL tiếp theo!
     student_model.yolo.model = unfused_model
+    torch.cuda.empty_cache()
+    gc.collect()
     
     # Lấy precision và recall (mean)
     mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
@@ -376,16 +384,23 @@ def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "
         import copy
         unfused_model = copy.deepcopy(student_model.yolo.model)
         
+        import gc
+        torch.cuda.empty_cache()
+        gc.collect()
+        
         results = student_model.yolo.val(
             data=client_yaml,
             device=device,
             verbose=False,
             split='train',  # Eval ngay trên tập train của client
-            workers=0,
             half=False,
+            workers=0,
+            batch=16
         )
         
         student_model.yolo.model = unfused_model
+        torch.cuda.empty_cache()
+        gc.collect()
         mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
         mr = float(np.mean(results.box.mr)) if hasattr(results.box, 'mr') else 0.0
         return {
