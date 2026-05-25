@@ -408,10 +408,17 @@ class KDDetectionTrainer(DetectionTrainer):
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
         numerator = loss_kl + loss_hidden + loss_attn
-        denominator = (loss_tch + loss_stu).detach() + 1e-6  # Tránh div/0
+        denominator = (loss_tch.sum() + loss_stu.sum()).detach() + 1e-6  # Tránh div/0
 
         loss_dist_adaptive = numerator / denominator
-        total_loss = loss_stu + self.kd_lambda * loss_dist_adaptive
+        
+        # Ultralytics v8DetectionLoss trả về loss là tensor 3 elements (box, cls, dfl)
+        # Trainer gọi loss.sum() ở ngoài nên ta chỉ cộng KD loss vào 1 element để tránh nhân 3.
+        total_loss = loss_stu.clone()
+        if total_loss.ndim == 0:
+            total_loss = total_loss + self.kd_lambda * loss_dist_adaptive
+        else:
+            total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
         
         # Tích lũy log
         self.epoch_kl_loss += loss_kl.item()
