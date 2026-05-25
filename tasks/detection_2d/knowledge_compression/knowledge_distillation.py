@@ -392,8 +392,15 @@ class KDDetectionTrainer(DetectionTrainer):
                     p = p[1]
                 elif isinstance(p, list) and len(p) > 0:
                     p = p[0]
-                if isinstance(p, dict) and 'cls' in p:
-                    return p['cls']
+                    
+                # In new Ultralytics, the key is often 'scores' instead of 'cls'
+                if isinstance(p, dict):
+                    if 'cls' in p:
+                        return p['cls']
+                    elif 'scores' in p:
+                        return p['scores']
+                    elif 'one2many' in p and 'scores' in p['one2many']:
+                        return p['one2many']['scores']
                 return p  # Fallback
 
             s_logits = _get_cls(preds)
@@ -410,8 +417,12 @@ class KDDetectionTrainer(DetectionTrainer):
                     ) * (T * T)
                 else:
                     # Shape mismatch (ví dụ số class khác nhau do custom head)
+                    if self.batch_count == 0:
+                        print(f"[KD Warning] KL mismatch shape: stu {s_logits.shape} vs tch {t_logits.shape}")
                     loss_kl = torch.tensor(0.0, device=loss_stu.device)
             else:
+                if self.batch_count == 0:
+                    print(f"[KD Warning] _get_cls failed to extract tensor. s_logits: {type(s_logits)}, t_logits: {type(t_logits)}")
                 loss_kl = torch.tensor(0.0, device=loss_stu.device)
 
         except Exception as e:
