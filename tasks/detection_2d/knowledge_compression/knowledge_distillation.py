@@ -380,24 +380,38 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 4. KL Divergence trên soft logits ────────────────────────────
         T = self.kd_temperature
         try:
-            if isinstance(preds, (list, tuple)) and len(preds) > 1:
-                s_logits = preds[0] if isinstance(preds[0], torch.Tensor) else preds[0][0]
-                t_logits = t_preds[0] if isinstance(t_preds[0], torch.Tensor) else t_preds[0][0]
-            else:
-                s_logits = preds if isinstance(preds, torch.Tensor) else preds[0]
-                t_logits = t_preds if isinstance(t_preds, torch.Tensor) else t_preds[0]
+            # Ultralytics v8/v11 returns a tuple where [1] is the dict, or just the dict
+            def _get_cls(p):
+                if isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], dict):
+                    p = p[1]
+                elif isinstance(p, list) and len(p) > 0:
+                    p = p[0]
+                if isinstance(p, dict) and 'cls' in p:
+                    return p['cls']
+                return p  # Fallback
 
-            if s_logits.shape == t_logits.shape:
-                loss_kl = F.kl_div(
-                    F.log_softmax(s_logits / T, dim=-1),
-                    F.softmax(t_logits / T, dim=-1).detach(),
-                    reduction='batchmean',
-                ) * (T * T)
+            s_logits = _get_cls(preds)
+            t_logits = _get_cls(t_preds)
+                
+            # s_logits có shape [batch, num_classes, num_anchors]
+            if isinstance(s_logits, torch.Tensor) and isinstance(t_logits, torch.Tensor):
+                if s_logits.shape == t_logits.shape:
+                    # Softmax theo chiều class (dim=1) thay vì anchor (dim=-1)
+                    loss_kl = F.kl_div(
+                        F.log_softmax(s_logits / T, dim=1),
+                        F.softmax(t_logits / T, dim=1).detach(),
+                        reduction='batchmean',
+                    ) * (T * T)
+                else:
+                    # Shape mismatch (ví dụ số class khác nhau do custom head)
+                    loss_kl = torch.tensor(0.0, device=loss_stu.device)
             else:
-                # Shape mismatch giữa Student/Teacher head → MSE fallback
                 loss_kl = torch.tensor(0.0, device=loss_stu.device)
+
         except Exception as e:
-            print(f"[KD] KL fallback: {e}")
+            import traceback
+            print(f"[KD] KL fallback Error: {e}")
+            traceback.print_exc()
             loss_kl = torch.tensor(0.0, device=loss_stu.device)
 
         # ── 5. Adaptive Hidden Loss — MSE(H^t, W^h H^s) ─────────────────
