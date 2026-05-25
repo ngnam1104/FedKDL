@@ -337,6 +337,10 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
     Đánh giá mAP@0.5:0.95 và mAP@0.5 của Student model trên tập test.
     Returns: dict chứa các metrics
     """
+    import copy
+    # [CRITICAL FIX] Lưu lại kiến trúc mạng gốc chưa bị Fuse (gộp BatchNorm)
+    unfused_model = copy.deepcopy(student_model.yolo.model)
+    
     results = student_model.yolo.val(
         data=test_yaml,
         device=device,
@@ -344,6 +348,9 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
         split='val',
         half=False,  # [FIX] Ngăn cast model sang FP16 in-place
     )
+    
+    # Khôi phục lại mạng chưa Fuse cho các vòng FL tiếp theo!
+    student_model.yolo.model = unfused_model
     
     # Lấy precision và recall (mean)
     mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
@@ -366,6 +373,9 @@ def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "
     Returns: dict chứa mAP50-95, mAP50, Prec, Rec trên train split của client đó.
     """
     try:
+        import copy
+        unfused_model = copy.deepcopy(student_model.yolo.model)
+        
         results = student_model.yolo.val(
             data=client_yaml,
             device=device,
@@ -374,6 +384,8 @@ def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "
             workers=0,
             half=False,
         )
+        
+        student_model.yolo.model = unfused_model
         mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
         mr = float(np.mean(results.box.mr)) if hasattr(results.box, 'mr') else 0.0
         return {
