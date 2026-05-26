@@ -435,7 +435,7 @@ class Simulator2D(BaseSimulator):
         overrides = {
             'model': "yolo11n.pt",
             'data': proxy_yaml,
-            'epochs': 2,  # 2 epoch distill tại Gateway mỗi round
+            'epochs': 1,  # Đã giảm xuống 1 để tránh việc Gateway ép Student học vẹt quá mức trên Proxy dataset
             'batch': 8,
             'device': self.device,
             'project': 'runs/gateway_kd',

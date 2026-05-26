@@ -36,7 +36,7 @@ class AcousticChannelConfig:
 @dataclass
 class EnergyConfig:
     """Ngân sách Sinh tồn và Tiêu hao Năng lượng"""
-    E_INIT: float = 500.0             # Pin khởi tạo của mỗi thiết bị (Joules) 
+    E_INIT: float = 1000.0            # Pin khởi tạo của mỗi thiết bị (Joules) 
     EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-11, "2D": 2.0e-12}) # Tiêu hao năng lượng trên mỗi FLOP (1D: FP32, 2D: INT8)
     F_CPU: float = 2.0e9              # Tần số CPU của AUV (Cycles/s hoặc FLOPs/s), ví dụ 2 GHz
     P_C_TX: float = 0.05              # Công suất tĩnh mạch phát vô tuyến (Watts) 
@@ -51,8 +51,8 @@ class FedKDLConfig:
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 100}) # Chu kỳ sống dự kiến cho từng tác vụ
     MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 108000.0, "2D": 2.175e9}) # 1D: Autoencoder ~54k params | 2D: YOLOv8n ở 320x320
     FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2}) # Hệ số nhân: 1D (Full fine-tuning), 2D (LoRA)
-    LOCAL_EPOCHS: int = 2             # Số vòng lặp SGD cục bộ 
-    LOCAL_LR: float = 0.01            # Learning rate (Thêm vào cho Centralised & Worker)
+    LOCAL_EPOCHS: int = 3             # Tăng lên 3 để client học sâu hơn
+    LOCAL_LR: float = 0.005           # Giảm xuống 0.005 (thay vì 0.01) để ổn định nhưng không quá rùa bò
     NON_IID_ALPHA: float = 0.1        # Phân phối Dirichlet cho Concept Drift/Data Skew
     DATASET_2D: str = "URPC_2020"     # Kịch bản 2 & 3
     DATASETS_1D: List[str] = None
