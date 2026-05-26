@@ -458,8 +458,10 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_dist_adaptive = numerator / denominator
         
         # Ultralytics v8DetectionLoss trả về loss là tensor 3 elements (box, cls, dfl)
-        # Trainer gọi loss.sum() ở ngoài nên ta chỉ cộng KD loss vào 1 element để tránh nhân 3.
-        total_loss = loss_stu.clone()
+        # [CRITICAL FIX] TẮT HOÀN TOÀN Supervised Loss trên Proxy Data để chống Overfit!
+        # Chỉ giữ lại KD loss để ép Student mimic Teacher.
+        total_loss = loss_stu.clone() * 0.0
+        
         if total_loss.ndim == 0:
             total_loss = total_loss + self.kd_lambda * loss_dist_adaptive
         else:
