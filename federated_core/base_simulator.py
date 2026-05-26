@@ -187,7 +187,7 @@ class BaseSimulator(ABC):
                         avg_losses.append(loss)
                         if local_metrics:
                             sensor_local_metrics[sid] = local_metrics
-                        self.sensors[sid].deduct_battery(e_tx_cost + e_comp_cost, min_battery=self.energy_cfg.E_MIN)
+                        self.sensors[sid].deduct_battery(e_tx_cost + e_comp_cost, min_battery=self.en_cfg.E_MIN)
                     e_s2f_total += e_tx_cost
                     e_comp_total += e_comp_cost
             else:
@@ -206,7 +206,7 @@ class BaseSimulator(ABC):
                             if local_metrics:
                                 sensor_local_metrics[sid] = local_metrics
                             
-                            self.sensors[sid].deduct_battery(e_tx_cost + e_comp_cost, min_battery=self.energy_cfg.E_MIN)
+                            self.sensors[sid].deduct_battery(e_tx_cost + e_comp_cost, min_battery=self.en_cfg.E_MIN)
                             
                         e_s2f_total += e_tx_cost
                         e_comp_total += e_comp_cost

@@ -111,7 +111,11 @@ class SensorWorker2D(BaseWorker):
         }
         print(f"[Sensor {self.sensor_id}] Local train metrics skipped to save time.")
 
-        if use_int8:
+        if delta_norm < fed_cfg.DELTA_SKIP:
+            print(f"[Sensor {self.sensor_id}] 💤 Lazy Filter Activated (delta={delta_norm:.4f} < {fed_cfg.DELTA_SKIP}). Node is resting (No TX).")
+            payload_bytes = None
+            payload_kb = 0.0
+        elif use_int8:
             payload_bytes, payload_kb = pack_payload(new_state)
             print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB INT8 "
                   f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
