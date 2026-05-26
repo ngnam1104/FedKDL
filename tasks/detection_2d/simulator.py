@@ -605,7 +605,7 @@ class Simulator2D(BaseSimulator):
         overrides = {
             'model': "yolo11n.pt",
             'data': proxy_yaml,
-            'epochs': 1,  # Đã giảm xuống 1 để tránh việc Gateway ép Student học vẹt quá mức trên Proxy dataset
+            'epochs': 3,  # [CRITICAL FIX] Tăng lên 3 epochs để có đủ thời gian khắc phục Client Drift từ 20 Sensors
             'batch': 8,
             'device': self.device,
             'project': 'runs/gateway_kd',
