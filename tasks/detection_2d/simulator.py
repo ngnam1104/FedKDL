@@ -325,6 +325,9 @@ class Simulator2D(BaseSimulator):
     def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
         sensor = self.sensors[s_id]
 
+        if s_id == 0 and getattr(self, '_fedprox_mu_override', 0.0) > 0.0:
+            print(f"    [!] Adaptive Dropout Active: Sensors are training with FedProx (mu={self._fedprox_mu_override})")
+
         payload, payload_kb, delta_norm, train_loss, local_metrics = sensor.train_and_get_payload(
             global_state=self.gateway.global_state_dict,
             epochs=self.fed_cfg.LOCAL_EPOCHS,
@@ -436,7 +439,7 @@ class Simulator2D(BaseSimulator):
 
         # Nếu KD đã bị tắt trước đó thì bỏ qua luôn
         if self._kd_disabled:
-            print(f"[Gateway KD] ⏩ Skipping KD (Adaptive Dropout active — pure FL mode).")
+            print(f"[Gateway KD] 🏠 Skipping KD (Adaptive Dropout active — Training strictly with FedProx FL).")
             self._last_kd_metrics = {
                 'kd_active': False, 'kd_epochs': 0,
                 'kd_kl': 0.0, 'kd_hidden': 0.0,
