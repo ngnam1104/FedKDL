@@ -455,6 +455,10 @@ class Simulator2D(BaseSimulator):
         # [FIX] Đảm bảo model không bị dính cờ inference tensor từ hàm evaluate vòng trước
         self.global_student.strip_inference_tensors()
         
+        # [CRITICAL FIX] Load aggregated weights từ các sensors (đang nằm trong gateway)
+        # vào global_student TRƯỚC khi chạy Distillation, nếu không KD sẽ train trên tàn dư cũ!
+        self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
+        
         trainer.model = self.global_student.yolo.model
         print(f"[Gateway KD] Distilling global model with Teacher on proxy data...")
         trainer.train()
