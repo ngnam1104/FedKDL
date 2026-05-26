@@ -52,8 +52,7 @@ def quantize_tensor(x: torch.Tensor) -> QuantizedTensor:
     # Tính scale Δ và zero point Z
     scale = (x_max - x_min) / 255.0
     zero_point = int(round(-x_min / scale)) - 128
-    zero_point = int(np.clip(zero_point, -128, 127))
-
+    
     # Lượng tử hóa
     x_quantized = torch.round(x_flat / scale).long() + zero_point
     x_clamped = torch.clamp(x_quantized, -128, 127).to(torch.int8)
