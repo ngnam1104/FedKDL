@@ -616,6 +616,8 @@ class Simulator2D(BaseSimulator):
             'val': False,
             'plots': False,
             'workers': 0,
+            'optimizer': 'AdamW',
+            'lr0': 1e-4,  # [CRITICAL FIX] Ép LR cực nhỏ (1e-4) để KD không phá hủy (catastrophic forgetting) các tri thức mà sensors vừa đóng góp!
         }
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.student_wrapper = self.global_student
