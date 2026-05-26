@@ -39,6 +39,19 @@ def quantize_tensor(x: torch.Tensor) -> QuantizedTensor:
         QuantizedTensor với data_int8, scale, zero_point.
     """
     x_flat = x.view(-1).float()
+
+    # [GUARD] Sanitize NaN/Inf để tránh crash khi quantize
+    # NaN/Inf có thể xuất hiện khi training gradient explosion hoặc optimizer state bị stale
+    nan_count = torch.isnan(x_flat).sum().item()
+    inf_count = torch.isinf(x_flat).sum().item()
+    if nan_count > 0 or inf_count > 0:
+        import warnings
+        warnings.warn(
+            f"[quantize_tensor] Detected {nan_count} NaN and {inf_count} Inf values "
+            f"in tensor shape {tuple(x.shape)}. Replacing with 0.0 before quantization."
+        )
+        x_flat = torch.nan_to_num(x_flat, nan=0.0, posinf=0.0, neginf=0.0)
+
     x_min = x_flat.min().item()
     x_max = x_flat.max().item()
 
@@ -146,6 +159,15 @@ def pack_payload(state_dict: Dict[str, torch.Tensor]) -> Tuple[bytes, float]:
     """
     buf = bytearray()
     for key, tensor in state_dict.items():
+        # [GUARD] Log cảnh báo nếu phát hiện NaN/Inf để dễ debug root cause
+        has_nan = torch.isnan(tensor).any().item()
+        has_inf = torch.isinf(tensor).any().item()
+        if has_nan or has_inf:
+            import warnings
+            warnings.warn(
+                f"[pack_payload] Key '{key}': NaN={has_nan}, Inf={has_inf}. "
+                f"Shape={tuple(tensor.shape)}. Will be sanitized automatically."
+            )
         qt = quantize_tensor(tensor)
         # 8 bytes header: scale (float32=4B) + zero_point (int32=4B)
         buf.extend(struct.pack('fi', qt.scale, qt.zero_point))

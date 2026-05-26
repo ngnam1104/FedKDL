@@ -617,7 +617,11 @@ class Simulator2D(BaseSimulator):
             'plots': False,
             'workers': 0,
             'optimizer': 'AdamW',
-            'lr0': 1e-4,  # [CRITICAL FIX] Ép LR cực nhỏ (1e-4) để KD không phá hủy (catastrophic forgetting) các tri thức mà sensors vừa đóng góp!
+            'lr0': 1e-4,          # [CRITICAL FIX] LR cực nhỏ để tránh catastrophic forgetting
+            'warmup_epochs': 0,   # [CRITICAL FIX] Tắt hoàn toàn warmup! Nếu để mặc định warmup_epochs=3 > epochs=1
+                                  # thì TOÀN BỘ epoch là warmup phase → warmup_bias_lr=0.1 áp lên bias params
+                                  # = gấp 1000 lần lr0=1e-4 → overwrite hoàn toàn detection head bias → mAP tụt!
+            'warmup_bias_lr': 0.0, # [CRITICAL FIX] Đảm bảo bias params không bị warmup với lr cao
         }
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.student_wrapper = self.global_student
