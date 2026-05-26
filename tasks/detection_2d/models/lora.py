@@ -20,7 +20,7 @@ class LoRAConv2d(nn.Module):
     W_eff = W_pre + (alpha/rank) * B @ A
     Chỉ A và B là trainable; W_pre bị đóng băng.
     """
-    def __init__(self, conv: nn.Conv2d, rank: int = 4, alpha: float = 8.0):
+    def __init__(self, conv: nn.Conv2d, rank: int = 4, alpha: float = None):
         super().__init__()
         self.in_channels = conv.in_channels
         self.out_channels = conv.out_channels
@@ -45,6 +45,7 @@ class LoRAConv2d(nn.Module):
                        * self.kernel_size[1] // self.groups)
         self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
         self.lora_B = nn.Parameter(torch.zeros(self.out_channels, rank))
+        alpha = alpha if alpha is not None else float(rank)
         self.scaling = alpha / rank
 
         nn.init.kaiming_uniform_(self.lora_A, a=5 ** 0.5)
@@ -61,7 +62,7 @@ class LoRAConv2d(nn.Module):
 def inject_lora(module: nn.Module,
                 target_layer_names=None,
                 rank: int = 4,
-                alpha: float = 8.0) -> int:
+                alpha: float = None) -> int:
     """
     Tiêm LoRA vào các Conv2d bên trong các block được chỉ định.
 
