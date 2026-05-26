@@ -135,7 +135,7 @@ def main():
                 n_samples_s = getattr(s, 'n_samples', 100)
                 bits = n_samples_s * 500 * 1024 * 8
                 e_tx_raw_total += e_tx(bits, link.R_bps, link.SL_min, en_cfg.ETA_EA, en_cfg.P_C_TX)
-                tau_tx_s = comm_delay(bits, link.R_bps, getattr(link, 'd_m', 1000.0))
+                tau_tx_s = comm_delay(bits, link.R_bps, getattr(link, 'distance', 1000.0))
                 if tau_tx_s > tau_tx_raw_max:
                     tau_tx_raw_max = tau_tx_s
 
