@@ -403,43 +403,50 @@ class KDDetectionTrainer(DetectionTrainer):
         T = self.kd_temperature
         try:
             # Ultralytics v8/v11 returns a tuple where [1] is the dict, or just the dict
-            def _get_cls(p):
-                if isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], dict):
-                    p = p[1]
-                elif isinstance(p, list) and len(p) > 0:
-                    p = p[0]
+            def _extract_logits(p):
+                # Trong YOLOv8/v11, outputs thường là tuple: (inference_out, [train_out_scale1, train_out_scale2, ...])
+                # hoặc list của các scales
+                if isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], list):
+                    feats = p[1]
+                elif isinstance(p, list):
+                    feats = p
+                elif isinstance(p, torch.Tensor):
+                    # Nếu là tensor duy nhất (inference mode), YOLO concat shape là [B, 64+nc, anchors]
+                    return p
+                else:
+                    return None
                     
-                # In new Ultralytics, the key is often 'scores' instead of 'cls'
-                if isinstance(p, dict):
-                    if 'cls' in p:
-                        return p['cls']
-                    elif 'scores' in p:
-                        return p['scores']
-                    elif 'one2many' in p and 'scores' in p['one2many']:
-                        return p['one2many']['scores']
-                return p  # Fallback
+                if not feats: return None
+                # Concat all scales theo chiều anchor (dim=2)
+                return torch.cat([xi.view(xi.shape[0], xi.shape[1], -1) for xi in feats], 2)
 
-            s_logits = _get_cls(preds)
-            t_logits = _get_cls(t_preds)
+            s_logits_cat = _extract_logits(preds)
+            t_logits_cat = _extract_logits(t_preds)
+            
+            if s_logits_cat is not None and t_logits_cat is not None:
+                # s_logits_cat shape: [B, 64 + nc, anchors] (64 là reg_max * 4)
+                reg_max = 16  # YOLOv8/11 default
+                nc_s = s_logits_cat.shape[1] - reg_max * 4
+                nc_t = t_logits_cat.shape[1] - reg_max * 4
                 
-            # s_logits có shape [batch, num_classes, num_anchors]
-            if isinstance(s_logits, torch.Tensor) and isinstance(t_logits, torch.Tensor):
-                if s_logits.shape == t_logits.shape:
-                    # Softmax theo chiều class (dim=1) thay vì anchor (dim=-1)
-                    num_anchors = s_logits.shape[2] if len(s_logits.shape) > 2 else 1
+                if nc_s > 0 and nc_s == nc_t:
+                    # [QUAN TRỌNG] Tách riêng class logits để tính KL, tránh Softmax nhầm lên Box DFL
+                    s_cls = s_logits_cat[:, reg_max * 4:, :]
+                    t_cls = t_logits_cat[:, reg_max * 4:, :]
+                    
+                    num_anchors = s_cls.shape[2]
                     loss_kl = F.kl_div(
-                        F.log_softmax(s_logits / T, dim=1),
-                        F.softmax(t_logits / T, dim=1).detach(),
+                        F.log_softmax(s_cls / T, dim=1),
+                        F.softmax(t_cls / T, dim=1).detach(),
                         reduction='batchmean',
                     ) * (T * T) / num_anchors
                 else:
-                    # Shape mismatch (ví dụ số class khác nhau do custom head)
                     if self.batch_count == 0:
-                        print(f"[KD Warning] KL mismatch shape: stu {s_logits.shape} vs tch {t_logits.shape}")
+                        print(f"[KD Warning] KL mismatch classes: stu {nc_s} vs tch {nc_t}")
                     loss_kl = torch.tensor(0.0, device=loss_stu.device)
             else:
                 if self.batch_count == 0:
-                    print(f"[KD Warning] _get_cls failed to extract tensor. s_logits: {type(s_logits)}, t_logits: {type(t_logits)}")
+                    print(f"[KD Warning] _extract_logits failed. s: {type(preds)}, t: {type(t_preds)}")
                 loss_kl = torch.tensor(0.0, device=loss_stu.device)
 
         except Exception as e:
