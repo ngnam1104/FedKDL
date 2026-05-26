@@ -276,10 +276,7 @@ class BaseSimulator(ABC):
             cluster_samples = {m: sum(sensor_n_samples.get(s_id, 0) for s_id in fog.cluster_members) for m, fog in self.fogs.items()}
             self.gateway.aggregate_global(fog_final, cluster_samples)
 
-            # --- Phase 3b: Gateway-side Knowledge Distillation (Tier 3) ---
-            # Hook: Simulator2D override này để chạy KD với Teacher sau global aggregation.
-            # Simulator1D giữ mặc định (no-op).
-            kd_metrics = self._gateway_knowledge_distillation() or {}
+            # KD sẽ được gọi SAU evaluate() để Adaptive Dropout Gate có metrics của vòng này
 
             # --- Phase 4: Logging ---
             self.energy_tracker.add_round(t, e_s2f_total, e_f2f_total, e_f2g_total, e_comp_total)
@@ -313,6 +310,16 @@ class BaseSimulator(ABC):
             self.latency_tracker.add_round(t, latency_info)
 
             eval_metrics = self.evaluate()
+
+            # --- Feed metrics history cho Adaptive KD Dropout gate ---
+            if not hasattr(self, '_round_metrics_history'):
+                self._round_metrics_history = []
+            self._round_metrics_history.append(eval_metrics)
+
+            # --- Phase 3b: Gateway-side Knowledge Distillation (Tier 3) ---
+            # Gọi SAU evaluate() để Adaptive Dropout có thể đọc metrics vòng này.
+            # Simulator2D (fedkdl) override → Teacher KD. Simulator1D → no-op.
+            kd_metrics = self._gateway_knowledge_distillation() or {}
 
             # ── Eq. 22: Joint Optimisation Cost ──────────────────────────────────────
             # min  F(θ^T) + λ_E · Σ E_round^t  +  λ_τ · Σ τ_round^t

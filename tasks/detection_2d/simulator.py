@@ -393,11 +393,12 @@ class Simulator2D(BaseSimulator):
 
     def _gateway_knowledge_distillation(self):
         """
-        Gateway-side Knowledge Distillation (Tier 3).
+        Gateway-side Knowledge Distillation (Tier 3) with Adaptive Dropout.
         Sau global aggregation, Gateway dùng Teacher (YOLO12l, GPU mạnh)
         để distill vào global_student trên tập proxy data (coco8.yaml).
 
-        Chỉ chạy khi có KD (không có 'nokd' trong baseline và không phải classic baseline).
+        Adaptive KD Dropout: Nếu Prec/Rec/mAP liên tiếp giảm CONSEC_DROP_THRESHOLD vòng
+        thì tự động tắt KD vĩnh viễn cho phần còn lại (thuần FL).
         """
         classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
         if 'nokd' in self.baseline or self.baseline in classic_baselines:
@@ -410,6 +411,53 @@ class Simulator2D(BaseSimulator):
                 'kd_weighted': 0.0,
             }
             return self._last_kd_metrics
+
+        # --- Adaptive KD Dropout Gate ---
+        # Số vòng liên tiếp metrics giảm để kích hoạt ngắt KD
+        CONSEC_DROP_THRESHOLD = getattr(self, '_kd_drop_threshold', 3)
+
+        # Khởi tạo trạng thái tracking nếu chưa có
+        if not hasattr(self, '_kd_disabled'):
+            self._kd_disabled = False
+        if not hasattr(self, '_metric_history'):
+            self._metric_history = []   # list of (mAP50, Prec, Rec)
+        if not hasattr(self, '_consec_drop_count'):
+            self._consec_drop_count = 0
+
+        # Nếu KD đã bị tắt trước đó thì bỏ qua luôn
+        if self._kd_disabled:
+            print(f"[Gateway KD] ⏩ Skipping KD (Adaptive Dropout active — pure FL mode).")
+            self._last_kd_metrics = {
+                'kd_active': False, 'kd_epochs': 0,
+                'kd_kl': 0.0, 'kd_hidden': 0.0,
+                'kd_attn': 0.0, 'kd_weighted': 0.0,
+            }
+            return self._last_kd_metrics
+
+        # Lấy metrics vòng vừa rồi từ lịch sử round logs
+        if hasattr(self, '_round_metrics_history') and len(self._round_metrics_history) >= 2:
+            prev = self._round_metrics_history[-2]   # 2 vòng trước
+            curr = self._round_metrics_history[-1]   # vòng vừa xong
+            prev_score = (prev.get('mAP50', 0) + prev.get('Prec', 0) + prev.get('Rec', 0)) / 3.0
+            curr_score = (curr.get('mAP50', 0) + curr.get('Prec', 0) + curr.get('Rec', 0)) / 3.0
+            if curr_score < prev_score:
+                self._consec_drop_count += 1
+                print(f"[Gateway KD] ⚠️  Metrics drop detected ({self._consec_drop_count}/{CONSEC_DROP_THRESHOLD}): "
+                      f"score {prev_score:.4f} → {curr_score:.4f} "
+                      f"(mAP50: {curr.get('mAP50',0):.4f}, Prec: {curr.get('Prec',0):.4f}, Rec: {curr.get('Rec',0):.4f})")
+            else:
+                self._consec_drop_count = 0  # Reset nếu metrics đang hồi phục
+
+            if self._consec_drop_count >= CONSEC_DROP_THRESHOLD:
+                self._kd_disabled = True
+                print(f"[Gateway KD] 🚫 Disabling KD permanently after {CONSEC_DROP_THRESHOLD} consecutive drops "
+                      f"— switching to pure FL convergence mode.")
+                self._last_kd_metrics = {
+                    'kd_active': False, 'kd_epochs': 0,
+                    'kd_kl': 0.0, 'kd_hidden': 0.0,
+                    'kd_attn': 0.0, 'kd_weighted': 0.0,
+                }
+                return self._last_kd_metrics
 
         import os
         from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
