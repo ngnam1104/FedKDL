@@ -297,6 +297,110 @@ class Simulator2D(BaseSimulator):
         self._init_network()
 
     def _init_network(self):
+        import os
+        import yaml
+        import numpy as np
+        
+        # 1. Hàm phụ trợ parse label histogram từ YOLO txt
+        def get_label_histogram(client_yaml_path, num_classes):
+            hist = np.zeros(num_classes, dtype=np.float32)
+            try:
+                with open(client_yaml_path, 'r') as f:
+                    cfg = yaml.safe_load(f)
+                train_paths = cfg.get('train', [])
+                if isinstance(train_paths, str):
+                    train_paths = [train_paths]
+                
+                label_files = []
+                for p in train_paths:
+                    if p.endswith('.txt'):
+                        with open(p, 'r') as tf:
+                            for img_p in tf:
+                                img_p = img_p.strip()
+                                if not img_p: continue
+                                lbl_p = img_p.replace('/images/', '/labels/').rsplit('.', 1)[0] + '.txt'
+                                label_files.append(lbl_p)
+                    elif os.path.isdir(p):
+                        lbl_dir = p.replace('images', 'labels')
+                        if os.path.exists(lbl_dir):
+                            for f in os.listdir(lbl_dir):
+                                if f.endswith('.txt'):
+                                    label_files.append(os.path.join(lbl_dir, f))
+                
+                for lf in set(label_files):
+                    if os.path.exists(lf):
+                        with open(lf, 'r') as f:
+                            for line in f:
+                                parts = line.strip().split()
+                                if parts:
+                                    c = int(parts[0])
+                                    if 0 <= c < num_classes:
+                                        hist[c] += 1
+                if hist.sum() > 0:
+                    hist = hist / hist.sum()
+                else:
+                    hist = np.ones(num_classes, dtype=np.float32) / num_classes
+            except Exception as e:
+                print(f"[Warning] Không thể đọc histogram từ {client_yaml_path}: {e}")
+                hist = np.ones(num_classes, dtype=np.float32) / num_classes
+            return hist
+
+        # 2. Xây dựng Histogram cho toàn bộ mạng lưới
+        N = self.net_cfg.N_SENSORS
+        M = getattr(self.net_cfg, 'M_FOGS_2D', self.net_cfg.M_FOGS)
+        nc = getattr(self.global_student.yolo.model.yaml, 'nc', 80) if hasattr(self.global_student.yolo.model, 'yaml') else 80
+        if isinstance(nc, dict) and 'nc' in nc: nc = nc['nc'] # fallback cho kiểu dict
+        elif not isinstance(nc, int): nc = 80
+
+        # Nếu là FedKDL thì bật EMD Clustering
+        if 'fedkdl' in self.baseline:
+            print(f"\n[Simulator2D] Khởi tạo Knowledge-Aware Association (EMD β=0.2)...")
+            sensor_label_hists = np.zeros((N, nc), dtype=np.float32)
+            for s_id in range(N):
+                if s_id in getattr(self, 'client_yamls', {}):
+                    sensor_label_hists[s_id] = get_label_histogram(self.client_yamls[s_id], nc)
+            
+            # Tính Fog Histogram từ các cụm vật lý ban đầu
+            fog_label_hists = np.zeros((M, nc), dtype=np.float32)
+            fog_counts = np.zeros(M)
+            for s_id, f_id in self.association.items():
+                if 0 <= f_id < M:
+                    fog_label_hists[f_id] += sensor_label_hists[s_id]
+                    fog_counts[f_id] += 1
+            for m in range(M):
+                if fog_counts[m] > 0:
+                    fog_label_hists[m] /= fog_counts[m]
+                else:
+                    fog_label_hists[m] = np.ones(nc, dtype=np.float32) / nc
+
+            # Thực thi Knowledge-Aware Association
+            class DummyTopo:
+                def __init__(self, n, m): self.N = n; self.M = m
+            
+            from tasks.detection_2d.knowledge_compression.knowledge_association import knowledge_aware_association
+            new_association = knowledge_aware_association(
+                topology=DummyTopo(N, M),
+                G=self.G,
+                sensor_label_hists=sensor_label_hists,
+                fog_label_hists=fog_label_hists,
+                beta=0.2  # 80% Khoảng cách, 20% EMD
+            )
+            
+            # Đếm số lượng thay đổi
+            changed = 0
+            for s, new_f in new_association.items():
+                if self.association.get(s, -1) != new_f:
+                    changed += 1
+            print(f"[Simulator2D] EMD Clustering hoàn tất. {changed}/{N} AUVs đã chuyển cụm (Fog) để tối ưu EMD.")
+            
+            # Cập nhật state
+            self.association = new_association
+            # Cập nhật lại clusters
+            self.clusters = {m: [] for m in range(M)}
+            for s, f in self.association.items():
+                self.clusters[f].append(s)
+
+        # 3. Tiến hành cấp phát Worker/Node như bình thường
         for s_id in range(self.net_cfg.N_SENSORS):
             if s_id in getattr(self, 'client_yamls', {}):
                 if s_id in self.association:
