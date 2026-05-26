@@ -203,6 +203,7 @@ class KDDetectionTrainer(DetectionTrainer):
         self.kd_lambda: float = 1.0
         
         # Accumulators for logging KD loss
+        self.epoch_box_loss = 0.0
         self.epoch_kl_loss = 0.0
         self.epoch_hidden_loss = 0.0
         self.epoch_attn_loss = 0.0
@@ -255,6 +256,7 @@ class KDDetectionTrainer(DetectionTrainer):
         # Callback để log KD loss ra console
         def log_kd_loss(trainer):
             if hasattr(trainer, 'batch_count') and trainer.batch_count > 0:
+                mean_box = trainer.epoch_box_loss / trainer.batch_count
                 mean_kl = trainer.epoch_kl_loss / trainer.batch_count
                 mean_hidden = trainer.epoch_hidden_loss / trainer.batch_count
                 mean_attn = trainer.epoch_attn_loss / trainer.batch_count
@@ -262,6 +264,7 @@ class KDDetectionTrainer(DetectionTrainer):
 
                 print(
                     f"[KD Epoch {trainer.epoch + 1}] "
+                    f"Box: {mean_box:.4f} | "
                     f"KL: {mean_kl:.4f} | "
                     f"Hidden: {mean_hidden:.4f} | "
                     f"Attn: {mean_attn:.4f} | "
@@ -270,12 +273,14 @@ class KDDetectionTrainer(DetectionTrainer):
 
                 trainer.kd_epoch_history.append({
                     'epoch': int(trainer.epoch + 1),
+                    'box': float(mean_box),
                     'kl': float(mean_kl),
                     'hidden': float(mean_hidden),
                     'attn': float(mean_attn),
                     'weighted': float(mean_weighted),
                     'batches': int(trainer.batch_count),
                 })
+                trainer.epoch_box_loss = 0.0
                 trainer.epoch_kl_loss = 0.0
                 trainer.epoch_hidden_loss = 0.0
                 trainer.epoch_attn_loss = 0.0
@@ -445,6 +450,46 @@ class KDDetectionTrainer(DetectionTrainer):
             traceback.print_exc()
             loss_kl = torch.tensor(0.0, device=loss_stu.device)
 
+        # ── 4b. Bounding Box Distillation (MSE) ─────────────────────────
+        try:
+            def _extract_bboxes(p):
+                # 1. Handle YOLOv11 new dict format
+                train_out = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], dict)) else p
+                if isinstance(train_out, dict):
+                    if 'bboxes' in train_out:
+                        return train_out['bboxes']
+                    elif 'pred_bboxes' in train_out:
+                        return train_out['pred_bboxes']
+                
+                # 2. Handle older list format
+                feats = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], list)) else p
+                if isinstance(feats, list) and len(feats) > 0:
+                    cat = torch.cat([xi.view(xi.shape[0], xi.shape[1], -1) for xi in feats], 2)
+                    reg_max = 16
+                    return cat[:, :reg_max * 4, :]
+                
+                # 3. Handle inference tensor format
+                if isinstance(p, torch.Tensor):
+                    return p[:, :4, :]
+                
+                return None
+
+            s_box = _extract_bboxes(preds)
+            t_box = _extract_bboxes(t_preds)
+
+            if s_box is not None and t_box is not None and s_box.shape == t_box.shape:
+                loss_box_kd = F.mse_loss(s_box, t_box.detach())
+            else:
+                if self.batch_count == 0:
+                    s_shape = s_box.shape if s_box is not None else None
+                    t_shape = t_box.shape if t_box is not None else None
+                    print(f"[KD Warning] Extract bboxes failed or mismatch. s_box: {s_shape}, t_box: {t_shape}")
+                loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
+        except Exception as e:
+            if self.batch_count == 0:
+                print(f"[KD] Box fallback Error: {e}")
+            loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
+
         # ── 5. Adaptive Hidden Loss — MSE(H^t, W^h H^s) ─────────────────
         loss_hidden = _adaptive_hidden_loss(student_feats, teacher_feats).to(loss_stu.device)
 
@@ -452,7 +497,7 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
-        numerator = loss_kl + loss_hidden + loss_attn
+        numerator = loss_kl + loss_hidden + loss_attn + loss_box_kd
         denominator = (loss_tch.sum() + loss_stu.sum()).detach() + 1e-6  # Tránh div/0
 
         loss_dist_adaptive = numerator / denominator
@@ -468,6 +513,7 @@ class KDDetectionTrainer(DetectionTrainer):
             total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
         
         # Tích lũy log
+        self.epoch_box_loss += loss_box_kd.item()
         self.epoch_kl_loss += loss_kl.item()
         self.epoch_hidden_loss += loss_hidden.item()
         self.epoch_attn_loss += loss_attn.item()
@@ -482,6 +528,7 @@ class KDDetectionTrainer(DetectionTrainer):
             return {
                 'kd_active': False,
                 'kd_epochs': 0,
+                'kd_box': 0.0,
                 'kd_kl': 0.0,
                 'kd_hidden': 0.0,
                 'kd_attn': 0.0,
@@ -492,6 +539,7 @@ class KDDetectionTrainer(DetectionTrainer):
         return {
             'kd_active': True,
             'kd_epochs': int(len(self.kd_epoch_history)),
+            'kd_box': float(sum(e['box'] for e in self.kd_epoch_history) / n),
             'kd_kl': float(sum(e['kl'] for e in self.kd_epoch_history) / n),
             'kd_hidden': float(sum(e['hidden'] for e in self.kd_epoch_history) / n),
             'kd_attn': float(sum(e['attn'] for e in self.kd_epoch_history) / n),
