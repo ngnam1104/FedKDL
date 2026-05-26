@@ -402,51 +402,41 @@ class KDDetectionTrainer(DetectionTrainer):
             print("[KD - Batch 1] Đang tính toán Distillation Loss (KL/Hidden/Attn)...")
         T = self.kd_temperature
         try:
-            # Ultralytics v8/v11 returns a tuple where [1] is the dict, or just the dict
-            def _extract_logits(p):
-                # Trong YOLOv8/v11, outputs thường là tuple: (inference_out, [train_out_scale1, train_out_scale2, ...])
-                # hoặc list của các scales
-                if isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], list):
-                    feats = p[1]
-                elif isinstance(p, list):
-                    feats = p
-                elif isinstance(p, torch.Tensor):
-                    # Nếu là tensor duy nhất (inference mode), YOLO concat shape là [B, 64+nc, anchors]
-                    return p
-                else:
-                    return None
-                    
-                if not feats: return None
-                # Concat all scales theo chiều anchor (dim=2)
-                return torch.cat([xi.view(xi.shape[0], xi.shape[1], -1) for xi in feats], 2)
-
-            s_logits_cat = _extract_logits(preds)
-            t_logits_cat = _extract_logits(t_preds)
-            
-            if s_logits_cat is not None and t_logits_cat is not None:
-                # s_logits_cat shape: [B, 64 + nc, anchors] (64 là reg_max * 4)
-                reg_max = 16  # YOLOv8/11 default
-                nc_s = s_logits_cat.shape[1] - reg_max * 4
-                nc_t = t_logits_cat.shape[1] - reg_max * 4
+            def _extract_cls(p):
+                # 1. Handle YOLOv11 new dict format
+                train_out = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], dict)) else p
+                if isinstance(train_out, dict) and 'scores' in train_out:
+                    return train_out['scores']  # shape: [B, NC, Anchors]
                 
-                if nc_s > 0 and nc_s == nc_t:
-                    # [QUAN TRỌNG] Tách riêng class logits để tính KL, tránh Softmax nhầm lên Box DFL
-                    s_cls = s_logits_cat[:, reg_max * 4:, :]
-                    t_cls = t_logits_cat[:, reg_max * 4:, :]
-                    
-                    num_anchors = s_cls.shape[2]
-                    loss_kl = F.kl_div(
-                        F.log_softmax(s_cls / T, dim=1),
-                        F.softmax(t_cls / T, dim=1).detach(),
-                        reduction='batchmean',
-                    ) * (T * T) / num_anchors
-                else:
-                    if self.batch_count == 0:
-                        print(f"[KD Warning] KL mismatch classes: stu {nc_s} vs tch {nc_t}")
-                    loss_kl = torch.tensor(0.0, device=loss_stu.device)
+                # 2. Handle older list format
+                feats = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], list)) else p
+                if isinstance(feats, list) and len(feats) > 0:
+                    cat = torch.cat([xi.view(xi.shape[0], xi.shape[1], -1) for xi in feats], 2)
+                    reg_max = 16
+                    return cat[:, reg_max * 4:, :]
+                
+                # 3. Handle inference tensor format
+                if isinstance(p, torch.Tensor):
+                    # Usually [B, 4+NC, Anchors] for inference format (boxes already decoded to 4)
+                    return p[:, 4:, :]
+                
+                return None
+
+            s_cls = _extract_cls(preds)
+            t_cls = _extract_cls(t_preds)
+            
+            if s_cls is not None and t_cls is not None and s_cls.shape == t_cls.shape:
+                num_anchors = s_cls.shape[2]
+                loss_kl = F.kl_div(
+                    F.log_softmax(s_cls / T, dim=1),
+                    F.softmax(t_cls / T, dim=1).detach(),
+                    reduction='batchmean',
+                ) * (T * T) / num_anchors
             else:
                 if self.batch_count == 0:
-                    print(f"[KD Warning] _extract_logits failed. s: {type(preds)}, t: {type(t_preds)}")
+                    s_shape = s_cls.shape if s_cls is not None else None
+                    t_shape = t_cls.shape if t_cls is not None else None
+                    print(f"[KD Warning] Extract cls failed or shape mismatch. s_cls: {s_shape}, t_cls: {t_shape}")
                 loss_kl = torch.tensor(0.0, device=loss_stu.device)
 
         except Exception as e:
