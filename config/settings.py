@@ -90,6 +90,9 @@ class FedKDLConfig:
     # Người dùng có thể ghi đè khi cần thực nghiệm sensitivity analysis.
     LAMBDA_E: float = 1e-3   # Trọng số năng lượng  (J⁻¹ — "per Joule cost")
     LAMBDA_TAU: float = 1e-3 # Trọng số độ trễ     (s⁻¹ — "per second cost")
+    
+    # System Constraints (từ bài báo gốc Omeke 2026)
+    TAU_MAX: float = 1800.0   # Trễ tối đa cho phép 1 vòng FL (30 phút)
 
     def __post_init__(self):
         self.DATASETS_1D = ["SMD", "SMAP", "MSL"]

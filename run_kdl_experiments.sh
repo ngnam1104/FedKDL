@@ -96,11 +96,20 @@ run_baseline() {
     extra_args="--lora-rank $lora_rank"
   fi
 
-  "$PYTHON" main_trainer_od.py \
-    --topo "$topo" --data "$data" \
-    --baseline "$baseline" --rounds "$ROUNDS" \
-    --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" \
-    $extra_args 2>&1 | tee -a "$log_file"
+  if [[ "$baseline" == "sota_jiang2025" ]]; then
+    "$PYTHON" main_trainer_lwkd_dcp.py \
+      --topo "$topo" --data "$data" \
+      --rounds "$ROUNDS" \
+      --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" \
+      2>&1 | tee -a "$log_file"
+  else
+    "$PYTHON" main_trainer_od.py \
+      --topo "$topo" --data "$data" \
+      --baseline "$baseline" --rounds "$ROUNDS" \
+      --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" \
+      $extra_args 2>&1 | tee -a "$log_file"
+  fi
+  
   local rc=${PIPESTATUS[0]}
   set -eo pipefail
   if [[ $rc -ne 0 ]]; then
@@ -152,6 +161,7 @@ echo "=== GROUP A3: Classic Full-Param Baselines ==="
 # Do đó các thuật toán dưới đây sẽ truyền 100% tham số ở chuẩn FP32 nguyên bản (Payload ~10.5 MB).
 CLASSIC_BASELINES=(
   "centralized" "fedavg" "fedprox" "fedkd" "hfl_nocoop" "hfl_nearest" "hfl_selective"
+  "sota_jiang2025"
 )
 for b in "${CLASSIC_BASELINES[@]}"; do
   run_baseline 20 2.0 "$b"
@@ -181,7 +191,7 @@ echo "[KDL] Training done. Generating plots..."
 "$PYTHON" scripts/fedkdl/plot_od_scalability.py
 "$PYTHON" scripts/fedkdl/plot_heterogeneity.py
 "$PYTHON" scripts/fedkdl/eval_baselines.py --results-dir "$OUT_DIR"
-"$PYTHON" scripts/od/plot_ablation.py
+"$PYTHON" scripts/fedkdl/plot_ablation.py
 
 echo "[KDL] All done."
 echo "  JSON (plot):  $OUT_DIR/*.json"

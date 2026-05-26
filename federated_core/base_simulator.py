@@ -335,6 +335,7 @@ class BaseSimulator(ABC):
 
                 # ── Latency (raw, seconds) — bóc tách từng chặng ─────────────────
                 'tau_round_s': tau_round,
+                'tau_status':  'OK' if tau_round <= self.fed_cfg.TAU_MAX else 'VIOLATED',
                 'tau_s2f':     latency_info['tau_s2f'],   # max Sensor→Fog bottleneck
                 'tau_f2f':     latency_info['tau_f2f'],   # max Fog↔Fog cooperation
                 'tau_f2g':     latency_info['tau_f2g'],   # max Fog→Gateway bottleneck

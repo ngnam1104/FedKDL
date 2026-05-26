@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FedKDL - Underwater FL Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- SIDEBAR -->
+        <aside class="sidebar glass-panel">
+            <div class="sidebar-header">
+                <h2><i class="fa-solid fa-water"></i> FedKDL</h2>
+                <p>Gateway Dashboard</p>
+            </div>
+            
+            <div class="sensor-list-container">
+                <h3><i class="fa-solid fa-satellite-dish"></i> Active Sensors</h3>
+                <ul id="sensor-list" class="sensor-list">
+                    <!-- Sensors injected by JS -->
+                </ul>
+            </div>
+        </aside>
+
+        <!-- MAIN AREA -->
+        <main class="main-content">
+            <header class="topbar glass-panel">
+                <div class="status-indicator">
+                    <span class="pulse-dot"></span> System Online
+                </div>
+                <div class="metrics">
+                    <div class="metric-item"><i class="fa-solid fa-server"></i> Server: Local</div>
+                    <div class="metric-item"><i class="fa-solid fa-wave-square"></i> Comm: Acoustic</div>
+                </div>
+            </header>
+
+            <div class="dashboard-grid">
+                <!-- CAMERA VIEW -->
+                <div class="camera-panel glass-panel">
+                    <div class="panel-header">
+                        <h3 id="current-sensor-name">Select an AUV Sensor</h3>
+                        <label class="upload-btn">
+                            <i class="fa-solid fa-upload"></i> Upload Image
+                            <input type="file" id="image-upload" accept="image/*" style="display: none;">
+                        </label>
+                    </div>
+                    
+                    <div class="camera-feed" id="camera-feed">
+                        <div class="empty-state">
+                            <i class="fa-solid fa-camera"></i>
+                            <p>No Image Uploaded</p>
+                        </div>
+                        <img id="preview-img" style="display: none;" alt="Preview">
+                        <div class="scan-line"></div>
+                    </div>
+                    
+                    <div class="controls">
+                        <button id="btn-detect" class="btn-primary" disabled>
+                            <i class="fa-solid fa-radar"></i> Run Detection
+                        </button>
+                    </div>
+                </div>
+
+                <!-- INFO PANEL -->
+                <div class="info-panel glass-panel">
+                    <h3><i class="fa-solid fa-microchip"></i> Inference Results</h3>
+                    
+                    <div class="results-box" id="results-box">
+                        <p class="placeholder-text">Run detection to see results...</p>
+                    </div>
+                    
+                    <div class="telemetry">
+                        <h4>Telemetry Simulator</h4>
+                        <div class="telemetry-row">
+                            <span>Latency:</span>
+                            <span id="tel-latency" class="highlight">-- ms</span>
+                        </div>
+                        <div class="telemetry-row">
+                            <span>Payload:</span>
+                            <span id="tel-payload" class="highlight">~131 KB (INT8)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>
