@@ -102,9 +102,22 @@ def main():
             from physics_models.energy import e_comp_dynamic
             from config.settings import energy_cfg as en_cfg
             
-            # As requested: computing energy and time = 0 for centralized
-            tau_comp_gw = 0.0
-            e_comp_gw = 0.0
+            # In centralized, Gateway trains 1 epoch per round.
+            tau_comp_gw = comp_delay_dynamic(
+                n_samples=total_samples,
+                n_local_epochs=1,
+                flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["2D"],
+                flop_multiplier=fed_cfg.FLOP_MULTIPLIER["2D"],
+                f_cpu=en_cfg.F_CPU * 5 # Assuming GW is 5x faster
+            )
+            
+            e_comp_gw = e_comp_dynamic(
+                n_samples=total_samples,
+                n_local_epochs=1,
+                flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["2D"],
+                epsilon_op=en_cfg.EPSILON_OP["2D"],
+                flop_multiplier=fed_cfg.FLOP_MULTIPLIER["2D"]
+            )
             
             # Raw data transmission in round 1
             raw_payload_kb = total_samples * 500 # Assume 500KB per image
