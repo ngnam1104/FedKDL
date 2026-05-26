@@ -37,6 +37,7 @@ class AcousticChannelConfig:
 class EnergyConfig:
     """Ngân sách Sinh tồn và Tiêu hao Năng lượng"""
     E_INIT: float = 1000.0            # Pin khởi tạo của mỗi thiết bị (Joules) 
+    E_MIN: float = 50.0               # Ngưỡng pin dự trữ khẩn cấp để ngoi lên mặt nước (Joules)
     EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-11, "2D": 2.0e-12}) # Tiêu hao năng lượng trên mỗi FLOP (1D: FP32, 2D: INT8)
     F_CPU: float = 2.0e9              # Tần số CPU của AUV (Cycles/s hoặc FLOPs/s), ví dụ 2 GHz
     P_C_TX: float = 0.05              # Công suất tĩnh mạch phát vô tuyến (Watts) 
