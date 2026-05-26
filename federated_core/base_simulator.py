@@ -309,11 +309,9 @@ class BaseSimulator(ABC):
             tau_round = latency_info['tau_round']
             self.latency_tracker.add_round(t, latency_info)
 
-            eval_metrics = self.evaluate()
-
             # --- Phase 3b: Gateway-side Knowledge Distillation (Tier 3) ---
-            # Gọi TRƯỚC evaluate() — Adaptive Dropout so sánh post-KD metrics của các vòng.
-            # History lưu metrics SAU KD: phản ánh đúng tác động tích lũy của KD.
+            # Chạy KD TRƯỚC evaluate để lưu được post-KD metrics vào history.
+            # Adaptive Dropout Gate sẽ đọc history vòng trước để quyết định có chạy KD không.
             # Simulator2D (fedkdl) override → Teacher KD. Simulator1D → no-op.
             kd_metrics = self._gateway_knowledge_distillation() or {}
 

@@ -28,7 +28,11 @@ class SensorWorker2D(BaseWorker):
         with open(c_cfg['train'], 'r') as f:
             self.n_samples = sum(1 for _ in f)
 
-    def train_and_get_payload(self, global_state, epochs, lr, device, baseline: str = 'fedkdl', global_weights: dict = None):
+    def train_and_get_payload(
+        self, global_state, epochs: int, lr: float, device: str,
+        baseline: str, global_weights: dict = None, fedprox_mu_override: float = 0.0,
+        nc: int = 4,
+    ):
         """
         Train local SGD (Tier 1, KHÔNG dùng KD) và đóng gói payload INT8.
         KD chỉ chạy tại Gateway (Tier 3) sau global aggregation.
@@ -62,6 +66,8 @@ class SensorWorker2D(BaseWorker):
             use_int8 = 'noint8' not in baseline
             
         fedprox_mu = 0.01 if 'fedprox' in baseline else 0.0
+        # Nếu KD bị Adaptive Dropout tắt, fedprox_mu_override sẽ được truyền xuống từ Simulator
+        fedprox_mu = max(fedprox_mu, fedprox_mu_override)
         from config.settings import fed_cfg
         rank = 4 if 'r4' in baseline else fed_cfg.LORA_RANK
 
@@ -325,7 +331,11 @@ class Simulator2D(BaseSimulator):
             lr=getattr(self, 'current_lr', self.fed_cfg.LOCAL_LR),
             device=self.device,
             baseline=self.baseline,
-            global_weights=self.gateway.global_state_dict if 'fedprox' in self.baseline else None,
+            fedprox_mu_override=getattr(self, '_fedprox_mu_override', 0.0),
+            # global_weights cần thiết cho FedProx proximal term
+            global_weights=self.gateway.global_state_dict if (
+                'fedprox' in self.baseline or getattr(self, '_fedprox_mu_override', 0.0) > 0.0
+            ) else None,
         )
 
         classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
@@ -450,8 +460,9 @@ class Simulator2D(BaseSimulator):
 
             if self._consec_drop_count >= CONSEC_DROP_THRESHOLD:
                 self._kd_disabled = True
+                self._fedprox_mu_override = 0.01  # Bật FedProx để bù cho KD bị tắt
                 print(f"[Gateway KD] 🚫 Disabling KD permanently after {CONSEC_DROP_THRESHOLD} consecutive drops "
-                      f"— switching to pure FL convergence mode.")
+                      f"— switching to FedProx (mu=0.01) convergence mode.")
                 self._last_kd_metrics = {
                     'kd_active': False, 'kd_epochs': 0,
                     'kd_kl': 0.0, 'kd_hidden': 0.0,
