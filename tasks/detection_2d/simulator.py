@@ -617,7 +617,7 @@ class Simulator2D(BaseSimulator):
             'plots': False,
             'workers': 0,
             'optimizer': 'AdamW',
-            'lr0': 1e-4,          # [CRITICAL FIX] LR cực nhỏ để tránh catastrophic forgetting
+            'lr0': 1e-3,          # [CRITICAL FIX] Tăng lên 1e-3 để đủ lực kéo lại Client Drift (1e-4 quá yếu)
             'warmup_epochs': 0,   # [CRITICAL FIX] Tắt hoàn toàn warmup! Nếu để mặc định warmup_epochs=3 > epochs=1
                                   # thì TOÀN BỘ epoch là warmup phase → warmup_bias_lr=0.1 áp lên bias params
                                   # = gấp 1000 lần lr0=1e-4 → overwrite hoàn toàn detection head bias → mAP tụt!
