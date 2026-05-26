@@ -124,13 +124,20 @@ def main():
             
             # E_tx for raw data (Assume directly sent to Gateway)
             from physics_models.energy import e_tx
+            from physics_models.latency import comm_delay
             e_tx_raw_total = 0.0
+            tau_tx_raw_max = 0.0
             for sid, s in sim.sensors.items():
                 if ('sensor', sid, 'gateway', 0) in sim.G:
                     link = sim.G[('sensor', sid, 'gateway', 0)]
                 else:
                     link = next(iter(sim.G.values())) # fallback
-                e_tx_raw_total += e_tx(getattr(s, 'n_samples', 100) * 500 * 1024 * 8, link.R_bps, link.SL_min, en_cfg.ETA_EA, en_cfg.P_C_TX)
+                n_samples_s = getattr(s, 'n_samples', 100)
+                bits = n_samples_s * 500 * 1024 * 8
+                e_tx_raw_total += e_tx(bits, link.R_bps, link.SL_min, en_cfg.ETA_EA, en_cfg.P_C_TX)
+                tau_tx_s = comm_delay(bits, link.R_bps, getattr(link, 'd_m', 1000.0))
+                if tau_tx_s > tau_tx_raw_max:
+                    tau_tx_raw_max = tau_tx_s
 
             from ultralytics import YOLO
             
@@ -178,7 +185,8 @@ def main():
                 
             print(f"[Centralized] mAP50-95: {map50_95:.4f} | mAP50: {map50:.4f}")
             
-            tau_cumul_s = [tau_comp_gw * t for t in range(1, T_rounds + 1)]
+            tau_round_s_arr = [tau_tx_raw_max + tau_comp_gw] + [tau_comp_gw] * (T_rounds - 1) if T_rounds > 0 else []
+            tau_cumul_s = [tau_tx_raw_max + tau_comp_gw * t for t in range(1, T_rounds + 1)]
             e_cumul = [e_tx_raw_total + e_comp_gw * t for t in range(1, T_rounds + 1)]
             avg_payload_kb_arr = [raw_payload_kb] + [0] * (T_rounds - 1) if T_rounds > 0 else []
             e_total_arr = [e_tx_raw_total + e_comp_gw] + [e_comp_gw] * (T_rounds - 1) if T_rounds > 0 else []
@@ -195,7 +203,7 @@ def main():
                 'loss': [total_train_loss] * T_rounds,
                 'val_loss': [total_val_loss] * T_rounds,
                 'alive': [N] * T_rounds,
-                'tau_round_s': [tau_comp_gw] * T_rounds,
+                'tau_round_s': tau_round_s_arr,
                 'tau_cumul_s': tau_cumul_s,
                 'avg_payload_kb': avg_payload_kb_arr,
                 'payload_cumul_kb': [raw_payload_kb] * T_rounds,
