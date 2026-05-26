@@ -311,15 +311,18 @@ class BaseSimulator(ABC):
 
             eval_metrics = self.evaluate()
 
-            # --- Feed metrics history cho Adaptive KD Dropout gate ---
+            # --- Phase 3b: Gateway-side Knowledge Distillation (Tier 3) ---
+            # Gọi TRƯỚC evaluate() — Adaptive Dropout so sánh post-KD metrics của các vòng.
+            # History lưu metrics SAU KD: phản ánh đúng tác động tích lũy của KD.
+            # Simulator2D (fedkdl) override → Teacher KD. Simulator1D → no-op.
+            kd_metrics = self._gateway_knowledge_distillation() or {}
+
+            eval_metrics = self.evaluate()
+
+            # --- Lưu post-KD metrics vào history cho Adaptive Dropout vòng sau ---
             if not hasattr(self, '_round_metrics_history'):
                 self._round_metrics_history = []
             self._round_metrics_history.append(eval_metrics)
-
-            # --- Phase 3b: Gateway-side Knowledge Distillation (Tier 3) ---
-            # Gọi SAU evaluate() để Adaptive Dropout có thể đọc metrics vòng này.
-            # Simulator2D (fedkdl) override → Teacher KD. Simulator1D → no-op.
-            kd_metrics = self._gateway_knowledge_distillation() or {}
 
             # ── Eq. 22: Joint Optimisation Cost ──────────────────────────────────────
             # min  F(θ^T) + λ_E · Σ E_round^t  +  λ_τ · Σ τ_round^t
