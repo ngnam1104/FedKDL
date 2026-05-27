@@ -36,7 +36,7 @@ class AcousticChannelConfig:
 @dataclass
 class EnergyConfig:
     """Ngân sách Sinh tồn và Tiêu hao Năng lượng"""
-    E_INIT: float = 2500.0            # Nâng lên 2500 Joules để gánh được Payload của Rank 12 trong 100 vòng
+    E_INIT: float = 1500.0            # Vừa vặn hoàn hảo để sống sót 70 vòng với Rank 12
     E_MIN: float = 50.0               # Ngưỡng pin dự trữ khẩn cấp để ngoi lên mặt nước (Joules)
     EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-11, "2D": 2.0e-12}) # Tiêu hao năng lượng trên mỗi FLOP (1D: FP32, 2D: INT8)
     F_CPU: float = 2.0e9              # Tần số CPU của AUV (Cycles/s hoặc FLOPs/s), ví dụ 2 GHz
