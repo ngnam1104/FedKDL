@@ -258,79 +258,98 @@ class EnvironmentManager:
             random.shuffle(pool)
             public_indices.extend(pool[:proxy_per_habitat])
 
-        # 4. Gán Habitat cho AUV dựa hoàn toàn vào Độ Sâu (Trục Z)
+        # 4. Tính toán Gaussian Affinity (Độ bám dính Ecotone) cho từng AUV
         auv_pos = topo.auv_positions  # (N, 3)
-        auv_habitat = np.zeros(net_cfg.N_AUVS, dtype=int)
+        centers = [562.5, 687.5, 812.5, 937.5]  # Tâm 4 vùng sinh thái
+        sigma = 40.0  # Hệ số lan truyền (càng lớn vùng biên càng rộng)
+        
+        affinity_matrix = np.zeros((net_cfg.N_AUVS, 4))
+        auv_primary_habitat = np.zeros(net_cfg.N_AUVS, dtype=int)
+        
         for i in range(net_cfg.N_AUVS):
             z = auv_pos[i, 2]
-            if z < 625.0:
-                auv_habitat[i] = 0  # H0: Scallop
-            elif z < 750.0:
-                auv_habitat[i] = 1  # H1: Echinus
-            elif z < 875.0:
-                auv_habitat[i] = 2  # H2: Starfish
-            else:
-                auv_habitat[i] = 3  # H3: Holothurian
-        
-        habitat_count = [int(np.sum(auv_habitat == h)) for h in range(4)]
-        print("  [AUV→DepthHabitat] " +
+            weights = [np.exp(-((z - c)**2) / (2 * sigma**2)) for c in centers]
+            
+            # Xử lý đặc biệt cho IID (alpha >= 1000)
+            if alpha >= 1000.0:
+                weights = [0.25, 0.25, 0.25, 0.25]
+                
+            total_w = sum(weights)
+            affinity_matrix[i] = [w / total_w for w in weights]
+            auv_primary_habitat[i] = int(np.argmax(affinity_matrix[i]))
+            
+        habitat_count = [int(np.sum(auv_primary_habitat == h)) for h in range(4)]
+        print("  [AUV Primary Habitat] " +
               " | ".join(f"H{h}:{habitat_count[h]}auvs" for h in range(4)))
 
-        # 5. Xác định P_skew từ alpha
-        if alpha >= 1000.0:
-            p_skew = 0.25  # IID
-        elif alpha >= 1.0:
-            p_skew = 0.80  # Non-IID vừa
-        else:
-            p_skew = 0.95  # Non-IID cực đoan
-
-        # 6. Phân bổ dữ liệu: AUV thuộc Habitat nào thì chia nhau số ảnh của Habitat đó.
-        # Tạo ra cả Label Skew (dựa trên P_skew) và Quantity Skew (dựa trên lượng ảnh gốc).
-        auv_data_indices = {}
-        
-        # Đếm số lượng AUV trong mỗi Habitat
+        # 5. Phân bổ Quantity Skew (Dựa trên Primary Habitat và Dirichlet)
+        auv_total_images = np.zeros(net_cfg.N_AUVS, dtype=int)
         auvs_in_habitat = {h: [] for h in range(4)}
         for i in range(net_cfg.N_AUVS):
-            auvs_in_habitat[int(auv_habitat[i])].append(i)
+            auvs_in_habitat[int(auv_primary_habitat[i])].append(i)
             
         for h in range(4):
             auv_list = auvs_in_habitat[h]
-            if len(auv_list) == 0:
+            n_auvs_in_h = len(auv_list)
+            if n_auvs_in_h == 0:
                 continue
                 
-            dominant_pool = list(imgs_by_habitat[h])
-            random.shuffle(dominant_pool)
+            # Tổng lượng ảnh khả dụng của vùng này (không tính proxy)
+            pool_size_h = len(imgs_by_habitat[h])
             
-            # Khởi tạo noise pool từ 3 habitat còn lại
-            noise_pool = []
-            for hh in range(4):
-                if hh != h:
-                    noise_pool.extend(imgs_by_habitat[hh])
-            random.shuffle(noise_pool)
+            # Dirichlet phân bổ Quantity (SỐ LƯỢNG) cho các AUV trong vùng
+            proportions = np.random.dirichlet(np.repeat(alpha, n_auvs_in_h))
             
-            # Số lượng ảnh dominant mỗi AUV trong Habitat h nhận được
-            dom_per_auv = len(dominant_pool) // len(auv_list)
+            min_img = min(20, pool_size_h // n_auvs_in_h) if n_auvs_in_h > 0 else 0
+            remaining = max(0, pool_size_h - min_img * n_auvs_in_h)
             
-            # Tính toán số lượng ảnh noise cần thiết để đạt tỷ lệ P_skew
-            # P_skew = dom / (dom + noise) => noise = dom * (1 - P_skew) / P_skew
-            if p_skew < 1.0:
-                noise_per_auv = int(dom_per_auv * (1.0 - p_skew) / p_skew)
-            else:
-                noise_per_auv = 0
+            splits = (proportions * remaining).astype(int) + min_img
+            if pool_size_h > 0 and sum(splits) < pool_size_h:
+                splits[-1] += pool_size_h - sum(splits)
                 
             for idx, auv_id in enumerate(auv_list):
-                start_dom = idx * dom_per_auv
-                end_dom = start_dom + dom_per_auv if idx < len(auv_list) - 1 else len(dominant_pool)
-                chosen_dom = dominant_pool[start_dom:end_dom]
+                # Đây là tổng số ảnh mà AUV sẽ gom được (chưa nói rõ là ảnh loại gì)
+                auv_total_images[auv_id] = splits[idx]
+
+        # 6. Rút ảnh từ các kho dựa vào Ecotone Affinity
+        auv_data_indices = {}
+        # Shuffle lại các kho ảnh
+        for h in range(4):
+            random.shuffle(imgs_by_habitat[h])
+            
+        # Dùng con trỏ để theo dõi ảnh đã lấy từ mỗi kho
+        bucket_pointers = [0, 0, 0, 0]
+        
+        for i in range(net_cfg.N_AUVS):
+            total_needed = auv_total_images[i]
+            probs = affinity_matrix[i]
+            
+            # Số lượng cần rút từ 4 kho
+            draws = (probs * total_needed).astype(int)
+            # Sửa sai số làm tròn
+            draws[-1] = total_needed - sum(draws[:-1])
+            
+            chosen = []
+            for h in range(4):
+                needed = draws[h]
+                if needed <= 0:
+                    continue
+                    
+                pool = imgs_by_habitat[h]
+                ptr = bucket_pointers[h]
                 
-                start_noise = idx * noise_per_auv
-                end_noise = start_noise + noise_per_auv
-                # Lấy vòng lặp nếu noise_pool không đủ (rất hiếm khi xảy ra)
-                chosen_noise = [noise_pool[j % len(noise_pool)] for j in range(start_noise, end_noise)] if noise_per_auv > 0 else []
+                # Nếu thiếu ảnh trong kho (rất dễ xảy ra nếu 1 kho ít ảnh), bốc random xoay vòng
+                if ptr + needed > len(pool):
+                    extracted = [pool[(ptr + j) % max(1, len(pool))] for j in range(needed)]
+                    bucket_pointers[h] = (ptr + needed) % max(1, len(pool))
+                else:
+                    extracted = pool[ptr : ptr + needed]
+                    bucket_pointers[h] += needed
+                    
+                chosen.extend(extracted)
                 
-                chosen = chosen_dom + chosen_noise
-                random.shuffle(chosen)
-                auv_data_indices[auv_id] = chosen
+            random.shuffle(chosen)
+            auv_data_indices[i] = chosen
             
         return DataPartitionSnapshot(
             dataset_name=dataset_name,

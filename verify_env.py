@@ -90,25 +90,33 @@ def main():
     dummy_topo = DummyTopo(n_auvs, topo_snapshot.M, topo_snapshot.auv_positions, topo_snapshot.relay_positions)
     G = EnvironmentManager.restore_graph(topo_snapshot)
     
-    print("\n[+] Thống kê AUV (5 con đầu tiên):")
-    print(f"{'AUV':<5} | {'Z_Depth':<10} | {'Habitat':<15} | {'Hist (Scallop, Echinus, Starfish, Holothurian)'}")
-    print("-" * 75)
+    print("\n[+] Thống kê AUV (20 con):")
+    print(f"{'AUV':<4} | {'Z_Depth':<8} | {'Primary Habitat':<16} | {'Affinity P (H0,H1,H2,H3)':<30} | {'Hist (S, E, Star, Holo)'}")
+    print("-" * 105)
     
     auv_hists = np.zeros((n_auvs, 4))
+    
+    centers = [562.5, 687.5, 812.5, 937.5]
+    sigma = 40.0
+    
     for i in range(n_auvs):
         z = topo_snapshot.auv_positions[i, 2]
         
-        if z < 625: h_name = "Scallop"
-        elif z < 750: h_name = "Echinus"
-        elif z < 875: h_name = "Starfish"
-        else: h_name = "Holothurian"
+        weights = [np.exp(-((z - c)**2) / (2 * sigma**2)) for c in centers]
+        total_w = sum(weights)
+        probs = [w / total_w for w in weights]
+        prob_str = f"[{probs[0]:.2f}, {probs[1]:.2f}, {probs[2]:.2f}, {probs[3]:.2f}]"
+        
+        primary_h = int(np.argmax(probs))
+        h_names = ["Scallop", "Echinus", "Starfish", "Holothurian"]
+        h_name = h_names[primary_h]
             
         hist = get_actual_labels_from_images("datasets/URPC2020.yaml", data_snapshot.auv_data_indices[i])
         auv_hists[i] = hist
         
-        if i < 5:
+        if i < 20:
             hist_str = f"[{int(hist[0])}, {int(hist[1])}, {int(hist[2])}, {int(hist[3])}]"
-            print(f"{i:<5} | {z:<10.1f} | {h_name:<15} | {hist_str}")
+            print(f"{i:<4} | {z:<8.1f} | {h_name:<16} | {prob_str:<30} | {hist_str}")
 
     print("\n" + "="*60)
     print("2. SO SÁNH PHÂN CỤM: VẬT LÝ vs EMD TRI THỨC")
