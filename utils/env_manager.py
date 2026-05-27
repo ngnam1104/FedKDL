@@ -159,15 +159,17 @@ class EnvironmentManager:
 
     @classmethod
     def generate_data_partition_2d(
-        cls, net_cfg, dataset_name: str, alpha: float, seed: int,
+        cls, net_cfg, topo, dataset_name: str, alpha: float, seed: int,
         base_yaml_path: str
     ) -> DataPartitionSnapshot:
         import yaml
         import random
+        from pathlib import Path as PPath
         
         random.seed(seed)
         np.random.seed(seed)
         
+        # 1. Thu thập danh sách ảnh
         if not os.path.exists(base_yaml_path):
             print(f"Warning: Khong tim thay {base_yaml_path}. Tra ve empty data partition.")
             all_images = []
@@ -180,7 +182,7 @@ class EnvironmentManager:
                 with open(train_path, 'r') as f:
                     all_images = [line.strip() for line in f.readlines()]
             else:
-                dataset_dir = Path(base_yaml_path).parent
+                dataset_dir = PPath(base_yaml_path).parent
                 original_path = base_cfg.get('path', '')
                 img_dir_candidates = [
                     dataset_dir / original_path / train_path,
@@ -205,39 +207,108 @@ class EnvironmentManager:
                     all_images = [str(p) for p in img_dir.glob('**/*.jpg')]
                 
         num_samples = len(all_images)
+        all_images = list(all_images)
         
-        # Trích 30% dữ liệu làm Public Dataset (Proxy KD)
-        public_samples = int(num_samples * 0.3)
-        # 80% dữ liệu dành cho các AUVs (Underwater)
-        auv_samples = int(num_samples * 0.8)
-        
-        indices = np.arange(num_samples)
-        np.random.shuffle(indices)
-        
-        # Lấy 30% đầu tiên cho Proxy
-        public_indices = indices[:public_samples].tolist()
-        # Lấy 80% từ dưới lên cho AUVs -> Tự động sinh ra 10% chồng chéo (overlap)
-        auv_indices_pool = indices[-auv_samples:]
-        
-        proportions = np.random.dirichlet(np.repeat(alpha, net_cfg.N_AUVS))
-        proportions = proportions / proportions.sum()
-        
-        # Đảm bảo mỗi thiết bị có ít nhất 2 ảnh (nếu đủ ảnh)
-        min_samples = 2 if auv_samples >= net_cfg.N_AUVS * 2 else 0
-        remaining_samples = max(0, auv_samples - net_cfg.N_AUVS * min_samples)
-        
-        auv_splits = (proportions * remaining_samples).astype(int)
-        auv_splits += min_samples
-        
-        if auv_samples > 0:
-            auv_splits[-1] = auv_samples - sum(auv_splits[:-1])
-        
-        auv_data_indices = {}
-        current_idx = 0
+        # 2. Đọc file label để phân loại ảnh vào 4 Habitat Bucket
+        # URPC2020 classes: holothurian=0, echinus=1, scallop=2, starfish=3
+        # Habitat mapping (theo độ sâu):
+        # H0 (Scallop - Cạn nhất): 2
+        # H1 (Echinus - Tầng 2): 1
+        # H2 (Starfish - Tầng 3): 3
+        # H3 (Holothurian - Sâu nhất): 0
+        HABITAT_TO_URPC = {0: 2, 1: 1, 2: 3, 3: 0}
+        URPC_TO_HABITAT = {v: k for k, v in HABITAT_TO_URPC.items()}
+
+        imgs_by_habitat = {h: [] for h in range(4)}
+        imgs_noclass = []
+
+        for idx, img_path in enumerate(all_images):
+            lbl_path = img_path.replace('/images/', '/labels/').replace('\\images\\', '\\labels\\')
+            lbl_path = lbl_path.rsplit('.', 1)[0] + '.txt'
+            counts = {c: 0 for c in range(4)}
+            try:
+                with open(lbl_path, 'r') as lf:
+                    for line in lf:
+                        parts = line.strip().split()
+                        if parts:
+                            cls_id = int(parts[0])
+                            if cls_id in counts:
+                                counts[cls_id] += 1
+                if sum(counts.values()) == 0:
+                    imgs_noclass.append(idx)
+                    continue
+                dominant = max(counts, key=counts.get)
+                habitat = URPC_TO_HABITAT.get(dominant, 0)
+                imgs_by_habitat[habitat].append(idx)
+            except Exception:
+                imgs_noclass.append(idx)
+
+        # Phân rải ảnh không nhãn
+        for i, idx in enumerate(imgs_noclass):
+            imgs_by_habitat[i % 4].append(idx)
+
+        print("  [Habitat Buckets] " +
+              " | ".join(f"H{h}({len(imgs_by_habitat[h])})" for h in range(4)))
+
+        # 3. Trích 30% làm Public Dataset (Proxy KD) rải đều 4 habitat
+        proxy_per_habitat = max(1, int(num_samples * 0.3) // 4)
+        public_indices = []
+        for h in range(4):
+            pool = list(imgs_by_habitat[h])
+            random.shuffle(pool)
+            public_indices.extend(pool[:proxy_per_habitat])
+
+        # 4. Gán Habitat cho AUV dựa hoàn toàn vào Độ Sâu (Trục Z)
+        auv_pos = topo.auv_positions  # (N, 3)
+        auv_habitat = np.zeros(net_cfg.N_AUVS, dtype=int)
         for i in range(net_cfg.N_AUVS):
-            c_indices = auv_indices_pool[current_idx : current_idx + auv_splits[i]]
-            auv_data_indices[i] = c_indices.tolist()
-            current_idx += auv_splits[i]
+            z = auv_pos[i, 2]
+            if z < 625.0:
+                auv_habitat[i] = 0  # H0: Scallop
+            elif z < 750.0:
+                auv_habitat[i] = 1  # H1: Echinus
+            elif z < 875.0:
+                auv_habitat[i] = 2  # H2: Starfish
+            else:
+                auv_habitat[i] = 3  # H3: Holothurian
+        
+        habitat_count = [int(np.sum(auv_habitat == h)) for h in range(4)]
+        print("  [AUV→DepthHabitat] " +
+              " | ".join(f"H{h}:{habitat_count[h]}auvs" for h in range(4)))
+
+        # 5. Xác định P_skew từ alpha
+        if alpha >= 1000.0:
+            p_skew = 0.25  # IID
+        elif alpha >= 1.0:
+            p_skew = 0.80  # Non-IID vừa
+        else:
+            p_skew = 0.95  # Non-IID cực đoan
+
+        # 6. Trộn ảnh cho từng AUV
+        auv_pool_size = int(num_samples * 0.7)
+        n_per_auv = max(1, auv_pool_size // net_cfg.N_AUVS)
+
+        auv_data_indices = {}
+        for i in range(net_cfg.N_AUVS):
+            h = int(auv_habitat[i])
+            dominant_pool = list(imgs_by_habitat[h])
+            noise_pool = []
+            for hh in range(4):
+                if hh != h:
+                    noise_pool.extend(imgs_by_habitat[hh])
+
+            random.shuffle(dominant_pool)
+            random.shuffle(noise_pool)
+
+            n_dom   = max(1, int(n_per_auv * p_skew))
+            n_noise = max(0, n_per_auv - n_dom)
+
+            chosen = dominant_pool[:n_dom] + noise_pool[:n_noise]
+            if len(chosen) < n_per_auv:
+                extra = (dominant_pool + noise_pool)[len(chosen):n_per_auv]
+                chosen += extra
+
+            auv_data_indices[i] = chosen
             
         return DataPartitionSnapshot(
             dataset_name=dataset_name,

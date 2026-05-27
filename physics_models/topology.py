@@ -80,11 +80,39 @@ class Topology3D:
         return np.column_stack([x, y, z])
 
     def _place_relays(self) -> np.ndarray:
+        """
+        Đặt Relay node đều vào 4 vùng (quadrant XY) để đảm bảo phủ sóng toàn vùng biển.
+        Nếu M không chia hết cho 4, các relay dư sẽ đặt ngẫu nhiên ở khu vực trung tâm.
+        """
         cfg = self.net_cfg
-        x = self.rng.uniform(0, cfg.AREA_X, self.M)
-        y = self.rng.uniform(0, cfg.AREA_Y, self.M)
-        z = self.rng.uniform(cfg.RELAY_DEPTH[0], cfg.RELAY_DEPTH[1], self.M)
-        return np.column_stack([x, y, z])
+        hx, hy = cfg.AREA_X / 2.0, cfg.AREA_Y / 2.0
+
+        quadrants = [
+            (0,   hx, 0,   hy),   # Q0: Tây-Bắc
+            (hx, cfg.AREA_X, 0,   hy),   # Q1: Đông-Bắc
+            (0,   hx, hy, cfg.AREA_Y),   # Q2: Tây-Nam
+            (hx, cfg.AREA_X, hy, cfg.AREA_Y),   # Q3: Đông-Nam
+        ]
+
+        per_quad = self.M // 4
+        remainder = self.M % 4
+
+        positions = []
+        for qx_min, qx_max, qy_min, qy_max in quadrants:
+            for _ in range(per_quad):
+                x = self.rng.uniform(qx_min, qx_max)
+                y = self.rng.uniform(qy_min, qy_max)
+                z = self.rng.uniform(cfg.RELAY_DEPTH[0], cfg.RELAY_DEPTH[1])
+                positions.append([x, y, z])
+
+        # Relay dư đặt ở vùng trung tâm (chiếm 20% diện tích giữa)
+        for _ in range(remainder):
+            x = self.rng.uniform(hx * 0.8, hx * 1.2)
+            y = self.rng.uniform(hy * 0.8, hy * 1.2)
+            z = self.rng.uniform(cfg.RELAY_DEPTH[0], cfg.RELAY_DEPTH[1])
+            positions.append([x, y, z])
+
+        return np.array(positions, dtype=float)
 
     @staticmethod
     def euclidean_3d(pos_a: np.ndarray, pos_b: np.ndarray) -> float:

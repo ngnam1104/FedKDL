@@ -86,8 +86,15 @@ def main():
                     if not data_path.exists():
                         if not args.dry_run:
                             if ds == 'URPC':
+                                # Bắt buộc phải load topo trước để biết Depth Z
+                                topo_path_for_data = EnvironmentManager.topo_path(task_type, n, seed)
+                                if not topo_path_for_data.exists():
+                                    print(f"  [error] Không tìm thấy topo: {topo_path_for_data.name}. Chạy --force-topo trước!")
+                                    continue
+                                topo = EnvironmentManager.load_topology(topo_path_for_data)
+
                                 data_part = EnvironmentManager.generate_data_partition_2d(
-                                    net_cfg, dataset_name=ds, alpha=alpha, seed=seed,
+                                    net_cfg, topo=topo, dataset_name=ds, alpha=alpha, seed=seed,
                                     base_yaml_path="datasets/URPC2020.yaml"
                                 )
                             else:

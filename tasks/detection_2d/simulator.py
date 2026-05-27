@@ -12,7 +12,6 @@ from federated_core.workers import BaseWorker, BaseRelayNode, BaseGateway
 from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
 from tasks.detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_auv_train
 from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
-from tasks.detection_2d.knowledge_compression.concept_drift import ConceptDriftMonitor
 
 
 class AUVWorker2D(BaseWorker):
