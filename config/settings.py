@@ -12,7 +12,7 @@ class NetworkConfig:
     N_SENSORS: int = 100         # Số lượng AUV cảm biến (Tầng Deep)
     M_FOGS: int = 10             # Số lượng Trạm Fog trung gian (hiện tại - có thể bị override)
     M_FOGS_1D: int = 10          # Số lượng Trạm Fog trung gian cho tác vụ 1D
-    M_FOGS_2D: int = 5           # Số lượng Trạm Fog trung gian cho tác vụ 2D
+    M_FOGS_2D: int = 4           # Số lượng Trạm Fog trung gian cho tác vụ 2D
     AREA_X: float = 2000.0       # Không gian X (m)
     AREA_Y: float = 2000.0       # Không gian Y (m)
     MAX_DEPTH: float = 1000.0    # Độ sâu tối đa (m)
@@ -27,7 +27,7 @@ class AcousticChannelConfig:
     CARRIER_FREQ: float = 12.0        # Tần số sóng mang (kHz) 
     BANDWIDTH: float = 4000.0         # Băng thông máy thu (Hz) -> ~15 kbps 
     TARGET_SNR: float = 10.0          # Ngưỡng SNR vận hành (dB) 
-    SL_MAX: float = 140.0             # Công suất phát tối đa phần cứng (dB re 1µPa @ 1m) 
+    SL_MAX: float = 150.0             # Công suất phát tối đa phần cứng (dB re 1μPa @ 1m) 
     SPREADING_FACTOR: float = 1.5     # Hệ số lan truyền thực tế (k) 
     WIND_SPEED: float = 5.0           # Tốc độ gió chuẩn hóa (m/s) 
     SHIPPING_FACTOR: float = 0.5      # Hệ số hoạt động tàu bè (0 - 1) 
