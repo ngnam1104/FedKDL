@@ -237,6 +237,7 @@ def local_sgd_od(
         'data': client_yaml,
         'epochs': epochs,
         'batch': batch_size,
+        'workers': getattr(fed_cfg, 'DATALOADER_WORKERS', 4),
         'lr0': lr,
         'optimizer': 'AdamW',
         'warmup_epochs': 0.0,

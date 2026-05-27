@@ -152,6 +152,7 @@ def main():
                 epochs=T_rounds,
                 imgsz=640,
                 batch=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
+                workers=getattr(fed_cfg, 'DATALOADER_WORKERS', 4),
                 device=device,
                 project=args.out_dir,
                 name=f"centralized_{stem}",
