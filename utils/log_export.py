@@ -27,9 +27,9 @@ def build_experiment_bundle(sim: Any, history: List[dict], metadata: dict) -> di
     if "loss" in metrics and "Train_Loss" not in metrics:
         metrics["Train_Loss"] = metrics["loss"]
 
-    n_sensors = metadata.get("N")
-    if n_sensors and "alive" in metrics and "Participation" not in metrics:
-        metrics["Participation"] = [a / n_sensors for a in metrics["alive"]]
+    n_auvs = metadata.get("N")
+    if n_auvs and "alive" in metrics and "Participation" not in metrics:
+        metrics["Participation"] = [a / n_auvs for a in metrics["alive"]]
 
     if "mAP" in metrics and "map" not in metrics:
         metrics["map"] = metrics["mAP"]

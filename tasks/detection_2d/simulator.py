@@ -8,16 +8,16 @@ from pathlib import Path
 from typing import Dict, Any, Tuple
 
 from federated_core.base_simulator import BaseSimulator
-from federated_core.workers import BaseWorker, BaseFogNode, BaseGateway
+from federated_core.workers import BaseWorker, BaseRelayNode, BaseGateway
 from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
 from tasks.detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_client_train
 from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
 from tasks.detection_2d.knowledge_compression.concept_drift import ConceptDriftMonitor
 
 
-class SensorWorker2D(BaseWorker):
-    def __init__(self, sensor_id, client_yaml, battery_init):
-        super().__init__(sensor_id, battery_init)
+class AUVWorker2D(BaseWorker):
+    def __init__(self, auv_id, client_yaml, battery_init):
+        super().__init__(auv_id, battery_init)
         self.client_yaml = client_yaml
         # Cache optimizer state (exp_avg / exp_avg_sq) giữa các FL round.
         # None = chưa có (round đầu tiên, optimizer khởi đầu lạnh).
@@ -43,11 +43,11 @@ class SensorWorker2D(BaseWorker):
             payload_kb    : kích thước payload tính bằng KB
             delta_norm    : L2 norm của sự thay đổi trọng số (cho Lazy Filter)
             train_loss    : tổng box+cls+dfl loss vòng cuối
-            local_metrics : dict mAP50-95/mAP50/Prec/Rec đánh giá trên tập train của chính sensor
+            local_metrics : dict mAP50-95/mAP50/Prec/Rec đánh giá trên tập train của chính auv
         """
         if not self.alive or getattr(self, 'n_samples', 0) == 0:
             if getattr(self, 'n_samples', 0) == 0:
-                print(f"\n[{'='*40}]\n[Sensor {self.sensor_id}] BỎ QUA VÌ KHÔNG CÓ DỮ LIỆU (n_samples = 0)\n[{'='*40}]\n")
+                print(f"\n[{'='*40}]\n[AUV {self.auv_id}] BỎ QUA VÌ KHÔNG CÓ DỮ LIỆU (n_samples = 0)\n[{'='*40}]\n")
             return None, 0.0, 0.0, 0.0, {}
 
         import yaml
@@ -88,7 +88,7 @@ class SensorWorker2D(BaseWorker):
         new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
             student_model=local_student,
             client_yaml=self.client_yaml,
-            client_id=self.sensor_id,
+            client_id=self.auv_id,
             epochs=epochs,
             batch_size=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
             lr=lr,           # Truyền Cosine LR liên tục (không bị reset)
@@ -102,7 +102,7 @@ class SensorWorker2D(BaseWorker):
         if new_opt_state is not None:
             self._optimizer_state = new_opt_state
 
-        # [TỐI ƯU HÓA] Bỏ qua đánh giá local model trên tập train của sensor
+        # [TỐI ƯU HÓA] Bỏ qua đánh giá local model trên tập train của auv
         # Việc này tiết kiệm 30% tổng thời gian huấn luyện mà không ảnh hưởng kết quả Global
         local_metrics = {
             'local_mAP50': 0.0,
@@ -110,15 +110,15 @@ class SensorWorker2D(BaseWorker):
             'local_Prec': 0.0,
             'local_Rec': 0.0
         }
-        print(f"[Sensor {self.sensor_id}] Local train metrics skipped to save time.")
+        print(f"[AUV {self.auv_id}] Local train metrics skipped to save time.")
 
         if delta_norm < fed_cfg.DELTA_SKIP:
-            print(f"[Sensor {self.sensor_id}] 💤 Lazy Filter Activated (delta={delta_norm:.4f} < {fed_cfg.DELTA_SKIP}). Node is resting (No TX).")
+            print(f"[AUV {self.auv_id}] 💤 Lazy Filter Activated (delta={delta_norm:.4f} < {fed_cfg.DELTA_SKIP}). Node is resting (No TX).")
             payload_bytes = None
             payload_kb = 0.0
         elif use_int8:
             payload_bytes, payload_kb = pack_payload(new_state)
-            print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB INT8 "
+            print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB INT8 "
                   f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
         else:
             # Fake packing for simulation (Float32 payload)
@@ -126,7 +126,7 @@ class SensorWorker2D(BaseWorker):
             # Calculate bytes based on float32 (4 bytes per param)
             total_params = sum(t.numel() for t in new_state.values())
             payload_kb = (total_params * 4) / 1024.0
-            print(f"[Sensor {self.sensor_id}] Payload: {payload_kb:.1f} KB Float32")
+            print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB Float32")
 
         del local_student
         gc.collect()
@@ -136,8 +136,8 @@ class SensorWorker2D(BaseWorker):
 
 
 
-class FogNode2D(BaseFogNode):
-    def aggregate_intra_cluster(self, global_state_dict, payloads, sensor_n_samples, use_kd_lora_int8=True):
+class RelayNode2D(BaseRelayNode):
+    def aggregate_intra_cluster(self, global_state_dict, payloads, auv_n_samples, use_kd_lora_int8=True):
         import torch
         from tasks.detection_2d.knowledge_compression.int8_quantization import unpack_payload
         
@@ -159,7 +159,7 @@ class FogNode2D(BaseFogNode):
             return
 
         self.intra_state_dict = {}
-        total_samples = sum(sensor_n_samples.get(sid, 0) for sid in valid_sids)
+        total_samples = sum(auv_n_samples.get(sid, 0) for sid in valid_sids)
         if total_samples == 0:
             total_samples = 1
 
@@ -167,7 +167,7 @@ class FogNode2D(BaseFogNode):
             original_dtype = c_updates[0][k].dtype
             weighted_sum = torch.zeros_like(c_updates[0][k].float())
             for i, sid in enumerate(valid_sids):
-                weight = sensor_n_samples.get(sid, 0) / total_samples
+                weight = auv_n_samples.get(sid, 0) / total_samples
                 weighted_sum += c_updates[i][k].float() * weight
             self.intra_state_dict[k] = weighted_sum.to(original_dtype)
             
@@ -199,7 +199,7 @@ class Simulator2D(BaseSimulator):
         base_yaml_path = self.test_yaml
         if not os.path.exists(base_yaml_path):
             print(f"[Warning] Khong tim thay {base_yaml_path}. Su dung che do synthetic.")
-            for i in range(self.net_cfg.N_SENSORS):
+            for i in range(self.net_cfg.N_AUVS):
                 self.client_yamls.append("coco8.yaml")
         else:
             with open(base_yaml_path, 'r') as f:
@@ -259,7 +259,7 @@ class Simulator2D(BaseSimulator):
                     f.write("\n".join(public_images))
                 self.proxy_kd_txt = str(proxy_txt.absolute())
                 
-            temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_SENSORS}_a{data_part.alpha}_s{data_part.seed}")
+            temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_AUVS}_a{data_part.alpha}_s{data_part.seed}")
             temp_dir.mkdir(parents=True, exist_ok=True)
             self.client_yamls = {}
             for sid, idx_list in data_part.client_data_indices.items():
@@ -312,7 +312,7 @@ class Simulator2D(BaseSimulator):
         self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
         self._last_kd_metrics = {}
         
-        self.fog_model_bits = sum(t.numel() for t in self.gateway.global_state_dict.values()) * 32
+        self.relay_model_bits = sum(t.numel() for t in self.gateway.global_state_dict.values()) * 32
         
         self._init_network()
 
@@ -366,8 +366,8 @@ class Simulator2D(BaseSimulator):
             return hist
 
         # 2. Xây dựng Histogram cho toàn bộ mạng lưới
-        N = self.net_cfg.N_SENSORS
-        M = getattr(self.net_cfg, 'M_FOGS_2D', self.net_cfg.M_FOGS)
+        N = self.net_cfg.N_AUVS
+        M = getattr(self.net_cfg, 'M_RELAYS_2D', self.net_cfg.M_RELAYS)
         nc = getattr(self.global_student.yolo.model.yaml, 'nc', 80) if hasattr(self.global_student.yolo.model, 'yaml') else 80
         if isinstance(nc, dict) and 'nc' in nc: nc = nc['nc'] # fallback cho kiểu dict
         elif not isinstance(nc, int): nc = 80
@@ -375,23 +375,23 @@ class Simulator2D(BaseSimulator):
         # Nếu là FedKDL thì bật EMD Clustering
         if 'fedkdl' in self.baseline:
             print(f"\n[Simulator2D] Khởi tạo Knowledge-Aware Association (EMD β=0.2)...")
-            sensor_label_hists = np.zeros((N, nc), dtype=np.float32)
+            self.auv_label_hists = np.zeros((N, nc), dtype=np.float32)
             for s_id in range(N):
                 if s_id in getattr(self, 'client_yamls', {}):
-                    sensor_label_hists[s_id] = get_label_histogram(self.client_yamls[s_id], nc)
+                    self.auv_label_hists[s_id] = get_label_histogram(self.client_yamls[s_id], nc)
             
-            # Tính Fog Histogram từ các cụm vật lý ban đầu
-            fog_label_hists = np.zeros((M, nc), dtype=np.float32)
-            fog_counts = np.zeros(M)
+            # Tính Relay Histogram từ các cụm vật lý ban đầu
+            self.relay_label_hists = np.zeros((M, nc), dtype=np.float32)
+            relay_counts = np.zeros(M)
             for s_id, f_id in self.association.items():
                 if 0 <= f_id < M:
-                    fog_label_hists[f_id] += sensor_label_hists[s_id]
-                    fog_counts[f_id] += 1
+                    self.relay_label_hists[f_id] += self.auv_label_hists[s_id]
+                    relay_counts[f_id] += 1
             for m in range(M):
-                if fog_counts[m] > 0:
-                    fog_label_hists[m] /= fog_counts[m]
+                if relay_counts[m] > 0:
+                    self.relay_label_hists[m] /= relay_counts[m]
                 else:
-                    fog_label_hists[m] = np.ones(nc, dtype=np.float32) / nc
+                    self.relay_label_hists[m] = np.ones(nc, dtype=np.float32) / nc
 
             # Thực thi Knowledge-Aware Association
             class DummyTopo:
@@ -401,8 +401,8 @@ class Simulator2D(BaseSimulator):
             new_association = knowledge_aware_association(
                 topology=DummyTopo(N, M),
                 G=self.G,
-                sensor_label_hists=sensor_label_hists,
-                fog_label_hists=fog_label_hists,
+                auv_label_hists=self.auv_label_hists,
+                relay_label_hists=self.relay_label_hists,
                 beta=0.2  # 80% Khoảng cách, 20% EMD
             )
             
@@ -413,8 +413,8 @@ class Simulator2D(BaseSimulator):
                 old_f = self.association.get(s, -1)
                 if old_f != new_f:
                     changed += 1
-                    changes_log.append(f"    - Sensor {s}: Fog {old_f} -> Fog {new_f}")
-            print(f"[Simulator2D] EMD Clustering hoàn tất. {changed}/{N} Sensors đã chuyển cụm (Fog) để tối ưu EMD.")
+                    changes_log.append(f"    - AUV {s}: Relay {old_f} -> Relay {new_f}")
+            print(f"[Simulator2D] EMD Clustering hoàn tất. {changed}/{N} AUVs đã chuyển cụm (Relay) để tối ưu EMD.")
             if changed > 0:
                 print("  Chi tiết thay đổi:")
                 for log in changes_log:
@@ -428,21 +428,21 @@ class Simulator2D(BaseSimulator):
                 self.clusters[f].append(s)
 
         # 3. Tiến hành cấp phát Worker/Node như bình thường
-        for s_id in range(self.net_cfg.N_SENSORS):
+        for s_id in range(self.net_cfg.N_AUVS):
             if s_id in getattr(self, 'client_yamls', {}):
                 if s_id in self.association:
-                    self.sensors[s_id] = SensorWorker2D(
-                        sensor_id=s_id,
+                    self.auvs[s_id] = AUVWorker2D(
+                        auv_id=s_id,
                         client_yaml=self.client_yamls[s_id],
                         battery_init=self.en_cfg.E_INIT,
                     )
                 else:
-                    print(f"\n[{'='*40}]\n[Sensor {s_id}] BỎ QUA VÌ KHÔNG THỎA MÃN KHOẢNG CÁCH (Out of Range)\n[{'='*40}]\n")
+                    print(f"\n[{'='*40}]\n[AUV {s_id}] BỎ QUA VÌ KHÔNG THỎA MÃN KHOẢNG CÁCH (Out of Range)\n[{'='*40}]\n")
 
         for m, members in self.clusters.items():
             if len(members) > 0:
-                self.fogs[m] = FogNode2D(
-                    fog_id=m,
+                self.relays[m] = RelayNode2D(
+                    relay_id=m,
                     cluster_members=members,
                 )
 
@@ -458,13 +458,13 @@ class Simulator2D(BaseSimulator):
         # Mặc định (LoRA)
         return self.fed_cfg.FLOP_MULTIPLIER[self.task_key]
 
-    def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
-        sensor = self.sensors[s_id]
+    def _process_auv(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
+        auv = self.auvs[s_id]
 
         if s_id == 0 and getattr(self, '_fedprox_mu_override', 0.0) > 0.0:
-            print(f"    [!] Adaptive Dropout Active: Sensors are training with FedProx (mu={self._fedprox_mu_override})")
+            print(f"    [!] Adaptive Dropout Active: AUVs are training with FedProx (mu={self._fedprox_mu_override})")
 
-        payload, payload_kb, delta_norm, train_loss, local_metrics = sensor.train_and_get_payload(
+        payload, payload_kb, delta_norm, train_loss, local_metrics = auv.train_and_get_payload(
             global_state=self.gateway.global_state_dict,
             epochs=self.fed_cfg.LOCAL_EPOCHS,
             lr=getattr(self, 'current_lr', self.fed_cfg.LOCAL_LR),
@@ -487,11 +487,11 @@ class Simulator2D(BaseSimulator):
             else:
                 S_bits = len(payload) * 8  # payload luôn là bytes INT8
 
-            fog_id = self.association.get(s_id, -1)
-            if fog_id == -1:
-                link_key = ('sensor', s_id, 'gateway', 0)
+            relay_id = self.association.get(s_id, -1)
+            if relay_id == -1:
+                link_key = ('auv', s_id, 'gateway', 0)
             else:
-                link_key = ('sensor', s_id, 'fog', fog_id)
+                link_key = ('auv', s_id, 'relay', relay_id)
                 
             e_tx_cost = 0.0
             e_comp_cost = 0.0
@@ -503,42 +503,42 @@ class Simulator2D(BaseSimulator):
                 )
 
                 e_comp_cost = e_comp_dynamic(
-                    n_samples=sensor.n_samples,
+                    n_samples=auv.n_samples,
                     n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                     flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
                     flop_multiplier=self.get_flop_multiplier(),
                     epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
                 )
 
-                if sensor.battery >= (e_tx_cost + e_comp_cost):
-                    return s_id, payload, train_loss, sensor.n_samples, e_tx_cost, e_comp_cost, local_metrics
+                if auv.battery >= (e_tx_cost + e_comp_cost):
+                    return s_id, payload, train_loss, auv.n_samples, e_tx_cost, e_comp_cost, local_metrics
                 else:
-                    sensor.alive = False
+                    auv.alive = False
 
         return s_id, None, 0.0, 0, 0.0, 0.0, {}
 
 
-    def _aggregate_intra_fog(self, m: int, fog, payloads, sensor_n_samples) -> float:
+    def _aggregate_intra_relay(self, m: int, relay, payloads, auv_n_samples) -> float:
         classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
         use_int8 = 'noint8' not in self.baseline and self.baseline not in classic_baselines
-        fog.aggregate_intra_cluster(
+        relay.aggregate_intra_cluster(
             global_state_dict=self.gateway.global_state_dict,
             payloads=payloads,
-            sensor_n_samples=sensor_n_samples,
+            auv_n_samples=auv_n_samples,
             use_kd_lora_int8=use_int8
         )
         return 0.0
 
     def _compute_payload_bits(self, payloads: Dict) -> float:
         if not payloads:
-            return self.fog_model_bits
+            return self.relay_model_bits
         if 'noint8' in self.baseline:
             # payloads là state_dicts Float32
             return np.mean([sum(t.numel() for t in p.values()) * 32 for p in payloads.values()])
         return np.mean([len(p) * 8 for p in payloads.values()])
 
-    def _compute_fog_model_bits(self) -> float:
-        return self.fog_model_bits
+    def _compute_relay_model_bits(self) -> float:
+        return self.relay_model_bits
 
     def _gateway_knowledge_distillation(self):
         """
@@ -601,8 +601,8 @@ class Simulator2D(BaseSimulator):
                 self._kd_disabled = True
                 self._fedprox_mu_override = 0.01  # Bật FedProx để bù cho KD bị tắt
                 # [CRITICAL FIX] Flush AdamW cache to prevent gradient explosion after loss shift
-                for sensor in self.sensors.values():
-                    sensor._optimizer_state = None
+                for auv in self.auvs.values():
+                    auv._optimizer_state = None
                 print(f"[Gateway KD] 🚫 Disabling KD permanently after {CONSEC_DROP_THRESHOLD} consecutive drops "
                       f"— switching to FedProx (mu=0.01) convergence mode.")
                 self._last_kd_metrics = {
@@ -663,7 +663,7 @@ class Simulator2D(BaseSimulator):
         # [FIX] Đảm bảo model không bị dính cờ inference tensor từ hàm evaluate vòng trước
         self.global_student.strip_inference_tensors()
         
-        # [CRITICAL FIX] Load aggregated weights từ các sensors (đang nằm trong gateway)
+        # [CRITICAL FIX] Load aggregated weights từ các auvs (đang nằm trong gateway)
         # vào global_student TRƯỚC khi chạy Distillation, nếu không KD sẽ train trên tàn dư cũ!
         self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
         

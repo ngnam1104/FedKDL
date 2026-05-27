@@ -27,15 +27,15 @@ class TopologySnapshot:
     M: int
     seed: int
 
-    sensor_positions: np.ndarray       # (N, 3)
-    fog_positions: np.ndarray          # (M, 3)
+    auv_positions: np.ndarray       # (N, 3)
+    relay_positions: np.ndarray          # (M, 3)
     gateway_position: np.ndarray       # (3,)
 
     feasibility_graph_items: list      # [((tu,iu,tv,iv), {dist, SL_min, TL, NL, R_bps})]
 
-    hfl_association: Dict[int, int]    # sensor_id -> fog_id
-    flat_association: Dict[int, int]   # sensor_id -> -1
-    clusters: Dict[int, List[int]]     # fog_id -> [sensor_ids]
+    hfl_association: Dict[int, int]    # auv_id -> relay_id
+    flat_association: Dict[int, int]   # auv_id -> -1
+    clusters: Dict[int, List[int]]     # relay_id -> [auv_ids]
 
 
 @dataclass
@@ -46,7 +46,7 @@ class DataPartitionSnapshot:
     alpha: float
     seed: int
 
-    client_data_indices: Dict[int, List[int]]  # sensor_id -> [sample_idx]
+    client_data_indices: Dict[int, List[int]]  # auv_id -> [sample_idx]
     val_indices: List[int]                     # validation split indices
 
     input_dim: int                     # window_size * n_features
@@ -87,11 +87,11 @@ class EnvironmentManager:
         clusters   = build_clusters(hfl_assoc, topology.M)
 
         return TopologySnapshot(
-            N=net_cfg.N_SENSORS,
-            M=net_cfg.M_FOGS,
+            N=net_cfg.N_AUVS,
+            M=net_cfg.M_RELAYS,
             seed=seed,
-            sensor_positions=topology.sensor_positions.copy(),
-            fog_positions=topology.fog_positions.copy(),
+            auv_positions=topology.auv_positions.copy(),
+            relay_positions=topology.relay_positions.copy(),
             gateway_position=topology.gateway_position.copy(),
             feasibility_graph_items=graph_items,
             hfl_association=dict(hfl_assoc),
@@ -126,15 +126,15 @@ class EnvironmentManager:
         val_ds   = SlidingWindowDataset(val_data,   val_labels,   window_size=window_size)
 
         client_indices = non_iid_partition(
-            train_ds, net_cfg.N_SENSORS, alpha=alpha, seed=seed
+            train_ds, net_cfg.N_AUVS, alpha=alpha, seed=seed
         )
-        # Note: Khong filter valid_sensors o day de data_partition hoan toan doc lap voi Topology!
+        # Note: Khong filter valid_auvs o day de data_partition hoan toan doc lap voi Topology!
         
         val_indices = list(range(len(val_ds)))
 
         return DataPartitionSnapshot(
             dataset_name=dataset_name,
-            N=net_cfg.N_SENSORS,
+            N=net_cfg.N_AUVS,
             alpha=alpha,
             seed=seed,
             client_data_indices={int(k): list(v) for k, v in client_indices.items()},
@@ -208,7 +208,7 @@ class EnvironmentManager:
         
         # Trích 30% dữ liệu làm Public Dataset (Proxy KD)
         public_samples = int(num_samples * 0.3)
-        # 80% dữ liệu dành cho các Sensors (Underwater)
+        # 80% dữ liệu dành cho các AUVs (Underwater)
         client_samples = int(num_samples * 0.8)
         
         indices = np.arange(num_samples)
@@ -219,12 +219,12 @@ class EnvironmentManager:
         # Lấy 80% từ dưới lên cho Clients -> Tự động sinh ra 10% chồng chéo (overlap)
         client_indices_pool = indices[-client_samples:]
         
-        proportions = np.random.dirichlet(np.repeat(alpha, net_cfg.N_SENSORS))
+        proportions = np.random.dirichlet(np.repeat(alpha, net_cfg.N_AUVS))
         proportions = proportions / proportions.sum()
         
         # Đảm bảo mỗi thiết bị có ít nhất 2 ảnh (nếu đủ ảnh)
-        min_samples = 2 if client_samples >= net_cfg.N_SENSORS * 2 else 0
-        remaining_samples = max(0, client_samples - net_cfg.N_SENSORS * min_samples)
+        min_samples = 2 if client_samples >= net_cfg.N_AUVS * 2 else 0
+        remaining_samples = max(0, client_samples - net_cfg.N_AUVS * min_samples)
         
         client_splits = (proportions * remaining_samples).astype(int)
         client_splits += min_samples
@@ -234,14 +234,14 @@ class EnvironmentManager:
         
         client_data_indices = {}
         current_idx = 0
-        for i in range(net_cfg.N_SENSORS):
+        for i in range(net_cfg.N_AUVS):
             c_indices = client_indices_pool[current_idx : current_idx + client_splits[i]]
             client_data_indices[i] = c_indices.tolist()
             current_idx += client_splits[i]
             
         return DataPartitionSnapshot(
             dataset_name=dataset_name,
-            N=net_cfg.N_SENSORS,
+            N=net_cfg.N_AUVS,
             alpha=alpha,
             seed=seed,
             client_data_indices=client_data_indices,

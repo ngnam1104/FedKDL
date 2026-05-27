@@ -157,16 +157,16 @@ class EnergyTracker:
         self.history = []
         self.cumulative_energy = 0.0
 
-    def add_round(self, round_idx: int, e_s2f: float, e_f2f: float, e_f2g: float, e_comp: float):
+    def add_round(self, round_idx: int, e_a2r: float, e_r2r: float, e_r2g: float, e_comp: float):
         """Ghi nhận hóa đơn năng lượng của 1 round."""
-        round_total = e_s2f + e_f2f + e_f2g + e_comp
+        round_total = e_a2r + e_r2r + e_r2g + e_comp
         self.cumulative_energy += round_total
         
         self.history.append({
             'round': round_idx,
-            'e_s2f': e_s2f,
-            'e_f2f': e_f2f,
-            'e_f2g': e_f2g,
+            'e_a2r': e_a2r,
+            'e_r2r': e_r2r,
+            'e_r2g': e_r2g,
             'e_comp': e_comp,
             'round_total': round_total,
             'cumulative_total': self.cumulative_energy,
@@ -182,9 +182,9 @@ class LatencyTracker:
     Đo độ trễ vòng lặp (round latency) theo Eq. 21 của paper.
 
     τ_round = max(
-        max_{i → a_i} τ_{i→fog},
-        max_{m → j} τ_{fog→fog},
-        max_{m → g} τ_{fog→gateway}
+        max_{i → a_i} τ_{i→relay},
+        max_{m → j} τ_{relay→relay},
+        max_{m → g} τ_{relay→gateway}
     ) + τ_comp
 
     Công thức 1 link: τ_{u→v} = d_{uv}/c_s + L_{uv}/R_{uv}
@@ -213,87 +213,87 @@ class LatencyTracker:
         association: Dict[int, int],
         cooperation_partners: Dict[int, int],
         tau_comp: float,
-        sensor_payload_bits: float,
-        fog_model_bits: float,
+        auv_payload_bits: float,
+        relay_model_bits: float,
     ) -> float:
         """
         Tính τ_round theo Eq. 21.
 
         Args:
             G:                    Feasibility graph (output của build_feasibility_graph).
-            association:          dict[sensor_id → fog_id].
-            cooperation_partners: dict[fog_id → partner_fog_id] (rỗng nếu ko coop).
+            association:          dict[auv_id → relay_id].
+            cooperation_partners: dict[relay_id → partner_relay_id] (rỗng nếu ko coop).
             tau_comp:             Độ trễ tính toán cục bộ (thường là max hoặc avg của các node).
-            sensor_payload_bits:  Kích thước payload cảm biến (bits).
-            fog_model_bits:       Kích thước model fog full-precision (bits).
+            auv_payload_bits:  Kích thước payload cảm biến (bits).
+            relay_model_bits:       Kích thước model relay full-precision (bits).
 
         Returns:
             tau_round in seconds.
         """
         from physics_models.latency import comm_delay
 
-        # 1. Sensor → Fog delays (mỗi fog lấy max trong cụm)
-        s2f_per_fog: Dict[int, float] = {}
-        for s_id, fog_id in association.items():
-            if fog_id == -1:
-                key = ('sensor', s_id, 'gateway', 0)
+        # 1. AUV → Relay delays (mỗi relay lấy max trong cụm)
+        a2r_per_relay: Dict[int, float] = {}
+        for s_id, relay_id in association.items():
+            if relay_id == -1:
+                key = ('auv', s_id, 'gateway', 0)
             else:
-                key = ('sensor', s_id, 'fog', fog_id)
+                key = ('auv', s_id, 'relay', relay_id)
                 
             if key in G:
                 link = G[key]
-                delay = comm_delay(sensor_payload_bits, link.R_bps, link.distance, self.c_s)
+                delay = comm_delay(auv_payload_bits, link.R_bps, link.distance, self.c_s)
             else:
                 delay = 0.0
-            s2f_per_fog[fog_id] = max(s2f_per_fog.get(fog_id, 0.0), delay)
+            a2r_per_relay[relay_id] = max(a2r_per_relay.get(relay_id, 0.0), delay)
 
-        # 2. Fog → Fog cooperation delays
-        f2f_per_fog: Dict[int, float] = {}
-        for fog_id, partner_id in cooperation_partners.items():
-            key_fwd = ('fog', partner_id, 'fog', fog_id)  # partner phát → fog nhận
-            key_bwd = ('fog', fog_id, 'fog', partner_id)
+        # 2. Relay → Relay cooperation delays
+        r2r_per_relay: Dict[int, float] = {}
+        for relay_id, partner_id in cooperation_partners.items():
+            key_fwd = ('relay', partner_id, 'relay', relay_id)  # partner phát → relay nhận
+            key_bwd = ('relay', relay_id, 'relay', partner_id)
             key = key_fwd if key_fwd in G else (key_bwd if key_bwd in G else None)
             if key:
                 link = G[key]
-                delay = comm_delay(fog_model_bits, link.R_bps, link.distance, self.c_s)
+                delay = comm_delay(relay_model_bits, link.R_bps, link.distance, self.c_s)
             else:
                 delay = 0.0
-            f2f_per_fog[fog_id] = delay
+            r2r_per_relay[relay_id] = delay
 
-        # 3. Fog → Gateway delays
-        f2g_delays = []
+        # 3. Relay → Gateway delays
+        r2g_delays = []
         for m in set(association.values()):
             if m == -1:
                 continue
-            key = ('fog', m, 'gateway', 0)
+            key = ('relay', m, 'gateway', 0)
             if key in G:
                 link = G[key]
-                f2g_delays.append(comm_delay(fog_model_bits, link.R_bps, link.distance, self.c_s))
+                r2g_delays.append(comm_delay(relay_model_bits, link.R_bps, link.distance, self.c_s))
 
         # 4. Tính toán cục bộ đã được tính ở ngoài và truyền vào qua tham số tau_comp
 
-        # Bottleneck: max over all fogs of (s2f + f2f + f2g)
-        all_fog_ids = set(association.values())
-        per_fog_total = []
-        max_f2g = max(f2g_delays) if f2g_delays else 0.0
-        for m in all_fog_ids:
+        # Bottleneck: max over all relays of (a2r + r2r + r2g)
+        all_relay_ids = set(association.values())
+        per_relay_total = []
+        max_r2g = max(r2g_delays) if r2g_delays else 0.0
+        for m in all_relay_ids:
             if m == -1:
-                per_fog_total.append(s2f_per_fog.get(m, 0.0))
+                per_relay_total.append(a2r_per_relay.get(m, 0.0))
             else:
-                per_fog_total.append(
-                    s2f_per_fog.get(m, 0.0) +
-                    f2f_per_fog.get(m, 0.0) +
-                    max_f2g
+                per_relay_total.append(
+                    a2r_per_relay.get(m, 0.0) +
+                    r2r_per_relay.get(m, 0.0) +
+                    max_r2g
                 )
-        max_s2f = max(s2f_per_fog.values()) if s2f_per_fog else 0.0
-        max_f2f = max(f2f_per_fog.values()) if f2f_per_fog else 0.0
+        max_a2r = max(a2r_per_relay.values()) if a2r_per_relay else 0.0
+        max_r2r = max(r2r_per_relay.values()) if r2r_per_relay else 0.0
         
-        tau_round = (max(per_fog_total) if per_fog_total else 0.0) + tau_comp
+        tau_round = (max(per_relay_total) if per_relay_total else 0.0) + tau_comp
         return {
             'tau_round': tau_round,
-            'tau_s2f': max_s2f,
-            'tau_f2f': max_f2f,
-            'tau_f2g': max_f2g,
+            'tau_a2r': max_a2r,
+            'tau_r2r': max_r2r,
+            'tau_r2g': max_r2g,
             'tau_comp': tau_comp
         }
 
@@ -327,8 +327,8 @@ class MetricsLogger:
             return f"{float(value):.4f}"
 
         if isinstance(value, dict):
-            if key == 'sensor_train_metrics':
-                return "{}" if not value else f"{len(value)} sensors"
+            if key == 'auv_train_metrics':
+                return "{}" if not value else f"{len(value)} auvs"
             return "{}" if not value else f"dict(n={len(value)})"
 
         if isinstance(value, (list, tuple, set)):

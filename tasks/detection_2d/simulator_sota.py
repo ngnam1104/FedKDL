@@ -3,8 +3,8 @@ simulator.py — SOTA Baseline Simulator (Jiang et al., 2025)
 Kế thừa BaseSimulator từ FedKDL core (KHÔNG sửa code gốc).
 
 Điểm khác biệt so với Simulator2D (FedKDL):
-  - Sensor chạy Local KD (Teacher YOLO12l tại chỗ) + DCP.
-  - Sensor gửi TOÀN BỘ model Float32 (~5.4 MB) — không LoRA, không INT8.
+  - AUV chạy Local KD (Teacher YOLO12l tại chỗ) + DCP.
+  - AUV gửi TOÀN BỘ model Float32 (~5.4 MB) — không LoRA, không INT8.
   - Gateway KHÔNG chạy KD: chỉ làm FedAvg thuần túy.
   - Dùng StudentModel(full_param=True, use_lora=False).
 """
@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any
 
 from federated_core.base_simulator import BaseSimulator
-from federated_core.workers import BaseWorker, BaseFogNode, BaseGateway
+from federated_core.workers import BaseWorker, BaseRelayNode, BaseGateway
 from federated_core.aggregator import fedavg_intra_cluster, fedavg_global
 
 from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
@@ -38,16 +38,16 @@ SOTA_PAYLOAD_BITS = int(5.4 * 1024 * 1024 * 8)   # 5.4 MB × 8 bits
 SOTA_PAYLOAD_KB   = 5.4 * 1024                     # 5529.6 KB
 
 
-class SensorWorkerSOTA(BaseWorker):
+class AUVWorkerSOTA(BaseWorker):
     """
-    Sensor (AUV) trong baseline SOTA:
+    AUV (AUV) trong baseline SOTA:
       - Load Teacher YOLO12l cục bộ.
       - Train với DCP + Local KD.
-      - Gửi TOÀN BỘ model Float32 lên Fog (rất nặng).
+      - Gửi TOÀN BỘ model Float32 lên Relay (rất nặng).
     """
 
-    def __init__(self, sensor_id, client_yaml, battery_init, teacher_model):
-        super().__init__(sensor_id, battery_init)
+    def __init__(self, auv_id, client_yaml, battery_init, teacher_model):
+        super().__init__(auv_id, battery_init)
         self.client_yaml = client_yaml
         self.teacher_model = teacher_model   # Dùng chung (frozen, read-only)
 
@@ -79,7 +79,7 @@ class SensorWorkerSOTA(BaseWorker):
             student_model=local_student,
             teacher_model=self.teacher_model,
             client_yaml=self.client_yaml,
-            client_id=self.sensor_id,
+            client_id=self.auv_id,
             epochs=epochs,
             batch_size=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
             lr=lr,
@@ -89,15 +89,15 @@ class SensorWorkerSOTA(BaseWorker):
         return full_state, SOTA_PAYLOAD_KB, train_loss
 
 
-class FogNodeSOTA(BaseFogNode):
-    """Fog node nhận full model Float32, FedAvg, gửi lên Gateway."""
+class RelayNodeSOTA(BaseRelayNode):
+    """Relay node nhận full model Float32, FedAvg, gửi lên Gateway."""
 
-    def __init__(self, fog_id):
-        super().__init__(fog_id)
-        self.received: Dict[int, dict] = {}    # sensor_id → full_state_dict
+    def __init__(self, relay_id):
+        super().__init__(relay_id)
+        self.received: Dict[int, dict] = {}    # auv_id → full_state_dict
 
-    def receive(self, sensor_id: int, state_dict: dict):
-        self.received[sensor_id] = state_dict
+    def receive(self, auv_id: int, state_dict: dict):
+        self.received[auv_id] = state_dict
 
     def aggregate_intra_cluster(self) -> dict:
         """FedAvg thông thường trên toàn bộ key."""
@@ -132,7 +132,7 @@ class SimulatorSOTA(BaseSimulator):
         self.test_yaml  = test_yaml
         self.device     = device
 
-        # Tải Teacher MỘT LẦN — dùng chung cho tất cả Sensor (frozen)
+        # Tải Teacher MỘT LẦN — dùng chung cho tất cả AUV (frozen)
         print("[SimulatorSOTA] Tải Teacher YOLO12l (frozen)...")
         self.teacher_model = TeacherModel(teacher_ckpt)
         self.teacher_model.yolo.model.to(device)
@@ -146,7 +146,7 @@ class SimulatorSOTA(BaseSimulator):
         )
         self.global_state = self.global_student.trainable_state_dict()
 
-        # Khởi tạo Sensors & Fogs
+        # Khởi tạo AUVs & Relays
         self._init_workers(nc)
 
         # Cosine LR schedule
@@ -167,37 +167,37 @@ class SimulatorSOTA(BaseSimulator):
         return lrs
 
     def _init_workers(self, nc: int):
-        """Tạo SensorWorkerSOTA và FogNodeSOTA từ topology."""
+        """Tạo AUVWorkerSOTA và RelayNodeSOTA từ topology."""
         import pickle
         with open(self.topo_path, 'rb') as f:
             topo = pickle.load(f)
         with open(self.data_path, 'rb') as f:
             data_part = pickle.load(f)
 
-        self.sensors: Dict[int, SensorWorkerSOTA] = {}
-        self.fog_nodes: Dict[int, FogNodeSOTA]     = {}
+        self.auvs: Dict[int, AUVWorkerSOTA] = {}
+        self.relay_nodes: Dict[int, RelayNodeSOTA]     = {}
         self.association: Dict[int, int]            = {}
         self.G = topo.G
 
-        # Tạo Fogs
-        fog_ids = list(set(v for _, v in topo.fog_sensor_pairs if v != -1))
-        for fid in fog_ids:
-            self.fog_nodes[fid] = FogNodeSOTA(fog_id=fid)
+        # Tạo Relays
+        relay_ids = list(set(v for _, v in topo.relay_auv_pairs if v != -1))
+        for fid in relay_ids:
+            self.relay_nodes[fid] = RelayNodeSOTA(relay_id=fid)
 
-        # Tạo Sensors
+        # Tạo AUVs
         client_yamls = data_part.client_yamls
         for s_id, client_yaml in client_yamls.items():
-            fog_id = topo.sensor_fog_map.get(s_id, -1)
-            self.association[s_id] = fog_id
-            self.sensors[s_id] = SensorWorkerSOTA(
-                sensor_id=s_id,
+            relay_id = topo.auv_relay_map.get(s_id, -1)
+            self.association[s_id] = relay_id
+            self.auvs[s_id] = AUVWorkerSOTA(
+                auv_id=s_id,
                 client_yaml=client_yaml,
                 battery_init=energy_cfg.E_INIT,
                 teacher_model=self.teacher_model,
             )
 
         self.gateway = BaseGateway(gateway_id=0)
-        print(f"[SimulatorSOTA] {len(self.sensors)} sensors, {len(self.fog_nodes)} fogs.")
+        print(f"[SimulatorSOTA] {len(self.auvs)} auvs, {len(self.relay_nodes)} relays.")
 
     def evaluate(self) -> dict:
         import gc
@@ -214,10 +214,10 @@ class SimulatorSOTA(BaseSimulator):
         history = {
             'round': [], 'loss': [], 'mAP50-95': [], 'mAP50': [],
             'Prec': [], 'Rec': [], 'alive': [],
-            'tau_round_s': [], 'tau_cumul_s': [], 'tau_s2f': [],
-            'tau_f2f': [], 'tau_f2g': [], 'tau_comp': [],
+            'tau_round_s': [], 'tau_cumul_s': [], 'tau_a2r': [],
+            'tau_r2r': [], 'tau_r2g': [], 'tau_comp': [],
             'avg_payload_kb': [], 'payload_cumul_kb': [],
-            'e_total': [], 'e_s2f': [], 'e_f2f': [], 'e_f2g': [],
+            'e_total': [], 'e_a2r': [], 'e_r2r': [], 'e_r2g': [],
             'e_comp': [], 'e_cumul': [],
         }
         cumul_tau = 0.0
@@ -230,16 +230,16 @@ class SimulatorSOTA(BaseSimulator):
             print(f"\n{'='*60}")
             print(f"[SimulatorSOTA] Round {rnd}/{T_rounds} | lr={lr:.6f}")
 
-            # ── Phase 1: Local Train (Sensor) ──────────────────────────────
+            # ── Phase 1: Local Train (AUV) ──────────────────────────────
             payloads: Dict[int, dict] = {}
             train_losses = []
             e_comp_total = 0.0
             tau_comp_max = 0.0
 
-            for s_id, sensor in self.sensors.items():
-                if not sensor.alive:
+            for s_id, auv in self.auvs.items():
+                if not auv.alive:
                     continue
-                full_state, payload_kb, loss = sensor.train_and_get_payload(
+                full_state, payload_kb, loss = auv.train_and_get_payload(
                     global_state=self.global_state,
                     epochs=epochs, lr=lr, device=self.device,
                 )
@@ -248,16 +248,16 @@ class SimulatorSOTA(BaseSimulator):
                 payloads[s_id] = full_state
                 train_losses.append(loss)
 
-                # Tính energy & latency cho Sensor (comp)
+                # Tính energy & latency cho AUV (comp)
                 tau_c = comp_delay_dynamic(
-                    n_samples=sensor.n_samples,
+                    n_samples=auv.n_samples,
                     n_local_epochs=epochs,
                     flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["2D"],
                     flop_multiplier=2.4,   # SOTA: full model + teacher forward
                     f_cpu=energy_cfg.F_CPU,
                 )
                 e_c = e_comp_dynamic(
-                    n_samples=sensor.n_samples,
+                    n_samples=auv.n_samples,
                     n_local_epochs=epochs,
                     flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["2D"],
                     epsilon_op=energy_cfg.EPSILON_OP["2D"],
@@ -265,61 +265,61 @@ class SimulatorSOTA(BaseSimulator):
                 )
                 tau_comp_max = max(tau_comp_max, tau_c)
                 e_comp_total += e_c
-                sensor.drain_battery(e_c)
+                auv.drain_battery(e_c)
 
-            # ── Phase 2: Fog Aggregation ────────────────────────────────────
-            fog_states: Dict[int, dict] = {}
-            e_s2f_total, tau_s2f_max = 0.0, 0.0
+            # ── Phase 2: Relay Aggregation ────────────────────────────────────
+            relay_states: Dict[int, dict] = {}
+            e_a2r_total, tau_a2r_max = 0.0, 0.0
 
             for s_id, full_state in payloads.items():
-                fog_id = self.association.get(s_id, -1)
-                if fog_id == -1:
+                relay_id = self.association.get(s_id, -1)
+                if relay_id == -1:
                     continue
                 # Năng lượng & latency truyền S→F (5.4 MB nặng!)
-                key = ('sensor', s_id, 'fog', fog_id)
+                key = ('auv', s_id, 'relay', relay_id)
                 if key in self.G:
                     link = self.G[key]
                     tau_link = comm_delay(SOTA_PAYLOAD_BITS, link.R_bps, link.distance)
                     e_link   = e_tx(SOTA_PAYLOAD_BITS, link.R_bps, link.SL_min,
                                     energy_cfg.ETA_EA, energy_cfg.P_C_TX)
-                    tau_s2f_max = max(tau_s2f_max, tau_link)
-                    e_s2f_total += e_link
-                    self.sensors[s_id].drain_battery(e_link)
+                    tau_a2r_max = max(tau_a2r_max, tau_link)
+                    e_a2r_total += e_link
+                    self.auvs[s_id].drain_battery(e_link)
 
-                fog = self.fog_nodes.get(fog_id)
-                if fog:
-                    fog.receive(s_id, full_state)
+                relay = self.relay_nodes.get(relay_id)
+                if relay:
+                    relay.receive(s_id, full_state)
 
-            for fog_id, fog in self.fog_nodes.items():
-                agg = fog.aggregate_intra_cluster()
+            for relay_id, relay in self.relay_nodes.items():
+                agg = relay.aggregate_intra_cluster()
                 if agg:
-                    fog_states[fog_id] = agg
-                fog.reset()
+                    relay_states[relay_id] = agg
+                relay.reset()
 
             # ── Phase 3: Global Aggregation (no KD at Gateway) ─────────────
-            e_f2g_total, tau_f2g_max = 0.0, 0.0
-            e_f2f_total, tau_f2f_max = 0.0, 0.0
+            e_r2g_total, tau_r2g_max = 0.0, 0.0
+            e_r2r_total, tau_r2r_max = 0.0, 0.0
 
-            if fog_states:
-                keys_all = list(next(iter(fog_states.values())).keys())
-                n_fogs = len(fog_states)
+            if relay_states:
+                keys_all = list(next(iter(relay_states.values())).keys())
+                n_relays = len(relay_states)
                 new_global = {}
                 for k in keys_all:
                     new_global[k] = sum(
-                        sd[k].float() for sd in fog_states.values()
-                    ) / n_fogs
+                        sd[k].float() for sd in relay_states.values()
+                    ) / n_relays
                 self.global_state = new_global
 
                 # Energy & latency F→G (5.4 MB!)
-                for fog_id in fog_states:
-                    key = ('fog', fog_id, 'gateway', 0)
+                for relay_id in relay_states:
+                    key = ('relay', relay_id, 'gateway', 0)
                     if key in self.G:
                         link = self.G[key]
                         tau_l = comm_delay(SOTA_PAYLOAD_BITS, link.R_bps, link.distance)
                         e_l   = e_tx(SOTA_PAYLOAD_BITS, link.R_bps, link.SL_min,
                                      energy_cfg.ETA_EA, energy_cfg.P_C_TX)
-                        tau_f2g_max = max(tau_f2g_max, tau_l)
-                        e_f2g_total += e_l
+                        tau_r2g_max = max(tau_r2g_max, tau_l)
+                        e_r2g_total += e_l
 
             # ── Phase 4: Evaluate ───────────────────────────────────────────
             nc = self._get_nc()
@@ -334,9 +334,9 @@ class SimulatorSOTA(BaseSimulator):
             torch.cuda.empty_cache()
 
             # ── Logging ─────────────────────────────────────────────────────
-            tau_round = tau_comp_max + tau_s2f_max + tau_f2f_max + tau_f2g_max
-            e_total   = e_comp_total + e_s2f_total + e_f2f_total + e_f2g_total
-            alive_cnt = sum(1 for s in self.sensors.values() if s.alive)
+            tau_round = tau_comp_max + tau_a2r_max + tau_r2r_max + tau_r2g_max
+            e_total   = e_comp_total + e_a2r_total + e_r2r_total + e_r2g_total
+            alive_cnt = sum(1 for s in self.auvs.values() if s.alive)
             payload_kb_round = SOTA_PAYLOAD_KB * len(payloads)
 
             cumul_tau       += tau_round
@@ -361,16 +361,16 @@ class SimulatorSOTA(BaseSimulator):
             history['alive'].append(alive_cnt)
             history['tau_round_s'].append(tau_round)
             history['tau_cumul_s'].append(cumul_tau)
-            history['tau_s2f'].append(tau_s2f_max)
-            history['tau_f2f'].append(tau_f2f_max)
-            history['tau_f2g'].append(tau_f2g_max)
+            history['tau_a2r'].append(tau_a2r_max)
+            history['tau_r2r'].append(tau_r2r_max)
+            history['tau_r2g'].append(tau_r2g_max)
             history['tau_comp'].append(tau_comp_max)
             history['avg_payload_kb'].append(SOTA_PAYLOAD_KB)
             history['payload_cumul_kb'].append(cumul_payload_kb)
             history['e_total'].append(e_total)
-            history['e_s2f'].append(e_s2f_total)
-            history['e_f2f'].append(e_f2f_total)
-            history['e_f2g'].append(e_f2g_total)
+            history['e_a2r'].append(e_a2r_total)
+            history['e_r2r'].append(e_r2r_total)
+            history['e_r2g'].append(e_r2g_total)
             history['e_comp'].append(e_comp_total)
             history['e_cumul'].append(cumul_energy)
 

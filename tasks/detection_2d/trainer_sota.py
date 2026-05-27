@@ -1,13 +1,13 @@
 """
 trainer.py — SOTA Baseline (Jiang et al., 2025)
-Local SGD + Local KD (Teacher chạy TẠI Sensor, không phải Gateway).
+Local SGD + Local KD (Teacher chạy TẠI AUV, không phải Gateway).
 Kết hợp Dark Channel Prior (DCP) để tiền xử lý ảnh.
 
 Điểm khác biệt cốt lõi so với FedKDL (tasks/detection_2d/trainer.py):
-  - Teacher YOLO12l được tải và chạy trực tiếp tại từng AUV Sensor.
+  - Teacher YOLO12l được tải và chạy trực tiếp tại từng AUV AUV.
   - DCP được áp dụng lên ảnh input trước khi đưa vào YOLO.
   - Student train toàn bộ tham số (full_param=True) — không dùng LoRA.
-  - Payload truyền lên Fog là toàn bộ model Float32 (~5.4 MB), không nén INT8.
+  - Payload truyền lên Relay là toàn bộ model Float32 (~5.4 MB), không nén INT8.
 """
 import torch
 import copy
@@ -57,12 +57,12 @@ def _patch_dataloader_with_dcp(trainer_instance):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Local KD Trainer — Teacher chạy TẠI Sensor (Jiang et al., 2025)
+#  Local KD Trainer — Teacher chạy TẠI AUV (Jiang et al., 2025)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class LocalKDTrainer(DetectionTrainer):
     """
-    SOTA trainer: KD được thực hiện cục bộ tại Sensor (không phải Gateway).
+    SOTA trainer: KD được thực hiện cục bộ tại AUV (không phải Gateway).
     Teacher (YOLO12l) Forward Pass được gọi trong mỗi batch → rất tốn VRAM & CPU.
     """
 
@@ -181,7 +181,7 @@ class LocalKDTrainer(DetectionTrainer):
 
 def local_sgd_od_sota(
     student_model,
-    teacher_model,          # TeacherModel wrapper — chạy tại Sensor
+    teacher_model,          # TeacherModel wrapper — chạy tại AUV
     client_yaml: str,
     client_id: int,
     epochs: int = 2,
@@ -193,7 +193,7 @@ def local_sgd_od_sota(
     """
     Local SGD cho SOTA baseline (Jiang et al., 2025).
     KHÁC với FedKDL:
-      - Teacher chạy TẠI Sensor (tốn VRAM + pin).
+      - Teacher chạy TẠI AUV (tốn VRAM + pin).
       - DCP tiền xử lý toàn bộ ảnh train.
       - Student train full model (không LoRA).
       - Payload = full model Float32 dict (~5.4 MB).
@@ -202,7 +202,7 @@ def local_sgd_od_sota(
         (full_state_dict, train_loss)
     """
     print(
-        f"[SOTA][Sensor {client_id}] Local KD + DCP={use_dcp}, epochs={epochs}, lr={lr:.6f}"
+        f"[SOTA][AUV {client_id}] Local KD + DCP={use_dcp}, epochs={epochs}, lr={lr:.6f}"
     )
 
     state_before = {k: v.clone() for k, v in student_model.yolo.model.state_dict().items()}

@@ -3,16 +3,16 @@ import numpy as np
 from typing import Dict, Any, Tuple
 
 from federated_core.base_simulator import BaseSimulator
-from federated_core.workers import BaseWorker, BaseFogNode, BaseGateway
+from federated_core.workers import BaseWorker, BaseRelayNode, BaseGateway
 # from tasks.anomaly_1d.dataloader import get_dataloaders # Removed since we build it locally
 from tasks.anomaly_1d.autoencoder import SmallAutoencoder, get_model_state_dict_copy
 from federated_core.metrics import anomaly_threshold, point_adjusted_f1, point_adjusted_f1_components, best_f1_components
 from config.settings import fed_cfg
 
 
-class SensorWorker1D(BaseWorker):
-    def __init__(self, sensor_id, dataloader, model_template, battery_init, rho_s):
-        super().__init__(sensor_id, battery_init)
+class AUVWorker1D(BaseWorker):
+    def __init__(self, auv_id, dataloader, model_template, battery_init, rho_s):
+        super().__init__(auv_id, battery_init)
         self.dataloader = dataloader
         self.n_samples = len(dataloader.dataset)
         
@@ -91,19 +91,19 @@ class SensorWorker1D(BaseWorker):
         return payload, avg_loss, local_metrics
 
 
-class FogNode1D(BaseFogNode):
-    def __init__(self, fog_id, cluster_members, model_template):
-        super().__init__(fog_id, cluster_members)
+class RelayNode1D(BaseRelayNode):
+    def __init__(self, relay_id, cluster_members, model_template):
+        super().__init__(relay_id, cluster_members)
         self.model_template = model_template
 
-    def aggregate_intra_cluster(self, global_state_dict, payloads, sensor_n_samples, **kwargs):
+    def aggregate_intra_cluster(self, global_state_dict, payloads, auv_n_samples, **kwargs):
         from federated_core.aggregator import fedavg_intra_cluster
         import copy
         client_deltas = []
-        for sensor_id, payload in payloads.items():
-            if sensor_id in self.cluster_members:
+        for auv_id, payload in payloads.items():
+            if auv_id in self.cluster_members:
                 dense_delta = payload.decompress()
-                n_i = sensor_n_samples[sensor_id]
+                n_i = auv_n_samples[auv_id]
                 client_deltas.append((dense_delta, n_i))
 
         self.intra_state_dict = fedavg_intra_cluster(
@@ -156,7 +156,7 @@ class Simulator1D(BaseSimulator):
         sample_batch, _ = next(iter(first_loader))
         self.input_dim = sample_batch.shape[1]
         self.model_template = SmallAutoencoder(input_dim=self.input_dim).to(self.device)
-        self.fog_model_bits = self.model_template.count_parameters() * 32
+        self.relay_model_bits = self.model_template.count_parameters() * 32
 
         self.gateway = BaseGateway(initial_state=self.model_template.state_dict())
         
@@ -164,10 +164,10 @@ class Simulator1D(BaseSimulator):
         self._init_network()
 
     def _init_network(self):
-        for s_id in range(self.net_cfg.N_SENSORS):
+        for s_id in range(self.net_cfg.N_AUVS):
             if s_id in self.train_loaders and s_id in self.association:
-                self.sensors[s_id] = SensorWorker1D(
-                    sensor_id=s_id,
+                self.auvs[s_id] = AUVWorker1D(
+                    auv_id=s_id,
                     dataloader=self.train_loaders[s_id],
                     model_template=self.model_template,
                     battery_init=self.en_cfg.E_INIT,
@@ -175,15 +175,15 @@ class Simulator1D(BaseSimulator):
                 )
 
         for m, members in self.clusters.items():
-            self.fogs[m] = FogNode1D(
-                fog_id=m,
+            self.relays[m] = RelayNode1D(
+                relay_id=m,
                 cluster_members=members,
                 model_template=self.model_template,
             )
 
-    def _process_sensor(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
-        sensor = self.sensors[s_id]
-        payload, avg_loss, local_metrics = sensor.train_and_get_payload(
+    def _process_auv(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
+        auv = self.auvs[s_id]
+        payload, avg_loss, local_metrics = auv.train_and_get_payload(
             global_state=self.gateway.global_state_dict,
             epochs=self.fed_cfg.LOCAL_EPOCHS,
             lr=getattr(self, 'current_lr', self.fed_cfg.LOCAL_LR),
@@ -194,11 +194,11 @@ class Simulator1D(BaseSimulator):
         from physics_models.energy import e_tx, e_comp_dynamic
         if payload is not None:
             # tx cost
-            fog_id = self.association.get(s_id, -1)
-            if fog_id == -1:
-                link_key = ('sensor', s_id, 'gateway', 0)
+            relay_id = self.association.get(s_id, -1)
+            if relay_id == -1:
+                link_key = ('auv', s_id, 'gateway', 0)
             else:
-                link_key = ('sensor', s_id, 'fog', fog_id)
+                link_key = ('auv', s_id, 'relay', relay_id)
                 
             if link_key in self.G:
                 link = self.G[link_key]
@@ -208,29 +208,29 @@ class Simulator1D(BaseSimulator):
                 )
                 # comp cost
                 e_comp_cost = e_comp_dynamic(
-                    n_samples=sensor.n_samples,
+                    n_samples=auv.n_samples,
                     n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                     flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
                     flop_multiplier=self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
                     epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
                 )
-                return s_id, payload, avg_loss, sensor.n_samples, e_tx_cost, e_comp_cost, local_metrics
+                return s_id, payload, avg_loss, auv.n_samples, e_tx_cost, e_comp_cost, local_metrics
         
         return s_id, None, 0.0, 0, 0.0, 0.0, {}
 
-    def _aggregate_intra_fog(self, m: int, fog, payloads, sensor_n_samples) -> float:
-        fog.aggregate_intra_cluster(
+    def _aggregate_intra_relay(self, m: int, relay, payloads, auv_n_samples) -> float:
+        relay.aggregate_intra_cluster(
             global_state_dict=self.gateway.global_state_dict,
             payloads=payloads,
-            sensor_n_samples=sensor_n_samples,
+            auv_n_samples=auv_n_samples,
         )
-        return 0.0 # No inter-fog tx cost for intra-aggregation
+        return 0.0 # No inter-relay tx cost for intra-aggregation
         
     def _compute_payload_bits(self, payloads: Dict) -> float:
-        return np.mean([p.payload_bits for p in payloads.values()]) if payloads else self.fog_model_bits
+        return np.mean([p.payload_bits for p in payloads.values()]) if payloads else self.relay_model_bits
 
-    def _compute_fog_model_bits(self) -> float:
-        return self.fog_model_bits
+    def _compute_relay_model_bits(self) -> float:
+        return self.relay_model_bits
 
     def evaluate(self) -> Dict[str, float]:
         self.model_template.load_state_dict(self.gateway.global_state_dict)
@@ -249,16 +249,16 @@ class Simulator1D(BaseSimulator):
         global_test_labels = []
         global_test_errors = []
         
-        for sensor_id, (v_loader, t_loader) in enumerate(zip(self.val_loaders_per_channel, self.test_loaders_per_channel)):
+        for auv_id, (v_loader, t_loader) in enumerate(zip(self.val_loaders_per_channel, self.test_loaders_per_channel)):
             if v_loader is None or t_loader is None:
                 continue
                 
             is_connected = False
-            if sensor_id in self.sensors:
-                is_connected = self.sensors[sensor_id].alive
+            if auv_id in self.auvs:
+                is_connected = self.auvs[auv_id].alive
                 
             if not is_connected:
-                # Sensor is dead/disconnected. It cannot detect anything.
+                # AUV is dead/disconnected. It cannot detect anything.
                 # Predictions = 0, so TP=0, FP=0, FN=actual_anomalies
                 for _, y_test in t_loader:
                     labels = y_test.numpy()

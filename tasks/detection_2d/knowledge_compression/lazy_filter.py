@@ -8,8 +8,8 @@ Nguyên tắc đúng theo Proposal:
     sqrt( Σ_l ||A_{l,i}^t - Â_{l,m}^{t-1}||_F² + ||B_{l,i}^t - B̂_{l,m}^{t-1}||_F² )
     + || Θ_head,i^t - Θ̂_head,m^{t-1} || > δ_skip
 
-Tức là: so sánh trọng số LoRA+Head CỦA SENSOR với trọng số CLUSTER đã aggregate vòng trước,
-không phải so với state trước khi train của chính sensor đó.
+Tức là: so sánh trọng số LoRA+Head CỦA AUV với trọng số CLUSTER đã aggregate vòng trước,
+không phải so với state trước khi train của chính auv đó.
 """
 import math
 import torch
@@ -22,7 +22,7 @@ def _frobenius_sq(t1: torch.Tensor, t2: torch.Tensor) -> float:
 
 
 def compute_cluster_drift_norm(
-    sensor_state: Dict[str, torch.Tensor],
+    auv_state: Dict[str, torch.Tensor],
     cluster_prev_state: Dict[str, torch.Tensor],
 ) -> float:
     """
@@ -35,7 +35,7 @@ def compute_cluster_drift_norm(
     ('detect' hoặc 'head') để tính riêng từng thành phần như Proposal.
 
     Args:
-        sensor_state:       state dict (LoRA + Head) của sensor i sau local SGD.
+        auv_state:       state dict (LoRA + Head) của auv i sau local SGD.
         cluster_prev_state: state dict (LoRA + Head) cụm m đã aggregate vòng t-1.
 
     Returns:
@@ -45,7 +45,7 @@ def compute_cluster_drift_norm(
     lora_sq_sum = 0.0
     head_sq_sum = 0.0
 
-    for k, v in sensor_state.items():
+    for k, v in auv_state.items():
         if k not in cluster_prev_state:
             continue
         ref = cluster_prev_state[k]
@@ -64,7 +64,7 @@ def compute_cluster_drift_norm(
 
 
 def lazy_filter(
-    sensor_state: Dict[str, torch.Tensor],
+    auv_state: Dict[str, torch.Tensor],
     cluster_prev_state: Optional[Dict[str, torch.Tensor]],
     threshold: float,
 ) -> Tuple[Optional[Dict[str, torch.Tensor]], float]:
@@ -72,23 +72,23 @@ def lazy_filter(
     Áp dụng Lazy Communication Filter theo Eq. 40.
 
     Args:
-        sensor_state:       State dict (LoRA + Head) sau khi train local — θ_i^t.
+        auv_state:       State dict (LoRA + Head) sau khi train local — θ_i^t.
         cluster_prev_state: State dict cụm đã aggregate vòng trước — θ̂_{m}^{t-1}.
                             None → không có reference (round đầu) → luôn gửi.
         threshold:          δ_skip từ FedKDLConfig.DELTA_SKIP.
 
     Returns:
-        (sensor_state, drift)  nếu drift >= threshold  → cần gửi lên Fog.
+        (auv_state, drift)  nếu drift >= threshold  → cần gửi lên Relay.
         (None, drift)          nếu drift <  threshold  → bỏ qua, AUV ngủ đông.
     """
     # Round đầu tiên: chưa có aggregate reference → luôn gửi để bootstrap
     if cluster_prev_state is None:
-        return sensor_state, float('inf')
+        return auv_state, float('inf')
 
-    drift = compute_cluster_drift_norm(sensor_state, cluster_prev_state)
+    drift = compute_cluster_drift_norm(auv_state, cluster_prev_state)
     if drift < threshold:
         return None, drift
-    return sensor_state, drift
+    return auv_state, drift
 
 
 # ─── Backward-compat helper (Scenario 1, dùng raw state diff) ──────────────

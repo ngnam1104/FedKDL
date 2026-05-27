@@ -25,11 +25,11 @@ model_path = "../yolo11n_pretrained.pt" if os.path.exists("../yolo11n_pretrained
 print(f"[FastAPI] Loading model: {model_path}")
 model = YOLO(model_path)
 
-@app.get("/api/sensors")
-def get_sensors():
+@app.get("/api/auvs")
+def get_auvs():
     # Mock data for demonstration
     return {
-        "sensors": [
+        "auvs": [
             {"id": 1, "name": "AUV Alpha", "battery": 85, "status": "Active"},
             {"id": 2, "name": "AUV Beta", "battery": 62, "status": "Active"},
             {"id": 3, "name": "AUV Gamma", "battery": 15, "status": "Low Battery"},
@@ -37,8 +37,8 @@ def get_sensors():
         ]
     }
 
-@app.post("/api/detect/{sensor_id}")
-async def detect_objects(sensor_id: int, file: UploadFile = File(...)):
+@app.post("/api/detect/{auv_id}")
+async def detect_objects(auv_id: int, file: UploadFile = File(...)):
     # Read uploaded image
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
@@ -78,7 +78,7 @@ async def detect_objects(sensor_id: int, file: UploadFile = File(...)):
     b64_image = base64.b64encode(buffer).decode('utf-8')
     
     return {
-        "sensor_id": sensor_id,
+        "auv_id": auv_id,
         "detections": detections,
         "image_b64": b64_image
     }

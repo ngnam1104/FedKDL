@@ -47,10 +47,10 @@ def plot_heterogeneity():
             f1_data[alpha][baseline].append(metrics["PA-F1"][-1])
         
         e_cumul_val = metrics.get("e_cumul", [0])[-1]
-        if e_cumul_val == 0 and "e_s2f" in energy:
-            e_cumul_val = (sum(energy.get("e_s2f", [])) +
-                       sum(energy.get("e_f2f", [])) +
-                       sum(energy.get("e_f2g", [])) +
+        if e_cumul_val == 0 and "e_a2r" in energy:
+            e_cumul_val = (sum(energy.get("e_a2r", [])) +
+                       sum(energy.get("e_r2r", [])) +
+                       sum(energy.get("e_r2g", [])) +
                        sum(energy.get("e_comp", [])))
                        
         if baseline in ["fedavg", "fedprox"] and rho_s > 0:

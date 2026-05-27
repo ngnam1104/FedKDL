@@ -1,6 +1,6 @@
 """
 local_trainer.py
-Huấn luyện cục bộ tại Sensor (Local SGD).
+Huấn luyện cục bộ tại AUV (Local SGD).
 
 Hỗ trợ:
     - FedAvg / HFL-*:  Loss = MSE reconstruction error
@@ -32,7 +32,7 @@ def local_sgd(
 
     Args:
         model:        Model cục bộ (sẽ bị modify in-place).
-        dataloader:   DataLoader dữ liệu cục bộ của sensor.
+        dataloader:   DataLoader dữ liệu cục bộ của auv.
         epochs:       Số vòng lặp SGD nội bộ (E = 5).
         lr:           Learning rate (η = 0.01).
         global_model: Model toàn cục đóng băng đầu round (dùng cho FedProx).

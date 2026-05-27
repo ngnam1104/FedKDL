@@ -112,9 +112,9 @@ def main():
             
             from physics_models.energy import e_tx
             e_tx_raw_total = 0.0
-            for sid, s in sim.sensors.items():
-                if ('sensor', sid, 'gateway', 0) in sim.G:
-                    link = sim.G[('sensor', sid, 'gateway', 0)]
+            for sid, s in sim.auvs.items():
+                if ('auv', sid, 'gateway', 0) in sim.G:
+                    link = sim.G[('auv', sid, 'gateway', 0)]
                 else:
                     link = next(iter(sim.G.values())) # fallback
                 e_tx_raw_total += e_tx(s.n_samples * 40 * 8, link.R_bps, link.SL_min, en_cfg.ETA_EA, en_cfg.P_C_TX)

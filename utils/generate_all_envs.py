@@ -20,7 +20,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help="Khong chay gi ca, chi in ra")
     parser.add_argument('--n', type=int, help="Chi chay cho N nay (vd: 50)")
     parser.add_argument('--dataset', type=str, help="Chi chay dataset nay (vd: SMD)")
-    parser.add_argument('--m-fogs', type=int, help="Override so luong fog nodes khi sinh topology")
+    parser.add_argument('--m-relays', type=int, help="Override so luong relay nodes khi sinh topology")
     parser.add_argument('--force-topo', action='store_true', help="Ghi de topology da ton tai")
     args = parser.parse_args()
 
@@ -51,16 +51,16 @@ def main():
     # 1. Sinh Topology
     topo_count = 0
     for n in N_LIST:
-        net_cfg.N_SENSORS = n
+        net_cfg.N_AUVS = n
         
-        # Thiết lập Fog node theo yêu cầu: 5 cho 2D (URPC)
-        if args.m_fogs is not None:
-            net_cfg.M_FOGS = args.m_fogs
+        # Thiết lập Relay node theo yêu cầu: 5 cho 2D (URPC)
+        if args.m_relays is not None:
+            net_cfg.M_RELAYS = args.m_relays
         elif len(DATASETS) == 1 and DATASETS[0] == 'URPC':
-            net_cfg.M_FOGS = net_cfg.M_FOGS_2D
+            net_cfg.M_RELAYS = net_cfg.M_RELAYS_2D
         else:
-            net_cfg.M_FOGS = net_cfg.M_FOGS_1D
-        print(f"  [topology] N={n} -> M_FOGS={net_cfg.M_FOGS}")
+            net_cfg.M_RELAYS = net_cfg.M_RELAYS_1D
+        print(f"  [topology] N={n} -> M_RELAYS={net_cfg.M_RELAYS}")
         
         for seed in SEEDS:
             topo_path = EnvironmentManager.topo_path(task_type, n, seed)
@@ -77,7 +77,7 @@ def main():
     # 2. Sinh Data Partition
     data_count = 0
     for n in N_LIST:
-        net_cfg.N_SENSORS = n
+        net_cfg.N_AUVS = n
         
         for ds in DATASETS:
             for alpha in ALPHAS:

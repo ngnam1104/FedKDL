@@ -24,22 +24,22 @@ class ConceptDriftMonitor:
         self.W = window_size
         self.epsilon = epsilon_drift
         
-        # Lưu trữ lịch sử hàm loss cho từng sensor (deque độ dài max = 2*W)
+        # Lưu trữ lịch sử hàm loss cho từng auv (deque độ dài max = 2*W)
         self.history: Dict[int, deque] = {}
 
-    def update(self, sensor_id: int, current_loss: float):
-        """Cập nhật lịch sử loss của sensor."""
-        if sensor_id not in self.history:
-            self.history[sensor_id] = deque(maxlen=2 * self.W)
-        self.history[sensor_id].append(current_loss)
+    def update(self, auv_id: int, current_loss: float):
+        """Cập nhật lịch sử loss của auv."""
+        if auv_id not in self.history:
+            self.history[auv_id] = deque(maxlen=2 * self.W)
+        self.history[auv_id].append(current_loss)
 
-    def check_drift(self, sensor_id: int) -> bool:
+    def check_drift(self, auv_id: int) -> bool:
         """
-        Kiểm tra xem sensor_id có vi phạm ngưỡng drift không (Eq. 34).
+        Kiểm tra xem auv_id có vi phạm ngưỡng drift không (Eq. 34).
         
         Trả về True nếu | L_bar(t) - L_bar(t-W) | > ε_drift
         """
-        hist = self.history.get(sensor_id)
+        hist = self.history.get(auv_id)
         if hist is None or len(hist) < 2 * self.W:
             return False
             
@@ -59,10 +59,10 @@ class ConceptDriftMonitor:
     def check_global_drift(self) -> bool:
         """
         Kiểm tra trạng thái trôi dạt trên toàn mạng.
-        (Ví dụ: Nếu bất kỳ sensor nào báo cáo drift, hệ thống kích hoạt re-cluster)
+        (Ví dụ: Nếu bất kỳ auv nào báo cáo drift, hệ thống kích hoạt re-cluster)
         """
-        for sensor_id in self.history.keys():
-            if self.check_drift(sensor_id):
+        for auv_id in self.history.keys():
+            if self.check_drift(auv_id):
                 return True
         return False
 

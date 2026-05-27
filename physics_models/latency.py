@@ -42,8 +42,8 @@ def comp_delay_dynamic(n_samples: int,
 
 
 def round_delay(
-    sensor_delays: List[float],
-    fog_delays: List[float],
+    auv_delays: List[float],
+    relay_delays: List[float],
     coop_delays: List[float],
     gateway_delay: float,
     downlink_delay: float,
@@ -54,16 +54,16 @@ def round_delay(
     τ_round = max_m(τ_intra_m + τ_coop_m + τ_inter_m) + τ_gateway + τ_down
 
     Args:
-        sensor_delays:  Per-fog max(τ_comp_i + τ_comm(i→fog)) for each fog.
-        fog_delays:     Per-fog τ_agg_m + τ_comm(fog→gateway).
-        coop_delays:    Per-fog τ_coop_m (0 if no cooperation).
+        auv_delays:  Per-relay max(τ_comp_i + τ_comm(i→relay)) for each relay.
+        relay_delays:     Per-relay τ_agg_m + τ_comm(relay→gateway).
+        coop_delays:    Per-relay τ_coop_m (0 if no cooperation).
         gateway_delay:  τ_gateway processing time.
         downlink_delay: τ_down = max_i(τ_comm(gateway→i)).
 
     Returns:
         τ_round in seconds.
     """
-    per_fog_total = [s + c + f for s, c, f in
-                     zip(sensor_delays, coop_delays, fog_delays)]
-    bottleneck = max(per_fog_total) if per_fog_total else 0.0
+    per_relay_total = [s + c + f for s, c, f in
+                     zip(auv_delays, coop_delays, relay_delays)]
+    bottleneck = max(per_relay_total) if per_relay_total else 0.0
     return bottleneck + gateway_delay + downlink_delay

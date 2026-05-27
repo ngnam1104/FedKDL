@@ -16,9 +16,9 @@ def compute_emd(
     Eq. 31:  EMD(i, m) = || p^(i)(y=z) - p^(m)(y=z) ||_2
 
     Args:
-        label_hist_i: Histogram xác suất nhãn cục bộ của sensor i.
+        label_hist_i: Histogram xác suất nhãn cục bộ của auv i.
                       Shape (n_classes,), tổng = 1.
-        label_hist_m: Histogram xác suất nhãn cục bộ của fog m (prototype).
+        label_hist_m: Histogram xác suất nhãn cục bộ của relay m (prototype).
                       Shape (n_classes,), tổng = 1.
 
     Returns:
@@ -29,12 +29,12 @@ def compute_emd(
 def compute_djoint_matrix(
     topology: Topology3D,
     G: Dict,
-    sensor_label_hists: np.ndarray,
-    fog_label_hists: np.ndarray,
+    auv_label_hists: np.ndarray,
+    relay_label_hists: np.ndarray,
     beta: float = 0.5,
 ) -> np.ndarray:
     """
-    Tính ma trận D_joint(i, m) cho mọi cặp sensor-fog khả thi.
+    Tính ma trận D_joint(i, m) cho mọi cặp auv-relay khả thi.
     Eq. 30:  D_joint(i,m) = β·EMD_norm(i,m) + (1-β)·Dist_norm(i,m)
 
     Cả hai thành phần được chuẩn hóa tuyến tính về [0,1] trước khi kết hợp.
@@ -45,16 +45,16 @@ def compute_djoint_matrix(
     emd_raw = np.full((N, M), np.inf)
     for i in range(N):
         for m in range(M):
-            if ('sensor', i, 'fog', m) in G:
-                emd_raw[i, m] = compute_emd(sensor_label_hists[i],
-                                            fog_label_hists[m])
+            if ('auv', i, 'relay', m) in G:
+                emd_raw[i, m] = compute_emd(auv_label_hists[i],
+                                            relay_label_hists[m])
 
     # ── Raw Distance matrix ───────────────────────────────────────────────
     dist_raw = np.full((N, M), np.inf)
     d_max = 0.0
     for i in range(N):
         for m in range(M):
-            key = ('sensor', i, 'fog', m)
+            key = ('auv', i, 'relay', m)
             if key in G:
                 dist_raw[i, m] = G[key].distance
                 d_max = max(d_max, dist_raw[i, m])
@@ -86,8 +86,8 @@ def compute_djoint_matrix(
 def knowledge_aware_association(
     topology: Topology3D,
     G: Dict,
-    sensor_label_hists: np.ndarray,
-    fog_label_hists: np.ndarray,
+    auv_label_hists: np.ndarray,
+    relay_label_hists: np.ndarray,
     beta: float = 0.5,
 ) -> Dict[int, int]:
     """
@@ -96,15 +96,15 @@ def knowledge_aware_association(
     m* = argmin_{m: (i,m) ∈ G} D_joint(i, m)
     """
     djoint = compute_djoint_matrix(
-        topology, G, sensor_label_hists, fog_label_hists, beta)
+        topology, G, auv_label_hists, relay_label_hists, beta)
 
     association = {}
     for i in range(topology.N):
         row = djoint[i, :]
-        feasible_fogs = np.where(np.isfinite(row))[0]
-        if len(feasible_fogs) == 0:
-            continue  # Sensor cô lập — không có link âm thanh khả thi
-        best_fog = int(feasible_fogs[np.argmin(row[feasible_fogs])])
-        association[i] = best_fog
+        feasible_relays = np.where(np.isfinite(row))[0]
+        if len(feasible_relays) == 0:
+            continue  # AUV cô lập — không có link âm thanh khả thi
+        best_relay = int(feasible_relays[np.argmin(row[feasible_relays])])
+        association[i] = best_relay
 
     return association

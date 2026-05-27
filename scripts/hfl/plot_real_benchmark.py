@@ -50,10 +50,10 @@ def plot_real_benchmark():
             f1_data[dataset][baseline].append(data["history"]["PA-F1"][-1])
 
         e_cumul_val = metrics.get("e_cumul", [0])[-1]
-        if e_cumul_val == 0 and "e_s2f" in energy:
-            e_cumul_val = (sum(energy.get("e_s2f", [])) +
-                       sum(energy.get("e_f2f", [])) +
-                       sum(energy.get("e_f2g", [])) +
+        if e_cumul_val == 0 and "e_a2r" in energy:
+            e_cumul_val = (sum(energy.get("e_a2r", [])) +
+                       sum(energy.get("e_r2r", [])) +
+                       sum(energy.get("e_r2g", [])) +
                        sum(energy.get("e_comp", [])))
         
         # Fair comparison: Scale partial participation (rho_s) to full participation equivalent (1.0)

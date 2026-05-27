@@ -1,9 +1,9 @@
 """
 aggregator.py
-FedAvg Aggregation tại tầng Fog (nội cụm) và Gateway (toàn cục).
+FedAvg Aggregation tại tầng Relay (nội cụm) và Gateway (toàn cục).
 
-Eq. 40: θ_fog = θ_global + Σ (n_i / Σn_k) × Δθ_i   [intra-cluster]
-Eq. 43: Θ_global = Σ (n_m / N) × θ̃_fog_m           [global]
+Eq. 40: θ_relay = θ_global + Σ (n_i / Σn_k) × Δθ_i   [intra-cluster]
+Eq. 43: Θ_global = Σ (n_m / N) × θ̃_relay_m           [global]
 """
 
 import torch
@@ -18,10 +18,10 @@ def fedavg_intra_cluster(
     model_template: nn.Module,
 ) -> Dict[str, torch.Tensor]:
     """
-    FedAvg nội cụm tại Fog node  —  Eq. 40.
+    FedAvg nội cụm tại Relay node  —  Eq. 40.
 
-    Tổng hợp các Δθ_i từ sensors active trong cụm,
-    cộng vào θ_global để tạo θ_fog.
+    Tổng hợp các Δθ_i từ auvs active trong cụm,
+    cộng vào θ_global để tạo θ_relay.
 
     Args:
         global_state_dict: θ^t — trọng số toàn cục đầu round.
@@ -30,7 +30,7 @@ def fedavg_intra_cluster(
         model_template:    Model dùng để map flat → state_dict.
 
     Returns:
-        fog_state_dict: θ_fog sau FedAvg nội cụm.
+        relay_state_dict: θ_relay sau FedAvg nội cụm.
     """
     if not client_deltas:
         return copy.deepcopy(global_state_dict)
@@ -47,59 +47,59 @@ def fedavg_intra_cluster(
         weighted_delta += (n_i / total_samples) * delta_flat.to(device)
 
     # Cộng Δθ vào θ_global (flat → state_dict)
-    fog_sd = copy.deepcopy(global_state_dict)
+    relay_sd = copy.deepcopy(global_state_dict)
     offset = 0
     for name, param in model_template.named_parameters():
         numel = param.numel()
-        fog_sd[name] = fog_sd[name].float() + weighted_delta[offset:offset + numel].view(param.shape)
+        relay_sd[name] = relay_sd[name].float() + weighted_delta[offset:offset + numel].view(param.shape)
         offset += numel
 
-    return fog_sd
+    return relay_sd
 
 
 def fedavg_global(
-    fog_state_dicts: List[Dict[str, torch.Tensor]],
+    relay_state_dicts: List[Dict[str, torch.Tensor]],
     cluster_total_samples: List[int],
 ) -> Dict[str, torch.Tensor]:
     """
     FedAvg toàn cục tại Gateway  —  Eq. 43.
 
-    Θ^{T,(t+1)} = Σ_m (n_m / N) × θ̃_fog_m
+    Θ^{T,(t+1)} = Σ_m (n_m / N) × θ̃_relay_m
 
     Args:
-        fog_state_dicts:       List of θ̃_fog_m (sau HFL-Selective).
+        relay_state_dicts:       List of θ̃_relay_m (sau HFL-Selective).
         cluster_total_samples: List of Σ n_i trong cụm m (weights).
 
     Returns:
         global_state_dict: Mô hình toàn cục mới Θ^{t+1}.
     """
-    if not fog_state_dicts:
-        raise ValueError("No fog models to aggregate.")
+    if not relay_state_dicts:
+        raise ValueError("No relay models to aggregate.")
 
     N = sum(cluster_total_samples)
     if N == 0:
         # Fallback: uniform average
-        weights = [1.0 / len(fog_state_dicts)] * len(fog_state_dicts)
+        weights = [1.0 / len(relay_state_dicts)] * len(relay_state_dicts)
     else:
         weights = [n / N for n in cluster_total_samples]
 
-    # Lấy UNION tất cả keys từ mọi fog để tránh KeyError khi fog empty fallback về partial dict
+    # Lấy UNION tất cả keys từ mọi relay để tránh KeyError khi relay empty fallback về partial dict
     all_keys = set()
-    for fog_sd in fog_state_dicts:
-        all_keys.update(fog_sd.keys())
+    for relay_sd in relay_state_dicts:
+        all_keys.update(relay_sd.keys())
 
-    # Tìm tensor shape từ fog đầu tiên có key đó
+    # Tìm tensor shape từ relay đầu tiên có key đó
     global_sd = {}
     for key in all_keys:
-        for fog_sd in fog_state_dicts:
-            if key in fog_sd:
-                global_sd[key] = torch.zeros_like(fog_sd[key], dtype=torch.float32)
+        for relay_sd in relay_state_dicts:
+            if key in relay_sd:
+                global_sd[key] = torch.zeros_like(relay_sd[key], dtype=torch.float32)
                 break
 
-    # Weighted average — bỏ qua fog nào không có key đó (fog empty cluster)
-    for fog_sd, w in zip(fog_state_dicts, weights):
+    # Weighted average — bỏ qua relay nào không có key đó (relay empty cluster)
+    for relay_sd, w in zip(relay_state_dicts, weights):
         for key in global_sd:
-            if key in fog_sd:
-                global_sd[key] += w * fog_sd[key].float()
+            if key in relay_sd:
+                global_sd[key] += w * relay_sd[key].float()
 
     return global_sd

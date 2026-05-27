@@ -66,7 +66,7 @@ def main():
     alpha_str = parts[3][1:]
     seed = int(parts[4][4:])
     
-    network_cfg.N_SENSORS = N
+    network_cfg.N_AUVS = N
 
     paths = build_experiment_paths(
         task="2D",
@@ -94,7 +94,7 @@ def main():
         if args.baseline == 'centralized':
             print(f"\n[Trainer 2D] RUNNING CENTRALIZED TRAINING ON {data_path}")
             
-            total_samples = sum(getattr(s, 'n_samples', 0) for s in sim.sensors.values())
+            total_samples = sum(getattr(s, 'n_samples', 0) for s in sim.auvs.values())
             if total_samples == 0:
                 total_samples = 4000 # Fallback
             
@@ -127,9 +127,9 @@ def main():
             from physics_models.latency import comm_delay
             e_tx_raw_total = 0.0
             tau_tx_raw_max = 0.0
-            for sid, s in sim.sensors.items():
-                if ('sensor', sid, 'gateway', 0) in sim.G:
-                    link = sim.G[('sensor', sid, 'gateway', 0)]
+            for sid, s in sim.auvs.items():
+                if ('auv', sid, 'gateway', 0) in sim.G:
+                    link = sim.G[('auv', sid, 'gateway', 0)]
                 else:
                     link = next(iter(sim.G.values())) # fallback
                 n_samples_s = getattr(s, 'n_samples', 100)

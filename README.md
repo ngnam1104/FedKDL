@@ -7,7 +7,7 @@ Mô phỏng **Federated Learning** trên mạng **Internet of Underwater Things 
 | **1D — HFL** | Phát hiện bất thường (Autoencoder), Top-K + INT8 | `main_trainer.py` |
 | **2D — FedKDL** | Phát hiện vật thể (YOLOv26n + LoRA + INT8), Gateway-side KD | `main_trainer_od.py` |
 
-Kiến trúc phân cấp 3 tầng: **Sensor → Fog → Gateway**. Mô hình vật lý kênh âm dưới nước sử dụng Thorp-Wenz, vùng mô phỏng 2000 × 2000 × 1000 m.
+Kiến trúc phân cấp 3 tầng: **AUV → Relay → Gateway**. Mô hình vật lý kênh âm dưới nước sử dụng Thorp-Wenz, vùng mô phỏng 2000 × 2000 × 1000 m.
 
 ---
 
@@ -99,13 +99,13 @@ Chỉnh sửa các biến đầu tập lệnh, không cần sửa code Python:
 | Biến | Mặc định | Mô tả |
 |------|----------|-------|
 | `ROUNDS` | `1` (test) / `60` (full) | Số vòng liên kết toàn cầu |
-| `M_FOGS_2D` | `5` | Số Fog node cho kịch bản 2D |
+| `M_RELAYS_2D` | `5` | Số Relay node cho kịch bản 2D |
 | `DS` | `URPC` | Tên dataset (hiện tại chỉ URPC) |
 | `SEED` | `42` | Seed ngẫu nhiên |
 
-Ví dụ chạy trên server với ít fog hơn:
+Ví dụ chạy trên server với ít relay hơn:
 ```bash
-ROUNDS=60 M_FOGS_2D=4 ./run_kdl_experiments.sh
+ROUNDS=60 M_RELAYS_2D=4 ./run_kdl_experiments.sh
 ```
 
 ### `run_hfl_experiments.sh` (1D)
@@ -113,8 +113,8 @@ ROUNDS=60 M_FOGS_2D=4 ./run_kdl_experiments.sh
 | Biến | Mặc định | Mô tả |
 |------|----------|-------|
 | `ROUNDS` | `30` | Số vòng liên kết |
-| `M_FOGS_1D` | `10` | Số Fog node cho kịch bản 1D |
-| `N_LIST` | `50 100 150 200` | Danh sách số lượng sensor |
+| `M_RELAYS_1D` | `10` | Số Relay node cho kịch bản 1D |
+| `N_LIST` | `50 100 150 200` | Danh sách số lượng auv |
 | `DATASETS` | `SMD SMAP MSL` | Các dataset 1D |
 | `ALPHAS` | `1.0 10000.0` | Mức độ non-IID (Dirichlet α) |
 | `SEEDS` | `42 123 2024` | Seeds thực nghiệm |
@@ -197,7 +197,7 @@ FedKDL/
 │   ├── aggregator.py            # FedAvg / FedProx global aggregation
 │   ├── hfl_rules.py             # Luật hợp tác inter-cluster (selective / nearest / nocoop)
 │   ├── metrics.py               # Thu thập, format và lưu metric
-│   └── workers.py               # SensorWorker, FogWorker abstraction
+│   └── workers.py               # AUVWorker, RelayWorker abstraction
 ├── tasks/
 │   ├── anomaly_1d/              # Kịch bản 1D
 │   │   ├── autoencoder.py       # Student Autoencoder model
@@ -241,12 +241,12 @@ FedKDL/
 | Tham số | Giá trị | Mô tả |
 |---------|---------|-------|
 | Vùng mô phỏng | 2000 × 2000 m | Mặt phẳng XY |
-| Độ sâu Sensor | 500 – 1000 m | Tầng Deep |
-| Độ sâu Fog | 100 – 400 m | Tầng Middle |
+| Độ sâu AUV | 500 – 1000 m | Tầng Deep |
+| Độ sâu Relay | 100 – 400 m | Tầng Middle |
 | Tần số sóng mang | 12 kHz | Acoustic |
 | Băng thông | 4000 Hz | ~15 kbps |
 | SL_MAX | 140 dB re 1µPa@1m | Giới hạn công suất phát |
 | Bán kính tối đa | ~1.09 km | Tính theo Thorp-Wenz |
-| Fog nodes (1D) | 10 | Mặc định, đổi qua `M_FOGS_1D` |
-| Fog nodes (2D) | 5 | Mặc định, đổi qua `M_FOGS_2D` |
+| Relay nodes (1D) | 10 | Mặc định, đổi qua `M_RELAYS_1D` |
+| Relay nodes (2D) | 5 | Mặc định, đổi qua `M_RELAYS_2D` |
 | Pin mỗi node | 500 J | `EnergyConfig.E_INIT` |

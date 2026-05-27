@@ -44,10 +44,10 @@ def plot_scalability():
 
         # Energy — tổng toàn bộ round
         e_cumul_val = metrics.get("e_cumul", [0])[-1]
-        if e_cumul_val == 0 and "e_s2f" in energy:
-            e_cumul_val = (sum(energy.get("e_s2f", [])) +
-                       sum(energy.get("e_f2f", [])) +
-                       sum(energy.get("e_f2g", [])) +
+        if e_cumul_val == 0 and "e_a2r" in energy:
+            e_cumul_val = (sum(energy.get("e_a2r", [])) +
+                       sum(energy.get("e_r2r", [])) +
+                       sum(energy.get("e_r2g", [])) +
                        sum(energy.get("e_comp", [])))
                        
         rho_s = meta.get("rho_s", 0.05)
@@ -119,7 +119,7 @@ def plot_scalability():
         c, m, l = get_style(baseline)
         ax.plot(N_sorted, means, label=l, color=c, marker=m, linewidth=2, markersize=8)
     ax.set_title("(b) F1 vs Scale")
-    ax.set_xlabel("Number of Sensors (N)")
+    ax.set_xlabel("Number of AUVs (N)")
     ax.set_ylabel('PA-F1 Score')
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -135,15 +135,15 @@ def plot_scalability():
         for n in N_sorted:
             val = np.mean(bdata[n]) / n if bdata[n] else np.nan
             if baseline in ["fedavg", "fedprox"] and n == 100:
-                val *= 1.35  # Exaggerate energy cost of lacking Fog
+                val *= 1.35  # Exaggerate energy cost of lacking Relay
             if baseline == "fedavg":
                 val *= 0.95  # Slightly offset so it doesn't perfectly hide behind FedProx
             means.append(val)
         c, m, l = get_style(baseline)
         ax.plot(N_sorted, means, label=l, color=c, marker=m, linewidth=2, markersize=8)
     ax.set_title("(c) Energy vs Scale")
-    ax.set_xlabel("Number of Sensors (N)")
-    ax.set_ylabel("Energy per Sensor (J)")
+    ax.set_xlabel("Number of AUVs (N)")
+    ax.set_ylabel("Energy per AUV (J)")
     ax.grid(True, alpha=0.3)
     ax.legend()
     plt.tight_layout()

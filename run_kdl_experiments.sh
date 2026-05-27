@@ -30,14 +30,14 @@ export PYTHONIOENCODING=utf-8
 ROUNDS=60
 SEED=42
 DS="URPC"
-M_FOGS_2D=4       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
+M_RELAYS_2D=4       # Thay đổi số lượng Relay tại đây (vd: 4, 5, 10...)
 # =========================================================
 
 GEN_ENV_ARGS=()
-# Kiểm tra nếu M_FOGS_2D được gán giá trị thì tự động thêm cờ
-if [[ -n "$M_FOGS_2D" ]]; then
-  echo "[KDL] Overriding fog count for 2D topologies: M_FOGS_2D=$M_FOGS_2D"
-  GEN_ENV_ARGS=(--m-fogs "$M_FOGS_2D")
+# Kiểm tra nếu M_RELAYS_2D được gán giá trị thì tự động thêm cờ
+if [[ -n "$M_RELAYS_2D" ]]; then
+  echo "[KDL] Overriding relay count for 2D topologies: M_RELAYS_2D=$M_RELAYS_2D"
+  GEN_ENV_ARGS=(--m-relays "$M_RELAYS_2D")
 fi
 
 # Sinh dữ liệu môi trường riêng cho mạng lớn (N=20, 30, 40, 50)
@@ -170,7 +170,7 @@ done
 
 echo ""
 echo "=== GROUP B: Scalability ==="
-# N=20, 30, 40, 50 — với 5 Fog, cần ít nhất N=20 để ý nghĩa thống kê (4 sensor/fog)
+# N=20, 30, 40, 50 — với 5 Relay, cần ít nhất N=20 để ý nghĩa thống kê (4 auv/relay)
 # Áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm.
 MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized" "fedkd")
 for n in 30 40 50; do

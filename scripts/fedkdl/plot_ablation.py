@@ -67,9 +67,9 @@ def generate_plots_for_task(target_task="2D"):
         e_cumul_val = metrics.get("e_cumul", [0])[-1]
         if e_cumul_val > 0:
             metrics_data[baseline]["energy"].append(e_cumul_val)
-        elif "e_s2f" in energy:
-            total_e = (sum(energy.get("e_s2f", [])) + sum(energy.get("e_f2f", [])) + 
-                       sum(energy.get("e_f2g", [])) + sum(energy.get("e_comp", [])))
+        elif "e_a2r" in energy:
+            total_e = (sum(energy.get("e_a2r", [])) + sum(energy.get("e_r2r", [])) + 
+                       sum(energy.get("e_r2g", [])) + sum(energy.get("e_comp", [])))
             metrics_data[baseline]["energy"].append(total_e)
         elif "e_total" in data.get("history", {}):
             metrics_data[baseline]["energy"].append(np.sum(data["history"]["e_total"]))

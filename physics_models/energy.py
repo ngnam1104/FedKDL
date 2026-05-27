@@ -123,11 +123,11 @@ def e_comp_full(n_samples: int, n_local_epochs: int,
 #  Tổng hợp năng lượng theo tầng (Layer-based Energy Decomposition)
 # ──────────────────────────────────────────────────────────────────────
 
-def total_energy_round(e_s2f: float, e_f2f: float,
-                       e_f2g: float, e_comp_total: float) -> float:
+def total_energy_round(e_a2r: float, e_r2r: float,
+                       e_r2g: float, e_comp_total: float) -> float:
     """
     Tổng năng lượng tiêu thụ toàn mạng tại vòng t  —  Eq. 27.
 
-    E_total = E_s2f + E_f2f + E_f2g + Σ E_comp
+    E_total = E_a2r + E_r2r + E_r2g + Σ E_comp
     """
-    return e_s2f + e_f2f + e_f2g + e_comp_total
+    return e_a2r + e_r2r + e_r2g + e_comp_total

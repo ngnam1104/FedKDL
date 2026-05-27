@@ -1,11 +1,11 @@
 const API_BASE = "http://localhost:5000/api";
 
-let sensors = [];
-let currentSensorId = null;
+let auvs = [];
+let currentAUVId = null;
 let uploadedFile = null;
 
-const sensorListEl = document.getElementById("sensor-list");
-const currentSensorNameEl = document.getElementById("current-sensor-name");
+const auvListEl = document.getElementById("auv-list");
+const currentAUVNameEl = document.getElementById("current-auv-name");
 const imageUploadEl = document.getElementById("image-upload");
 const previewImgEl = document.getElementById("preview-img");
 const emptyStateEl = document.querySelector(".empty-state");
@@ -14,46 +14,46 @@ const cameraFeedEl = document.getElementById("camera-feed");
 const resultsBoxEl = document.getElementById("results-box");
 const telLatencyEl = document.getElementById("tel-latency");
 
-// Fetch sensors on load
-async function fetchSensors() {
+// Fetch auvs on load
+async function fetchAUVs() {
     try {
-        const res = await fetch(`${API_BASE}/sensors`);
+        const res = await fetch(`${API_BASE}/auvs`);
         const data = await res.json();
-        sensors = data.sensors;
-        renderSensors();
+        auvs = data.auvs;
+        renderAUVs();
     } catch (e) {
-        console.error("Failed to fetch sensors:", e);
+        console.error("Failed to fetch auvs:", e);
         // Fallback for UI if backend is not running
-        sensors = [
+        auvs = [
             { id: 1, name: "AUV Alpha (Mock)", battery: 85, status: "Active" },
             { id: 2, name: "AUV Beta (Mock)", battery: 62, status: "Active" }
         ];
-        renderSensors();
+        renderAUVs();
     }
 }
 
-function renderSensors() {
-    sensorListEl.innerHTML = "";
-    sensors.forEach(s => {
+function renderAUVs() {
+    auvListEl.innerHTML = "";
+    auvs.forEach(s => {
         const li = document.createElement("li");
-        li.className = `sensor-item ${currentSensorId === s.id ? "active" : ""}`;
+        li.className = `auv-item ${currentAUVId === s.id ? "active" : ""}`;
         li.innerHTML = `
-            <div class="sensor-name">${s.name}</div>
-            <div class="sensor-meta">
+            <div class="auv-name">${s.name}</div>
+            <div class="auv-meta">
                 <span><i class="fa-solid fa-battery-three-quarters"></i> ${s.battery}%</span>
                 <span style="color: ${s.status === 'Active' ? 'var(--success)' : 'var(--accent)'}">${s.status}</span>
             </div>
         `;
-        li.onclick = () => selectSensor(s.id);
-        sensorListEl.appendChild(li);
+        li.onclick = () => selectAUV(s.id);
+        auvListEl.appendChild(li);
     });
 }
 
-function selectSensor(id) {
-    currentSensorId = id;
-    const sensor = sensors.find(s => s.id === id);
-    currentSensorNameEl.textContent = `Camera View: ${sensor.name}`;
-    renderSensors();
+function selectAUV(id) {
+    currentAUVId = id;
+    const auv = auvs.find(s => s.id === id);
+    currentAUVNameEl.textContent = `Camera View: ${auv.name}`;
+    renderAUVs();
     checkReadyState();
 }
 
@@ -78,7 +78,7 @@ imageUploadEl.addEventListener("change", (e) => {
 });
 
 function checkReadyState() {
-    if (currentSensorId && uploadedFile) {
+    if (currentAUVId && uploadedFile) {
         btnDetect.disabled = false;
     } else {
         btnDetect.disabled = true;
@@ -87,7 +87,7 @@ function checkReadyState() {
 
 // Run Detection
 btnDetect.addEventListener("click", async () => {
-    if (!currentSensorId || !uploadedFile) return;
+    if (!currentAUVId || !uploadedFile) return;
     
     // UI Loading state
     btnDetect.disabled = true;
@@ -100,7 +100,7 @@ btnDetect.addEventListener("click", async () => {
     formData.append("file", uploadedFile);
     
     try {
-        const res = await fetch(`${API_BASE}/detect/${currentSensorId}`, {
+        const res = await fetch(`${API_BASE}/detect/${currentAUVId}`, {
             method: "POST",
             body: formData
         });
@@ -139,4 +139,4 @@ btnDetect.addEventListener("click", async () => {
 });
 
 // Init
-fetchSensors();
+fetchAUVs();

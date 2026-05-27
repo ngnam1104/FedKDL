@@ -36,11 +36,11 @@ export PYTHONIOENCODING=utf-8
 total=$(( ${#N_LIST[@]} * ${#DATASETS[@]} * ${#ALPHAS[@]} * ${#SEEDS[@]} * ${#BASELINES[@]} ))
 count=0
 
-M_FOGS_1D=10
+M_RELAYS_1D=10
 GEN_ENV_ARGS=()
-if [[ -n "$M_FOGS_1D" ]]; then
-  echo "[HFL] Overriding fog count for 1D topologies: M_FOGS_1D=$M_FOGS_1D"
-  GEN_ENV_ARGS=(--m-fogs "$M_FOGS_1D")
+if [[ -n "$M_RELAYS_1D" ]]; then
+  echo "[HFL] Overriding relay count for 1D topologies: M_RELAYS_1D=$M_RELAYS_1D"
+  GEN_ENV_ARGS=(--m-relays "$M_RELAYS_1D")
 fi
 
 echo "[HFL] Generating topologies and data partitions for 1D..."

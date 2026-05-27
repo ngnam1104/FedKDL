@@ -2,7 +2,7 @@
 trainer.py
 Local SGD cho bài toán Object Detection (Kịch bản 2 & 3).
 
-Tier 1 (Sensor/AUV) chỉ chạy local SGD thuần (DetectionTrainer), KHÔNG dùng KD.
+Tier 1 (AUV/AUV) chỉ chạy local SGD thuần (DetectionTrainer), KHÔNG dùng KD.
 KD (Knowledge Distillation với Teacher YOLO12l) được di chuyển lên Tier 3 (Gateway).
 
 Payload truyền đi: LoRA adapters + cv3.x.2 output conv, nén INT8.
@@ -173,7 +173,7 @@ def local_sgd_od(
     cached_optimizer_state: dict = None,
 ) -> tuple:
     """
-    Thực hiện Local SGD cho OD tại Sensor (Tier 1).
+    Thực hiện Local SGD cho OD tại AUV (Tier 1).
     KHÔNG sử dụng KD — Teacher chỉ chạy tại Gateway (Tier 3).
 
     student_model          : tasks.detection_2d.models.yolo_wrapper.StudentModel
@@ -183,18 +183,18 @@ def local_sgd_od(
 
     Returns:
         (new_state, delta_norm, train_loss, new_optimizer_state)
-        new_optimizer_state : dict cần lưu vào SensorWorker cho round tiếp theo.
+        new_optimizer_state : dict cần lưu vào AUVWorker cho round tiếp theo.
     """
     has_optim_cache = cached_optimizer_state is not None and len(cached_optimizer_state) > 0
     print(
-        f"[LocalSGD][Sensor {client_id}] lr0={lr:.8f}, epochs={epochs}, "
+        f"[LocalSGD][AUV {client_id}] lr0={lr:.8f}, epochs={epochs}, "
         f"optimizer_cache={'ON' if has_optim_cache else 'OFF'}"
     )
 
     student_infer_before, student_names_before = _count_inference_tensors(student_model.yolo.model)
     if student_infer_before > 0:
         print(
-            f"[InferenceCheck][Sensor {client_id}] Student has {student_infer_before} inference tensors before strip. "
+            f"[InferenceCheck][AUV {client_id}] Student has {student_infer_before} inference tensors before strip. "
             f"Samples: {student_names_before}"
         )
 
@@ -204,7 +204,7 @@ def local_sgd_od(
     student_infer_after, student_names_after = _count_inference_tensors(student_model.yolo.model)
     if student_infer_after > 0:
         raise RuntimeError(
-            f"[InferenceCheck][Sensor {client_id}] Student still has {student_infer_after} inference tensors "
+            f"[InferenceCheck][AUV {client_id}] Student still has {student_infer_after} inference tensors "
             f"after strip. Samples: {student_names_after}"
         )
 
@@ -212,7 +212,7 @@ def local_sgd_od(
         teacher_infer_before, teacher_names_before = _count_inference_tensors(local_teacher.yolo.model)
         if teacher_infer_before > 0:
             print(
-                f"[InferenceCheck][Sensor {client_id}] Teacher has {teacher_infer_before} inference tensors before strip. "
+                f"[InferenceCheck][AUV {client_id}] Teacher has {teacher_infer_before} inference tensors before strip. "
                 f"Samples: {teacher_names_before}"
             )
 
@@ -225,7 +225,7 @@ def local_sgd_od(
         teacher_infer_after, teacher_names_after = _count_inference_tensors(local_teacher.yolo.model)
         if teacher_infer_after > 0:
             raise RuntimeError(
-                f"[InferenceCheck][Sensor {client_id}] Teacher still has {teacher_infer_after} inference tensors "
+                f"[InferenceCheck][AUV {client_id}] Teacher still has {teacher_infer_after} inference tensors "
                 f"after strip. Samples: {teacher_names_after}"
             )
 
@@ -379,7 +379,7 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
 def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "cpu") -> dict:
     """
     Đánh giá Student model trên chính tập TRAIN của client (split='train').
-    Dùng để kiểm tra xem sensor có thực sự cải thiện sau mỗi vòng FL.
+    Dùng để kiểm tra xem auv có thực sự cải thiện sau mỗi vòng FL.
     Dùng YOLO built-in val với split='train' — không ảnh hưởng tập val/test.
 
     Returns: dict chứa mAP50-95, mAP50, Prec, Rec trên train split của client đó.

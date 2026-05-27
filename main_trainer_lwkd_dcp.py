@@ -69,7 +69,7 @@ def main():
     alpha_str  = parts[3][1:]
     seed       = int(parts[4][4:])
 
-    network_cfg.N_SENSORS = N
+    network_cfg.N_AUVS = N
 
     paths = build_experiment_paths(
         task="2D",
@@ -122,8 +122,8 @@ def main():
                 "seed":     seed,
                 "topo_path": str(topo_path),
                 "data_path": str(data_path),
-                "payload_note": "Full YOLO11n Float32 (~5.4 MB per sensor per round, no LoRA, no INT8)",
-                "kd_note": "Local KD at Sensor (Teacher YOLO12l), DCP preprocessing, no Gateway KD",
+                "payload_note": "Full YOLO11n Float32 (~5.4 MB per auv per round, no LoRA, no INT8)",
+                "kd_note": "Local KD at AUV (Teacher YOLO12l), DCP preprocessing, no Gateway KD",
             },
             "metrics": history,
         }
