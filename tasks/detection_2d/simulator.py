@@ -259,6 +259,8 @@ class Simulator2D(BaseSimulator):
                 c_yaml_path = temp_dir / f"client_{sid}.yaml"
                 c_cfg = base_cfg.copy()
                 c_cfg['train'] = str(txt_path.absolute())
+                if 'val' in c_cfg:
+                    c_cfg['val'] = c_cfg['train']  # Ép YOLO không đọc tập val thật để tiết kiệm 15s caching mỗi client
                 original_path = base_cfg.get('path', '')
                 c_cfg['path'] = str((Path(base_yaml_path).parent / original_path).absolute())
                 with open(c_yaml_path, 'w') as f:
