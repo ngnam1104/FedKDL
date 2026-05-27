@@ -284,31 +284,53 @@ class EnvironmentManager:
         else:
             p_skew = 0.95  # Non-IID cực đoan
 
-        # 6. Trộn ảnh cho từng AUV
-        auv_pool_size = int(num_samples * 0.7)
-        n_per_auv = max(1, auv_pool_size // net_cfg.N_AUVS)
-
+        # 6. Phân bổ dữ liệu: AUV thuộc Habitat nào thì chia nhau số ảnh của Habitat đó.
+        # Tạo ra cả Label Skew (dựa trên P_skew) và Quantity Skew (dựa trên lượng ảnh gốc).
         auv_data_indices = {}
+        
+        # Đếm số lượng AUV trong mỗi Habitat
+        auvs_in_habitat = {h: [] for h in range(4)}
         for i in range(net_cfg.N_AUVS):
-            h = int(auv_habitat[i])
+            auvs_in_habitat[int(auv_habitat[i])].append(i)
+            
+        for h in range(4):
+            auv_list = auvs_in_habitat[h]
+            if len(auv_list) == 0:
+                continue
+                
             dominant_pool = list(imgs_by_habitat[h])
+            random.shuffle(dominant_pool)
+            
+            # Khởi tạo noise pool từ 3 habitat còn lại
             noise_pool = []
             for hh in range(4):
                 if hh != h:
                     noise_pool.extend(imgs_by_habitat[hh])
-
-            random.shuffle(dominant_pool)
             random.shuffle(noise_pool)
-
-            n_dom   = max(1, int(n_per_auv * p_skew))
-            n_noise = max(0, n_per_auv - n_dom)
-
-            chosen = dominant_pool[:n_dom] + noise_pool[:n_noise]
-            if len(chosen) < n_per_auv:
-                extra = (dominant_pool + noise_pool)[len(chosen):n_per_auv]
-                chosen += extra
-
-            auv_data_indices[i] = chosen
+            
+            # Số lượng ảnh dominant mỗi AUV trong Habitat h nhận được
+            dom_per_auv = len(dominant_pool) // len(auv_list)
+            
+            # Tính toán số lượng ảnh noise cần thiết để đạt tỷ lệ P_skew
+            # P_skew = dom / (dom + noise) => noise = dom * (1 - P_skew) / P_skew
+            if p_skew < 1.0:
+                noise_per_auv = int(dom_per_auv * (1.0 - p_skew) / p_skew)
+            else:
+                noise_per_auv = 0
+                
+            for idx, auv_id in enumerate(auv_list):
+                start_dom = idx * dom_per_auv
+                end_dom = start_dom + dom_per_auv if idx < len(auv_list) - 1 else len(dominant_pool)
+                chosen_dom = dominant_pool[start_dom:end_dom]
+                
+                start_noise = idx * noise_per_auv
+                end_noise = start_noise + noise_per_auv
+                # Lấy vòng lặp nếu noise_pool không đủ (rất hiếm khi xảy ra)
+                chosen_noise = [noise_pool[j % len(noise_pool)] for j in range(start_noise, end_noise)] if noise_per_auv > 0 else []
+                
+                chosen = chosen_dom + chosen_noise
+                random.shuffle(chosen)
+                auv_data_indices[auv_id] = chosen
             
         return DataPartitionSnapshot(
             dataset_name=dataset_name,
