@@ -90,7 +90,7 @@ class SensorWorker2D(BaseWorker):
             client_yaml=self.client_yaml,
             client_id=self.sensor_id,
             epochs=epochs,
-            batch_size=getattr(self.fed_cfg, 'LOCAL_BATCH_SIZE', 16),
+            batch_size=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
             lr=lr,           # Truyền Cosine LR liên tục (không bị reset)
             device=device,
             fedprox_mu=fedprox_mu,
