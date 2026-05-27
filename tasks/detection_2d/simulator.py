@@ -394,7 +394,7 @@ class Simulator2D(BaseSimulator):
                 if old_f != new_f:
                     changed += 1
                     changes_log.append(f"    - Sensor {s}: Fog {old_f} -> Fog {new_f}")
-            print(f"[Simulator2D] EMD Clustering hoàn tất. {changed}/{N} AUVs đã chuyển cụm (Fog) để tối ưu EMD.")
+            print(f"[Simulator2D] EMD Clustering hoàn tất. {changed}/{N} Sensors đã chuyển cụm (Fog) để tối ưu EMD.")
             if changed > 0:
                 print("  Chi tiết thay đổi:")
                 for log in changes_log:
