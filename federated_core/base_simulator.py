@@ -385,49 +385,76 @@ class BaseSimulator(ABC):
             # =========================================================================
             # [NEW] Di chuyển AUV đáy biển và Tái phân cụm (Gauss-Markov + EMD Joint)
             # =========================================================================
-            if hasattr(self.topology, 'step_mobile_auvs'):
-                self.topology.step_mobile_auvs(max_speed=5.0)
-                from physics_models.topology import build_feasibility_graph, nearest_feasible_association, build_clusters
+            
+            # --- 1. Gauss-Markov Mobility ---
+            if not hasattr(self, 'velocity'):
+                self.velocity = np.zeros((self.N_actual, 3))
+                self.alpha_gm = 0.8
+                self.rng = np.random.RandomState(42)
                 
-                # Tính lại đồ thị khoảng cách vật lý
-                self.G = build_feasibility_graph(self.topology, self.acoustic_cfg)
-                
-                # Tái phân cụm
-                # Nếu là Simulator2D (có EMD), kết hợp EMD + Khoảng cách vật lý
-                if hasattr(self, 'auv_label_hists') and hasattr(self, 'relay_label_hists'):
-                    from tasks.detection_2d.knowledge_compression.knowledge_association import knowledge_aware_association
-                    class DummyTopo:
-                        def __init__(self, n, m): self.N = n; self.M = m
-                    
-                    new_assoc = knowledge_aware_association(
-                        topology=DummyTopo(self.topology.N, self.topology.M),
-                        G=self.G,
-                        auv_label_hists=self.auv_label_hists,
-                        relay_label_hists=self.relay_label_hists,
-                        beta=0.2
-                    )
-                else:
-                    # Nếu chạy Classic/1D, chỉ phân cụm theo SNR vật lý
-                    new_assoc = nearest_feasible_association(self.topology, self.G)
+            max_speed = 5.0
+            w = self.rng.randn(self.N_actual, 3) * (max_speed / 3)
+            self.velocity = self.alpha_gm * self.velocity + (1 - self.alpha_gm) * w
+            
+            speeds = np.linalg.norm(self.velocity, axis=1, keepdims=True)
+            speeds[speeds == 0] = 1
+            mask = speeds > max_speed
+            self.velocity[mask[:, 0]] = (self.velocity[mask[:, 0]] / speeds[mask[:, 0]]) * max_speed
+            
+            self.velocity[:, 2] = 0.0 # Chỉ di chuyển mặt phẳng XY
+            self.auv_positions += self.velocity
+            np.clip(self.auv_positions[:, 0], 0, self.net_cfg.X_MAX, out=self.auv_positions[:, 0])
+            np.clip(self.auv_positions[:, 1], 0, self.net_cfg.Y_MAX, out=self.auv_positions[:, 1])
 
-                # In ra chi tiết AUV nào đổi sang cụm nào
-                changes_log = []
-                for s, new_f in new_assoc.items():
-                    old_f = self.association.get(s, -1)
-                    if old_f != new_f:
-                        changes_log.append(f"    - AUV {s}: Relay {old_f} -> Relay {new_f}")
-                        
-                changed = len(changes_log)
-                if changed > 0:
-                    print(f"[*] [Round {t}] Re-clustering: {changed}/{self.topology.N} Mobile AUVs changed Relays:")
-                    for log_msg in changes_log:
-                        print(log_msg)
-                        
-                self.association = new_assoc
+            # --- 2. Build Feasibility Graph ---
+            from physics_models.topology import build_feasibility_graph, nearest_feasible_association, build_clusters
+            
+            class DummyTopo:
+                def __init__(self, n, m, auv_pos, relay_pos, gw_pos): 
+                    self.N = n
+                    self.M = m
+                    self.auv_positions = auv_pos
+                    self.relay_positions = relay_pos
+                    self.gateway_position = gw_pos
                     
-                self.clusters = build_clusters(self.association, self.topology.M)
-                
-                # --- [NEW] Logging Trajectories to File ---
+            dummy_topo = DummyTopo(
+                self.N_actual, len(self.relay_positions), 
+                self.auv_positions, self.relay_positions, self.gateway_position
+            )
+            
+            # Tính lại đồ thị khoảng cách vật lý
+            self.G = build_feasibility_graph(dummy_topo, self.ac_cfg)
+            
+            # --- 3. Tái phân cụm ---
+            if hasattr(self, 'auv_label_hists') and hasattr(self, 'relay_label_hists'):
+                from tasks.detection_2d.knowledge_compression.knowledge_association import knowledge_aware_association
+                new_assoc = knowledge_aware_association(
+                    topology=dummy_topo,
+                    G=self.G,
+                    auv_label_hists=self.auv_label_hists,
+                    relay_label_hists=self.relay_label_hists,
+                    beta=0.2
+                )
+            else:
+                new_assoc = nearest_feasible_association(dummy_topo, self.G)
+
+            # In ra chi tiết AUV nào đổi sang cụm nào
+            changes_log = []
+            for s, new_f in new_assoc.items():
+                old_f = self.association.get(s, -1)
+                if old_f != new_f:
+                    changes_log.append(f"    - AUV {s}: Relay {old_f} -> Relay {new_f}")
+                    
+            changed = len(changes_log)
+            if changed > 0:
+                print(f"[*] [Round {t}] Re-clustering: {changed}/{self.N_actual} Mobile AUVs changed Relays:")
+                for log_msg in changes_log:
+                    print(log_msg)
+                    
+            self.association = new_assoc
+            self.clusters = build_clusters(self.association, len(self.relay_positions))
+            
+            # --- [NEW] Logging Trajectories to File ---
                 import os
                 traj_log_path = r"d:\Documents\HUST\2022-2026\Research_Thesis\FedKDL\results\train_logs\kdl\auv_trajectories.txt"
                 os.makedirs(os.path.dirname(traj_log_path), exist_ok=True)
