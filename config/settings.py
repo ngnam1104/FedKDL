@@ -71,10 +71,9 @@ class FedKDLConfig:
     # KD-LoRA-INT8 Parameters
     # Kịch bản 1: LORA_RANK=4 → payload ~74KB  (LoRA 72KB + Head partial 2KB)
     # Kịch bản 2: LORA_RANK=8 → payload ~146KB (LoRA 144KB + Head partial 2KB) ≈ 150KB target
-    # Kịch bản 3: LORA_RANK=12 → payload ~196KB -> tau_round ~1650s (<1800s limit)
-    LORA_RANK: int = 12               # Nâng lên 12 để tối đa hóa não bộ trong giới hạn 1800s
+    LORA_RANK: int = 8                # Giữ nguyên r=8 để bảo toàn pin cho 100 vòng
     QUANTIZATION_BITS: int = 8        # Affine Quantization từng tensor riêng biệt (INT8)
-    TARGET_PAYLOAD_KB: float = 200.0  # Target payload: 200KB cho Rank 12
+    TARGET_PAYLOAD_KB: float = 150.0  # Target payload: 150KB (LoRA+Head partial INT8)
     
     # Deterministic Rules Thresholds
     BETA_EMD: float = 0.5             # Trọng số lai D_joint giữa Tri thức (EMD) và Địa lý
