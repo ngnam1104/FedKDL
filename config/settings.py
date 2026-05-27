@@ -27,7 +27,7 @@ class AcousticChannelConfig:
     CARRIER_FREQ: float = 12.0        # Tần số sóng mang (kHz) 
     BANDWIDTH: float = 4000.0         # Băng thông máy thu (Hz) -> ~15 kbps 
     TARGET_SNR: float = 10.0          # Ngưỡng SNR vận hành (dB) 
-    SL_MAX: float = 142.0             # Công suất phát tối đa phần cứng (dB re 1μPa @ 1m) 
+    SL_MAX: float = 140.0             # Công suất phát tối đa phần cứng (dB re 1μPa @ 1m) 
     SPREADING_FACTOR: float = 1.5     # Hệ số lan truyền thực tế (k) 
     WIND_SPEED: float = 5.0           # Tốc độ gió chuẩn hóa (m/s) 
     SHIPPING_FACTOR: float = 0.5      # Hệ số hoạt động tàu bè (0 - 1) 

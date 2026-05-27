@@ -354,7 +354,7 @@ class Simulator2D(BaseSimulator):
 
         # Nếu là FedKDL thì bật EMD Clustering
         if 'fedkdl' in self.baseline:
-            print(f"\n[Simulator2D] Khởi tạo Knowledge-Aware Association (EMD β=0.3)...")
+            print(f"\n[Simulator2D] Khởi tạo Knowledge-Aware Association (EMD β=0.2)...")
             sensor_label_hists = np.zeros((N, nc), dtype=np.float32)
             for s_id in range(N):
                 if s_id in getattr(self, 'client_yamls', {}):
@@ -383,7 +383,7 @@ class Simulator2D(BaseSimulator):
                 G=self.G,
                 sensor_label_hists=sensor_label_hists,
                 fog_label_hists=fog_label_hists,
-                beta=0.3  # 70% Khoảng cách, 30% EMD
+                beta=0.2  # 80% Khoảng cách, 20% EMD
             )
             
             # Đếm số lượng thay đổi
