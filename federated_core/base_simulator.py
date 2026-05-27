@@ -406,18 +406,37 @@ class BaseSimulator(ABC):
                         relay_label_hists=self.relay_label_hists,
                         beta=0.2
                     )
-                    
-                    # Log sự thay đổi cụm
-                    changed = sum(1 for s, new_f in new_assoc.items() if self.association.get(s, -1) != new_f)
-                    if changed > 0:
-                        print(f"[*] Re-clustering: {changed}/{self.topology.N} Mobile AUVs changed Relays due to Joint Distance.")
-                        
-                    self.association = new_assoc
                 else:
                     # Nếu chạy Classic/1D, chỉ phân cụm theo SNR vật lý
-                    self.association = nearest_feasible_association(self.topology, self.G)
+                    new_assoc = nearest_feasible_association(self.topology, self.G)
+
+                # In ra chi tiết AUV nào đổi sang cụm nào
+                changes_log = []
+                for s, new_f in new_assoc.items():
+                    old_f = self.association.get(s, -1)
+                    if old_f != new_f:
+                        changes_log.append(f"    - AUV {s}: Relay {old_f} -> Relay {new_f}")
+                        
+                changed = len(changes_log)
+                if changed > 0:
+                    print(f"[*] [Round {t}] Re-clustering: {changed}/{self.topology.N} Mobile AUVs changed Relays:")
+                    for log_msg in changes_log:
+                        print(log_msg)
+                        
+                self.association = new_assoc
                     
                 self.clusters = build_clusters(self.association, self.topology.M)
+                
+                # --- [NEW] Logging Trajectories to File ---
+                import os
+                traj_log_path = r"d:\Documents\HUST\2022-2026\Research_Thesis\FedKDL\results\train_logs\kdl\auv_trajectories.txt"
+                os.makedirs(os.path.dirname(traj_log_path), exist_ok=True)
+                mode = 'w' if t == 1 else 'a'
+                with open(traj_log_path, mode, encoding='utf-8') as f:
+                    f.write(f"--- Round {t} ---\n")
+                    for s_id in range(self.topology.N):
+                        pos = self.topology.auv_positions[s_id]
+                        f.write(f"AUV {s_id}: X={pos[0]:.2f}, Y={pos[1]:.2f}, Z={pos[2]:.2f}\n")
                 
                 # Cập nhật danh sách quản lý vào đối tượng Relay và AUV
                 for relay_id, relay in self.relays.items():
