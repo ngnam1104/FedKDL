@@ -48,6 +48,10 @@ class BaseSimulator(ABC):
         
         topo = EnvironmentManager.load_topology(self.topo_path)
         
+        # Đồng bộ cấu hình với topology thực tế trong file pkl để tránh lỗi mismatch M_RELAYS
+        self.net_cfg.N_AUVS = topo.N
+        self.net_cfg.M_RELAYS = topo.M
+        
         # Phục hồi lại đối tượng Topology3D để có thể gọi hàm step_mobile_auvs
         self.topology = Topology3D(self.net_cfg, self.ac_cfg, seed=topo.seed)
         # Khôi phục vị trí y nguyên từ file pkl
