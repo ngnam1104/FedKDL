@@ -142,6 +142,7 @@ class FogNode2D(BaseFogNode):
         from tasks.detection_2d.knowledge_compression.int8_quantization import unpack_payload
         
         c_updates = []
+        valid_sids = []
         for sid in self.cluster_members:
             if sid in payloads:
                 if use_kd_lora_int8:
@@ -149,6 +150,7 @@ class FogNode2D(BaseFogNode):
                 else:
                     state = payloads[sid]
                 c_updates.append(state)
+                valid_sids.append(sid)
 
         if not c_updates:
             import copy
@@ -157,8 +159,16 @@ class FogNode2D(BaseFogNode):
             return
 
         self.intra_state_dict = {}
+        total_samples = sum(sensor_n_samples.get(sid, 0) for sid in valid_sids)
+        if total_samples == 0:
+            total_samples = 1
+
         for k in c_updates[0]:
-            self.intra_state_dict[k] = torch.stack([u[k].float() for u in c_updates]).mean(dim=0)
+            weighted_sum = torch.zeros_like(c_updates[0][k].float())
+            for i, sid in enumerate(valid_sids):
+                weight = sensor_n_samples.get(sid, 0) / total_samples
+                weighted_sum += c_updates[i][k].float() * weight
+            self.intra_state_dict[k] = weighted_sum
             
         import copy
         self.final_state_dict = copy.deepcopy(self.intra_state_dict)
