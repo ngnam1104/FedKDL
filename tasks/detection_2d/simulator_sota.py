@@ -46,12 +46,12 @@ class AUVWorkerSOTA(BaseWorker):
       - Gửi TOÀN BỘ model Float32 lên Relay (rất nặng).
     """
 
-    def __init__(self, auv_id, client_yaml, battery_init, teacher_model):
+    def __init__(self, auv_id, auv_yaml, battery_init, teacher_model):
         super().__init__(auv_id, battery_init)
-        self.client_yaml = client_yaml
+        self.auv_yaml = auv_yaml
         self.teacher_model = teacher_model   # Dùng chung (frozen, read-only)
 
-        with open(self.client_yaml, 'r') as f:
+        with open(self.auv_yaml, 'r') as f:
             c_cfg = yaml.safe_load(f)
         with open(c_cfg['train'], 'r') as f:
             self.n_samples = sum(1 for _ in f)
@@ -65,7 +65,7 @@ class AUVWorkerSOTA(BaseWorker):
         if not self.alive or self.n_samples == 0:
             return None, 0.0, 0.0
 
-        with open(self.client_yaml, 'r') as f:
+        with open(self.auv_yaml, 'r') as f:
             nc = yaml.safe_load(f).get('nc', 80)
 
         # Student: TOÀN BỘ tham số, KHÔNG LoRA, KHÔNG INT8
@@ -78,8 +78,8 @@ class AUVWorkerSOTA(BaseWorker):
         full_state, train_loss = local_sgd_od_sota(
             student_model=local_student,
             teacher_model=self.teacher_model,
-            client_yaml=self.client_yaml,
-            client_id=self.auv_id,
+            auv_yaml=self.auv_yaml,
+            auv_id=self.auv_id,
             epochs=epochs,
             batch_size=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
             lr=lr,
@@ -185,13 +185,13 @@ class SimulatorSOTA(BaseSimulator):
             self.relay_nodes[fid] = RelayNodeSOTA(relay_id=fid)
 
         # Tạo AUVs
-        client_yamls = data_part.client_yamls
-        for s_id, client_yaml in client_yamls.items():
+        auv_yamls = data_part.auv_yamls
+        for s_id, auv_yaml in auv_yamls.items():
             relay_id = topo.auv_relay_map.get(s_id, -1)
             self.association[s_id] = relay_id
             self.auvs[s_id] = AUVWorkerSOTA(
                 auv_id=s_id,
-                client_yaml=client_yaml,
+                auv_yaml=auv_yaml,
                 battery_init=energy_cfg.E_INIT,
                 teacher_model=self.teacher_model,
             )

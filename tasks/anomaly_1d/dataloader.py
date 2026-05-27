@@ -346,7 +346,7 @@ class SlidingWindowDataset(Dataset):
 
 def non_iid_partition(
     dataset: SlidingWindowDataset,
-    n_clients: int,
+    n_auvs: int,
     alpha: float = 0.1,
     seed: int = 0,
 ) -> Dict[int, List[int]]:
@@ -354,39 +354,39 @@ def non_iid_partition(
     Phân chia Non-IID: Phân bổ dữ liệu theo các khối liên tục (chunking) để giữ đặc trưng chuỗi thời gian.
     
     Thay vì trộn xáo (shuffle) làm mất tính Non-IID đối với dữ liệu time-series dài, 
-    hàm này chia toàn bộ thời gian thành n_clients khối (blocks) liền kề nhau.
+    hàm này chia toàn bộ thời gian thành n_auvs khối (blocks) liền kề nhau.
     Do dataset là mảng đã nối (concatenate) từ nhiều channels/machines,
-    việc chia block tuần tự sẽ phân tán các channels khác nhau cho các clients khác nhau.
+    việc chia block tuần tự sẽ phân tán các channels khác nhau cho các auvs khác nhau.
     """
     n_samples = len(dataset)
-    chunk_size = n_samples // n_clients
+    chunk_size = n_samples // n_auvs
     
-    client_indices = {i: [] for i in range(n_clients)}
+    auv_indices = {i: [] for i in range(n_auvs)}
     
-    for i in range(n_clients):
+    for i in range(n_auvs):
         start = i * chunk_size
-        # Client cuối lấy toàn bộ phần dư còn lại
-        end = (i + 1) * chunk_size if i < n_clients - 1 else n_samples
-        client_indices[i] = list(range(start, end))
+        # AUV cuối lấy toàn bộ phần dư còn lại
+        end = (i + 1) * chunk_size if i < n_auvs - 1 else n_samples
+        auv_indices[i] = list(range(start, end))
         
-    return client_indices
+    return auv_indices
 
 
-def make_client_loaders(
+def make_auv_loaders(
     dataset: SlidingWindowDataset,
-    client_indices: Dict[int, List[int]],
+    auv_indices: Dict[int, List[int]],
     batch_size: int = 64,
 ) -> Dict[int, DataLoader]:
     """
-    Tạo DataLoader cho mỗi client từ partition indices.
+    Tạo DataLoader cho mỗi auv từ partition indices.
     """
     from torch.utils.data import Subset
     loaders = {}
-    for client_id, indices in client_indices.items():
+    for auv_id, indices in auv_indices.items():
         if not indices:
             continue
         subset = Subset(dataset, indices)
-        loaders[client_id] = DataLoader(subset, batch_size=batch_size,
+        loaders[auv_id] = DataLoader(subset, batch_size=batch_size,
                                         shuffle=True, drop_last=False)
     return loaders
 

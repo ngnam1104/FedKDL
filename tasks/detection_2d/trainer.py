@@ -58,7 +58,7 @@ class CustomDetectionTrainer(DetectionTrainer):
         # continuous training. Phải chạy SAU super()._setup_train() vì lúc đó
         # self.optimizer mới được build xong.
         
-        # [FIX] Force accumulate = 1 so that small clients (e.g. 1 batch) 
+        # [FIX] Force accumulate = 1 so that small auvs (e.g. 1 batch) 
         # still trigger optimizer.step() and populate self.optimizer.state.
         self.accumulate = 1
         
@@ -161,8 +161,8 @@ class CustomDetectionTrainer(DetectionTrainer):
 
 def local_sgd_od(
     student_model,
-    client_yaml: str,
-    client_id: int,
+    auv_yaml: str,
+    auv_id: int,
     epochs: int = 2,
     batch_size: int = 16,
     lr: float = 0.01,
@@ -177,7 +177,7 @@ def local_sgd_od(
     KHÔNG sử dụng KD — Teacher chỉ chạy tại Gateway (Tier 3).
 
     student_model          : tasks.detection_2d.models.yolo_wrapper.StudentModel
-    client_yaml            : đường dẫn data.yaml của client
+    auv_yaml            : đường dẫn data.yaml của auv
     cached_optimizer_state : dict {param_name: {exp_avg, exp_avg_sq, step}} từ round trước
                              None → optimizer bắt đầu lạnh (round đầu tiên).
 
@@ -187,14 +187,14 @@ def local_sgd_od(
     """
     has_optim_cache = cached_optimizer_state is not None and len(cached_optimizer_state) > 0
     print(
-        f"[LocalSGD][AUV {client_id}] lr0={lr:.8f}, epochs={epochs}, "
+        f"[LocalSGD][AUV {auv_id}] lr0={lr:.8f}, epochs={epochs}, "
         f"optimizer_cache={'ON' if has_optim_cache else 'OFF'}"
     )
 
     student_infer_before, student_names_before = _count_inference_tensors(student_model.yolo.model)
     if student_infer_before > 0:
         print(
-            f"[InferenceCheck][AUV {client_id}] Student has {student_infer_before} inference tensors before strip. "
+            f"[InferenceCheck][AUV {auv_id}] Student has {student_infer_before} inference tensors before strip. "
             f"Samples: {student_names_before}"
         )
 
@@ -204,7 +204,7 @@ def local_sgd_od(
     student_infer_after, student_names_after = _count_inference_tensors(student_model.yolo.model)
     if student_infer_after > 0:
         raise RuntimeError(
-            f"[InferenceCheck][AUV {client_id}] Student still has {student_infer_after} inference tensors "
+            f"[InferenceCheck][AUV {auv_id}] Student still has {student_infer_after} inference tensors "
             f"after strip. Samples: {student_names_after}"
         )
 
@@ -212,7 +212,7 @@ def local_sgd_od(
         teacher_infer_before, teacher_names_before = _count_inference_tensors(local_teacher.yolo.model)
         if teacher_infer_before > 0:
             print(
-                f"[InferenceCheck][AUV {client_id}] Teacher has {teacher_infer_before} inference tensors before strip. "
+                f"[InferenceCheck][AUV {auv_id}] Teacher has {teacher_infer_before} inference tensors before strip. "
                 f"Samples: {teacher_names_before}"
             )
 
@@ -225,7 +225,7 @@ def local_sgd_od(
         teacher_infer_after, teacher_names_after = _count_inference_tensors(local_teacher.yolo.model)
         if teacher_infer_after > 0:
             raise RuntimeError(
-                f"[InferenceCheck][AUV {client_id}] Teacher still has {teacher_infer_after} inference tensors "
+                f"[InferenceCheck][AUV {auv_id}] Teacher still has {teacher_infer_after} inference tensors "
                 f"after strip. Samples: {teacher_names_after}"
             )
 
@@ -234,7 +234,7 @@ def local_sgd_od(
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
     overrides = {
         'model': "yolo11n.pt",
-        'data': client_yaml,
+        'data': auv_yaml,
         'cache': getattr(fed_cfg, 'CACHE_DATASET', True),
         'epochs': epochs,
         'batch': batch_size,
@@ -247,8 +247,8 @@ def local_sgd_od(
         'cos_lr': False,
         'device': device,
         'amp': False,  # Vô hiệu hóa FP16 để tránh overflow (Inf/NaN) khi train LoRA/KD
-        'project': 'runs/fl_clients',
-        'name': f'client_{client_id}',
+        'project': 'runs/fl_auvs',
+        'name': f'auv_{auv_id}',
         'exist_ok': True,
         'verbose': False,  # Ngăn YOLO in bảng kiến trúc
         'save': False,
@@ -376,13 +376,13 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
     }
 
 
-def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "cpu") -> dict:
+def evaluate_od_on_auv_train(student_model, auv_yaml: str, device: str = "cpu") -> dict:
     """
-    Đánh giá Student model trên chính tập TRAIN của client (split='train').
+    Đánh giá Student model trên chính tập TRAIN của auv (split='train').
     Dùng để kiểm tra xem auv có thực sự cải thiện sau mỗi vòng FL.
     Dùng YOLO built-in val với split='train' — không ảnh hưởng tập val/test.
 
-    Returns: dict chứa mAP50-95, mAP50, Prec, Rec trên train split của client đó.
+    Returns: dict chứa mAP50-95, mAP50, Prec, Rec trên train split của auv đó.
     """
     try:
         import copy
@@ -393,10 +393,10 @@ def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "
         gc.collect()
         
         results = student_model.yolo.val(
-            data=client_yaml,
+            data=auv_yaml,
             device=device,
             verbose=False,
-            split='train',  # Eval ngay trên tập train của client
+            split='train',  # Eval ngay trên tập train của auv
             half=False,
             workers=0,
             batch=16
@@ -414,7 +414,7 @@ def evaluate_od_on_client_train(student_model, client_yaml: str, device: str = "
             'local_Rec':      mr,
         }
     except Exception as e:
-        print(f"[evaluate_od_on_client_train] Lỗi khi eval trên train split: {e}")
+        print(f"[evaluate_od_on_auv_train] Lỗi khi eval trên train split: {e}")
         return {
             'local_mAP50-95': 0.0,
             'local_mAP50':    0.0,

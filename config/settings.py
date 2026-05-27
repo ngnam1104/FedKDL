@@ -52,11 +52,11 @@ class FedKDLConfig:
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60}) # Chu kỳ sống dự kiến cho từng tác vụ
     MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 108000.0, "2D": 2.175e9}) # 1D: Autoencoder ~54k params | 2D: YOLOv8n ở 320x320
     FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2}) # Hệ số nhân: 1D (Full fine-tuning), 2D (LoRA)
-    LOCAL_EPOCHS: int = 2             # Giảm xuống 2 để giảm Client Drift
+    LOCAL_EPOCHS: int = 2             # Giảm xuống 2 để giảm AUV Drift
     LOCAL_BATCH_SIZE: int = 16        # Trả về 16 vì batch 64 làm training bị nghẽn (2.9s/it)
     DATALOADER_WORKERS: int = 0       # Giữ 0 để an toàn tuyệt đối cho logic LoRA/KD
     CACHE_DATASET: bool = True        # Đưa toàn bộ dataset vào RAM để tăng tốc thay vì dùng đa luồng
-    LOCAL_LR: float = 0.002           # Giảm xuống 0.002 để chống Client Drift / Overfitting cục bộ
+    LOCAL_LR: float = 0.002           # Giảm xuống 0.002 để chống AUV Drift / Overfitting cục bộ
     NON_IID_ALPHA: float = 0.1        # Phân phối Dirichlet cho Concept Drift/Data Skew
     DATASET_2D: str = "URPC_2020"     # Kịch bản 2 & 3
     DATASETS_1D: List[str] = None

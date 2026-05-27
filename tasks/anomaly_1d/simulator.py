@@ -99,16 +99,16 @@ class RelayNode1D(BaseRelayNode):
     def aggregate_intra_cluster(self, global_state_dict, payloads, auv_n_samples, **kwargs):
         from federated_core.aggregator import fedavg_intra_cluster
         import copy
-        client_deltas = []
+        auv_deltas = []
         for auv_id, payload in payloads.items():
             if auv_id in self.cluster_members:
                 dense_delta = payload.decompress()
                 n_i = auv_n_samples[auv_id]
-                client_deltas.append((dense_delta, n_i))
+                auv_deltas.append((dense_delta, n_i))
 
         self.intra_state_dict = fedavg_intra_cluster(
             global_state_dict=global_state_dict,
-            client_deltas=client_deltas,
+            auv_deltas=auv_deltas,
             model_template=self.model_template,
         )
         self.final_state_dict = copy.deepcopy(self.intra_state_dict)
@@ -120,7 +120,7 @@ class Simulator1D(BaseSimulator):
         self.task_key = "1D"
         
         from utils.env_manager import EnvironmentManager
-        from tasks.anomaly_1d.dataloader import load_dataset, SlidingWindowDataset, make_client_loaders, make_val_loader
+        from tasks.anomaly_1d.dataloader import load_dataset, SlidingWindowDataset, make_auv_loaders, make_val_loader
         
         data_part = EnvironmentManager.load_data_partition(data_path)
         self.dataset_name = data_part.dataset_name
@@ -131,7 +131,7 @@ class Simulator1D(BaseSimulator):
         )
         
         train_ds = SlidingWindowDataset(train_data, train_labels, window_size=10)
-        self.train_loaders = make_client_loaders(train_ds, data_part.client_data_indices, batch_size=64)
+        self.train_loaders = make_auv_loaders(train_ds, data_part.auv_data_indices, batch_size=64)
         
         self.val_loaders_per_channel = []
         self.test_loaders_per_channel = []

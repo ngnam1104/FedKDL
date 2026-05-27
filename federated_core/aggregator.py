@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple
 
 def fedavg_intra_cluster(
     global_state_dict: Dict[str, torch.Tensor],
-    client_deltas: List[Tuple[torch.Tensor, int]],
+    auv_deltas: List[Tuple[torch.Tensor, int]],
     model_template: nn.Module,
 ) -> Dict[str, torch.Tensor]:
     """
@@ -25,17 +25,17 @@ def fedavg_intra_cluster(
 
     Args:
         global_state_dict: θ^t — trọng số toàn cục đầu round.
-        client_deltas:     List of (delta_theta_flat, n_samples_i).
+        auv_deltas:     List of (delta_theta_flat, n_samples_i).
                            delta_theta_flat: (total_params,) float tensor.
         model_template:    Model dùng để map flat → state_dict.
 
     Returns:
         relay_state_dict: θ_relay sau FedAvg nội cụm.
     """
-    if not client_deltas:
+    if not auv_deltas:
         return copy.deepcopy(global_state_dict)
 
-    total_samples = sum(n for _, n in client_deltas)
+    total_samples = sum(n for _, n in auv_deltas)
     if total_samples == 0:
         return copy.deepcopy(global_state_dict)
 
@@ -43,7 +43,7 @@ def fedavg_intra_cluster(
     total_params = sum(p.numel() for p in model_template.parameters())
     device = next(iter(global_state_dict.values())).device if global_state_dict else 'cpu'
     weighted_delta = torch.zeros(total_params, device=device)
-    for delta_flat, n_i in client_deltas:
+    for delta_flat, n_i in auv_deltas:
         weighted_delta += (n_i / total_samples) * delta_flat.to(device)
 
     # Cộng Δθ vào θ_global (flat → state_dict)

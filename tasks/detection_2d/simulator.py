@@ -10,20 +10,20 @@ from typing import Dict, Any, Tuple
 from federated_core.base_simulator import BaseSimulator
 from federated_core.workers import BaseWorker, BaseRelayNode, BaseGateway
 from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
-from tasks.detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_client_train
+from tasks.detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_auv_train
 from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
 from tasks.detection_2d.knowledge_compression.concept_drift import ConceptDriftMonitor
 
 
 class AUVWorker2D(BaseWorker):
-    def __init__(self, auv_id, client_yaml, battery_init):
+    def __init__(self, auv_id, auv_yaml, battery_init):
         super().__init__(auv_id, battery_init)
-        self.client_yaml = client_yaml
+        self.auv_yaml = auv_yaml
         # Cache optimizer state (exp_avg / exp_avg_sq) giữa các FL round.
         # None = chưa có (round đầu tiên, optimizer khởi đầu lạnh).
         self._optimizer_state: dict = None
 
-        with open(self.client_yaml, 'r') as f:
+        with open(self.auv_yaml, 'r') as f:
             c_cfg = yaml.safe_load(f)
         with open(c_cfg['train'], 'r') as f:
             self.n_samples = sum(1 for _ in f)
@@ -51,7 +51,7 @@ class AUVWorker2D(BaseWorker):
             return None, 0.0, 0.0, 0.0, {}
 
         import yaml
-        with open(self.client_yaml, 'r') as f:
+        with open(self.auv_yaml, 'r') as f:
             c_cfg = yaml.safe_load(f)
         nc = c_cfg.get('nc', 80)
 
@@ -87,8 +87,8 @@ class AUVWorker2D(BaseWorker):
 
         new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
             student_model=local_student,
-            client_yaml=self.client_yaml,
-            client_id=self.auv_id,
+            auv_yaml=self.auv_yaml,
+            auv_id=self.auv_id,
             epochs=epochs,
             batch_size=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
             lr=lr,           # Truyền Cosine LR liên tục (không bị reset)
@@ -195,12 +195,12 @@ class Simulator2D(BaseSimulator):
         data_part = EnvironmentManager.load_data_partition(data_path)
         
         # Generate YAMLs
-        self.client_yamls = []
+        self.auv_yamls = []
         base_yaml_path = self.test_yaml
         if not os.path.exists(base_yaml_path):
             print(f"[Warning] Khong tim thay {base_yaml_path}. Su dung che do synthetic.")
             for i in range(self.net_cfg.N_AUVS):
-                self.client_yamls.append("coco8.yaml")
+                self.auv_yamls.append("coco8.yaml")
         else:
             with open(base_yaml_path, 'r') as f:
                 base_cfg = yaml.safe_load(f)
@@ -259,21 +259,21 @@ class Simulator2D(BaseSimulator):
                     f.write("\n".join(public_images))
                 self.proxy_kd_txt = str(proxy_txt.absolute())
                 
-            temp_dir = Path(f"datasets/URPC2020/clients_temp_N{self.net_cfg.N_AUVS}_a{data_part.alpha}_s{data_part.seed}")
+            temp_dir = Path(f"datasets/URPC2020/auvs_temp_N{self.net_cfg.N_AUVS}_a{data_part.alpha}_s{data_part.seed}")
             temp_dir.mkdir(parents=True, exist_ok=True)
-            self.client_yamls = {}
-            for sid, idx_list in data_part.client_data_indices.items():
+            self.auv_yamls = {}
+            for sid, idx_list in data_part.auv_data_indices.items():
                 c_images = [all_images[i] for i in idx_list]
-                txt_path = temp_dir / f"client_{sid}_train.txt"
+                txt_path = temp_dir / f"auv_{sid}_train.txt"
                 with open(txt_path, 'w') as f:
                     f.write("\n".join(c_images))
                 
                 # Tạo file val giả chỉ có 1 ảnh để YOLO cache siêu nhanh (0.001s) thay vì cache lại toàn bộ train
-                dummy_val_path = temp_dir / f"client_{sid}_val.txt"
+                dummy_val_path = temp_dir / f"auv_{sid}_val.txt"
                 with open(dummy_val_path, 'w') as f:
                     f.write(c_images[0] + "\n" if len(c_images) > 0 else "")
 
-                c_yaml_path = temp_dir / f"client_{sid}.yaml"
+                c_yaml_path = temp_dir / f"auv_{sid}.yaml"
                 c_cfg = base_cfg.copy()
                 c_cfg['train'] = str(txt_path.absolute())
                 if 'val' in c_cfg:
@@ -282,7 +282,7 @@ class Simulator2D(BaseSimulator):
                 c_cfg['path'] = str((Path(base_yaml_path).parent / original_path).absolute())
                 with open(c_yaml_path, 'w') as f:
                     yaml.safe_dump(c_cfg, f)
-                self.client_yamls[sid] = str(c_yaml_path)
+                self.auv_yamls[sid] = str(c_yaml_path)
             
             # Tạo proxy_test.yaml với đường dẫn tuyệt đối để evaluate_od không bị lỗi
             test_cfg = base_cfg.copy()
@@ -322,10 +322,10 @@ class Simulator2D(BaseSimulator):
         import numpy as np
         
         # 1. Hàm phụ trợ parse label histogram từ YOLO txt
-        def get_label_histogram(client_yaml_path, num_classes):
+        def get_label_histogram(auv_yaml_path, num_classes):
             hist = np.zeros(num_classes, dtype=np.float32)
             try:
-                with open(client_yaml_path, 'r') as f:
+                with open(auv_yaml_path, 'r') as f:
                     cfg = yaml.safe_load(f)
                 train_paths = cfg.get('train', [])
                 if isinstance(train_paths, str):
@@ -361,7 +361,7 @@ class Simulator2D(BaseSimulator):
                 else:
                     hist = np.ones(num_classes, dtype=np.float32) / num_classes
             except Exception as e:
-                print(f"[Warning] Không thể đọc histogram từ {client_yaml_path}: {e}")
+                print(f"[Warning] Không thể đọc histogram từ {auv_yaml_path}: {e}")
                 hist = np.ones(num_classes, dtype=np.float32) / num_classes
             return hist
 
@@ -377,8 +377,8 @@ class Simulator2D(BaseSimulator):
             print(f"\n[Simulator2D] Khởi tạo Knowledge-Aware Association (EMD β=0.2)...")
             self.auv_label_hists = np.zeros((N, nc), dtype=np.float32)
             for s_id in range(N):
-                if s_id in getattr(self, 'client_yamls', {}):
-                    self.auv_label_hists[s_id] = get_label_histogram(self.client_yamls[s_id], nc)
+                if s_id in getattr(self, 'auv_yamls', {}):
+                    self.auv_label_hists[s_id] = get_label_histogram(self.auv_yamls[s_id], nc)
             
             # Tính Relay Histogram từ các cụm vật lý ban đầu
             self.relay_label_hists = np.zeros((M, nc), dtype=np.float32)
@@ -429,11 +429,11 @@ class Simulator2D(BaseSimulator):
 
         # 3. Tiến hành cấp phát Worker/Node như bình thường
         for s_id in range(self.net_cfg.N_AUVS):
-            if s_id in getattr(self, 'client_yamls', {}):
+            if s_id in getattr(self, 'auv_yamls', {}):
                 if s_id in self.association:
                     self.auvs[s_id] = AUVWorker2D(
                         auv_id=s_id,
-                        client_yaml=self.client_yamls[s_id],
+                        auv_yaml=self.auv_yamls[s_id],
                         battery_init=self.en_cfg.E_INIT,
                     )
                 else:
@@ -649,7 +649,7 @@ class Simulator2D(BaseSimulator):
             'workers': 0,
             'close_mosaic': 0,
             'optimizer': 'AdamW',
-            'lr0': 1e-3,          # [CRITICAL FIX] Tăng lên 1e-3 để đủ lực kéo lại Client Drift (1e-4 quá yếu)
+            'lr0': 1e-3,          # [CRITICAL FIX] Tăng lên 1e-3 để đủ lực kéo lại AUV Drift (1e-4 quá yếu)
             'warmup_epochs': 0,   # [CRITICAL FIX] Tắt hoàn toàn warmup! Nếu để mặc định warmup_epochs=3 > epochs=1
                                   # thì TOÀN BỘ epoch là warmup phase → warmup_bias_lr=0.1 áp lên bias params
                                   # = gấp 1000 lần lr0=1e-4 → overwrite hoàn toàn detection head bias → mAP tụt!

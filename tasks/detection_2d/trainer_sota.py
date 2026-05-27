@@ -182,8 +182,8 @@ class LocalKDTrainer(DetectionTrainer):
 def local_sgd_od_sota(
     student_model,
     teacher_model,          # TeacherModel wrapper — chạy tại AUV
-    client_yaml: str,
-    client_id: int,
+    auv_yaml: str,
+    auv_id: int,
     epochs: int = 2,
     batch_size: int = 16,
     lr: float = 0.01,
@@ -202,14 +202,14 @@ def local_sgd_od_sota(
         (full_state_dict, train_loss)
     """
     print(
-        f"[SOTA][AUV {client_id}] Local KD + DCP={use_dcp}, epochs={epochs}, lr={lr:.6f}"
+        f"[SOTA][AUV {auv_id}] Local KD + DCP={use_dcp}, epochs={epochs}, lr={lr:.6f}"
     )
 
     state_before = {k: v.clone() for k, v in student_model.yolo.model.state_dict().items()}
 
     overrides = {
         'model': "yolo11n.pt",
-        'data': client_yaml,
+        'data': auv_yaml,
         'cache': getattr(fed_cfg, 'CACHE_DATASET', True),
         'epochs': epochs,
         'batch': batch_size,
@@ -221,8 +221,8 @@ def local_sgd_od_sota(
         'cos_lr': False,
         'device': device,
         'amp': False,  # Vô hiệu hóa FP16
-        'project': 'runs/fl_sota_clients',
-        'name': f'client_{client_id}',
+        'project': 'runs/fl_sota_auvs',
+        'name': f'auv_{auv_id}',
         'exist_ok': True,
         'verbose': False,
         'save': False,

@@ -46,7 +46,7 @@ class DataPartitionSnapshot:
     alpha: float
     seed: int
 
-    client_data_indices: Dict[int, List[int]]  # auv_id -> [sample_idx]
+    auv_data_indices: Dict[int, List[int]]  # auv_id -> [sample_idx]
     val_indices: List[int]                     # validation split indices
 
     input_dim: int                     # window_size * n_features
@@ -125,7 +125,7 @@ class EnvironmentManager:
         train_ds = SlidingWindowDataset(train_data, train_labels, window_size=window_size)
         val_ds   = SlidingWindowDataset(val_data,   val_labels,   window_size=window_size)
 
-        client_indices = non_iid_partition(
+        auv_indices = non_iid_partition(
             train_ds, net_cfg.N_AUVS, alpha=alpha, seed=seed
         )
         # Note: Khong filter valid_auvs o day de data_partition hoan toan doc lap voi Topology!
@@ -137,7 +137,7 @@ class EnvironmentManager:
             N=net_cfg.N_AUVS,
             alpha=alpha,
             seed=seed,
-            client_data_indices={int(k): list(v) for k, v in client_indices.items()},
+            auv_data_indices={int(k): list(v) for k, v in auv_indices.items()},
             val_indices=val_indices,
             input_dim=train_ds.D,
             n_train_samples=len(train_ds),
@@ -209,42 +209,42 @@ class EnvironmentManager:
         # Trích 30% dữ liệu làm Public Dataset (Proxy KD)
         public_samples = int(num_samples * 0.3)
         # 80% dữ liệu dành cho các AUVs (Underwater)
-        client_samples = int(num_samples * 0.8)
+        auv_samples = int(num_samples * 0.8)
         
         indices = np.arange(num_samples)
         np.random.shuffle(indices)
         
         # Lấy 30% đầu tiên cho Proxy
         public_indices = indices[:public_samples].tolist()
-        # Lấy 80% từ dưới lên cho Clients -> Tự động sinh ra 10% chồng chéo (overlap)
-        client_indices_pool = indices[-client_samples:]
+        # Lấy 80% từ dưới lên cho AUVs -> Tự động sinh ra 10% chồng chéo (overlap)
+        auv_indices_pool = indices[-auv_samples:]
         
         proportions = np.random.dirichlet(np.repeat(alpha, net_cfg.N_AUVS))
         proportions = proportions / proportions.sum()
         
         # Đảm bảo mỗi thiết bị có ít nhất 2 ảnh (nếu đủ ảnh)
-        min_samples = 2 if client_samples >= net_cfg.N_AUVS * 2 else 0
-        remaining_samples = max(0, client_samples - net_cfg.N_AUVS * min_samples)
+        min_samples = 2 if auv_samples >= net_cfg.N_AUVS * 2 else 0
+        remaining_samples = max(0, auv_samples - net_cfg.N_AUVS * min_samples)
         
-        client_splits = (proportions * remaining_samples).astype(int)
-        client_splits += min_samples
+        auv_splits = (proportions * remaining_samples).astype(int)
+        auv_splits += min_samples
         
-        if client_samples > 0:
-            client_splits[-1] = client_samples - sum(client_splits[:-1])
+        if auv_samples > 0:
+            auv_splits[-1] = auv_samples - sum(auv_splits[:-1])
         
-        client_data_indices = {}
+        auv_data_indices = {}
         current_idx = 0
         for i in range(net_cfg.N_AUVS):
-            c_indices = client_indices_pool[current_idx : current_idx + client_splits[i]]
-            client_data_indices[i] = c_indices.tolist()
-            current_idx += client_splits[i]
+            c_indices = auv_indices_pool[current_idx : current_idx + auv_splits[i]]
+            auv_data_indices[i] = c_indices.tolist()
+            current_idx += auv_splits[i]
             
         return DataPartitionSnapshot(
             dataset_name=dataset_name,
             N=net_cfg.N_AUVS,
             alpha=alpha,
             seed=seed,
-            client_data_indices=client_data_indices,
+            auv_data_indices=auv_data_indices,
             val_indices=[], # YOLO validates via the base yaml's val set
             input_dim=0, # not used for images in the same way
             n_train_samples=num_samples,
