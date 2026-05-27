@@ -388,10 +388,17 @@ class Simulator2D(BaseSimulator):
             
             # Đếm số lượng thay đổi
             changed = 0
+            changes_log = []
             for s, new_f in new_association.items():
-                if self.association.get(s, -1) != new_f:
+                old_f = self.association.get(s, -1)
+                if old_f != new_f:
                     changed += 1
+                    changes_log.append(f"    - Sensor {s}: Fog {old_f} -> Fog {new_f}")
             print(f"[Simulator2D] EMD Clustering hoàn tất. {changed}/{N} AUVs đã chuyển cụm (Fog) để tối ưu EMD.")
+            if changed > 0:
+                print("  Chi tiết thay đổi:")
+                for log in changes_log:
+                    print(log)
             
             # Cập nhật state
             self.association = new_association
