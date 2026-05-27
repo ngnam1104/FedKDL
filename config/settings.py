@@ -54,7 +54,8 @@ class FedKDLConfig:
     FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2}) # Hệ số nhân: 1D (Full fine-tuning), 2D (LoRA)
     LOCAL_EPOCHS: int = 2             # Giảm xuống 2 để giảm Client Drift
     LOCAL_BATCH_SIZE: int = 16        # Trả về 16 vì batch 64 làm training bị nghẽn (2.9s/it)
-    DATALOADER_WORKERS: int = 4       # Tăng số luồng load ảnh (mặc định Ultralytics đẩy về 0 trên Windows gây nghẽn)
+    DATALOADER_WORKERS: int = 0       # Giữ 0 để an toàn tuyệt đối cho logic LoRA/KD
+    CACHE_DATASET: bool = True        # Đưa toàn bộ dataset vào RAM để tăng tốc thay vì dùng đa luồng
     LOCAL_LR: float = 0.005           # Giảm xuống 0.005 (thay vì 0.01) để ổn định nhưng không quá rùa bò
     NON_IID_ALPHA: float = 0.1        # Phân phối Dirichlet cho Concept Drift/Data Skew
     DATASET_2D: str = "URPC_2020"     # Kịch bản 2 & 3

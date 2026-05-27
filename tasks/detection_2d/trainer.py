@@ -235,6 +235,7 @@ def local_sgd_od(
     overrides = {
         'model': "yolo11n.pt",
         'data': client_yaml,
+        'cache': getattr(fed_cfg, 'CACHE_DATASET', True),
         'epochs': epochs,
         'batch': batch_size,
         'workers': getattr(fed_cfg, 'DATALOADER_WORKERS', 4),

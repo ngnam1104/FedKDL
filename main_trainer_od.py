@@ -149,6 +149,7 @@ def main():
             test_yaml = "datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml"
             results = model.train(
                 data=test_yaml,
+                cache=getattr(fed_cfg, 'CACHE_DATASET', True),
                 epochs=T_rounds,
                 imgsz=640,
                 batch=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
