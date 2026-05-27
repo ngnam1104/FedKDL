@@ -31,7 +31,7 @@ export PYTHONIOENCODING=utf-8
 ROUNDS=70
 SEED=42
 DS="URPC"
-M_FOGS_2D=4       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
+M_FOGS_2D=5       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
 # =========================================================
 
 GEN_ENV_ARGS=()

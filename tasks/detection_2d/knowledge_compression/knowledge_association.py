@@ -103,8 +103,8 @@ def knowledge_aware_association(
     active_fogs = max(1, active_fogs)
     
     # Đặt mức trần mềm (soft capacity constraint) cho mỗi Fog
-    # Thêm +1 để có độ linh hoạt (vd: 20 AUV / 4 Fog = 5, max = 6)
-    max_cap = int(np.ceil(topology.N / active_fogs)) + 1
+    # Thêm +2 để có độ linh hoạt (vd: 20 AUV / 4 Fog = 5, max = 7)
+    max_cap = int(np.ceil(topology.N / active_fogs)) + 2
     
     fog_counts = {m: 0 for m in range(topology.M)}
     association = {}
