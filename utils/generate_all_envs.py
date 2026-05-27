@@ -27,7 +27,7 @@ def main():
     if args.dataset == 'URPC':
         DATASETS = ['URPC']
         N_LIST = [10, 20, 30, 40, 50]
-        ALPHAS = [2.0, 10000.0]
+        ALPHAS = [1.0, 10000.0]
         SEEDS = [42]
         task_type = '2d'
     else:

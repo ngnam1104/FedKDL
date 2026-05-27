@@ -413,10 +413,11 @@ class Simulator2D(BaseSimulator):
                     print(f"\n[{'='*40}]\n[Sensor {s_id}] BỎ QUA VÌ KHÔNG THỎA MÃN KHOẢNG CÁCH (Out of Range)\n[{'='*40}]\n")
 
         for m, members in self.clusters.items():
-            self.fogs[m] = FogNode2D(
-                fog_id=m,
-                cluster_members=members,
-            )
+            if len(members) > 0:
+                self.fogs[m] = FogNode2D(
+                    fog_id=m,
+                    cluster_members=members,
+                )
 
     def get_flop_multiplier(self) -> float:
         classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
