@@ -633,6 +633,7 @@ class Simulator2D(BaseSimulator):
             'val': False,
             'plots': False,
             'workers': 0,
+            'close_mosaic': 0,
             'optimizer': 'AdamW',
             'lr0': 1e-3,          # [CRITICAL FIX] Tăng lên 1e-3 để đủ lực kéo lại Client Drift (1e-4 quá yếu)
             'warmup_epochs': 0,   # [CRITICAL FIX] Tắt hoàn toàn warmup! Nếu để mặc định warmup_epochs=3 > epochs=1
