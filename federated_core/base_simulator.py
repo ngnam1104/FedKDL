@@ -400,7 +400,7 @@ class BaseSimulator(ABC):
                 from physics_models.topology import build_feasibility_graph, nearest_feasible_association, build_clusters
                 
                 # Tính lại đồ thị khoảng cách vật lý
-                self.G = build_feasibility_graph(self.topology, self.acoustic_cfg)
+                self.G = build_feasibility_graph(self.topology, self.ac_cfg)
                 
                 # Tái phân cụm
                 # Nếu là Simulator2D (có EMD), kết hợp EMD + Khoảng cách vật lý
