@@ -24,7 +24,7 @@ def main():
     print("==================================================")
     
     # 1. Load the data partition for N=30 (chứa 20% public data)
-    data_path = REPO_ROOT / "environments/2d/data/URPC/N_30/data_N30_URPC_a2p0_seed42.pkl"
+    data_path = REPO_ROOT / "environments/2d/data/URPC/N_30/data_N30_URPC_a1p0_seed42.pkl"
     if not data_path.exists():
         print(f"[Error] Khong tim thay data partition {data_path}. Vui long chay utils/generate_all_envs.py truoc.")
         return
