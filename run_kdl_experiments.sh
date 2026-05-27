@@ -56,7 +56,7 @@ echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..
 # =========================================================
 # Hàm chạy chung để tránh lặp code (Giữ nguyên đoạn này trở xuống)
 # =========================================================
-total_tasks=46
+total_tasks=47
 current_task=0
 
 run_baseline() {
