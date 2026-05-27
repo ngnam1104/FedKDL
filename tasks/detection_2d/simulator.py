@@ -164,11 +164,12 @@ class FogNode2D(BaseFogNode):
             total_samples = 1
 
         for k in c_updates[0]:
+            original_dtype = c_updates[0][k].dtype
             weighted_sum = torch.zeros_like(c_updates[0][k].float())
             for i, sid in enumerate(valid_sids):
                 weight = sensor_n_samples.get(sid, 0) / total_samples
                 weighted_sum += c_updates[i][k].float() * weight
-            self.intra_state_dict[k] = weighted_sum
+            self.intra_state_dict[k] = weighted_sum.to(original_dtype)
             
         import copy
         self.final_state_dict = copy.deepcopy(self.intra_state_dict)
