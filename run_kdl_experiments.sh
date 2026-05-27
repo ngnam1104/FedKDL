@@ -27,7 +27,7 @@ export PYTHONIOENCODING=utf-8
 # =========================================================
 # Cấu hình thử nghiệm (Chỉnh sửa các tham số tại đây)
 # =========================================================
-ROUNDS=70
+ROUNDS=50
 SEED=42
 DS="URPC"
 M_FOGS_2D=4       # Thay đổi số lượng Fog tại đây (vd: 4, 5, 10...)
@@ -140,12 +140,14 @@ echo "=== GROUP A2: FedKDL Ablation Studies ==="
 # 2. Nếu tên có chữ 'noint8' (như 'lora_head_kd_noint8'), code sẽ giữ nguyên định dạng Float32 (4 bytes/param).
 # 3. Tương tự: 'nolora' sẽ gửi full param; 'nokd' sẽ bỏ qua bước Knowledge Distillation tại Gateway.
 ABLATION_BASELINES=(
-  "fedkdl_r4" "full_param_kd" "full_param_nokd" 
+  "fedkdl_r4" "fedkdl_r8" "full_param_kd" "full_param_nokd" 
   "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
 )
 for b in "${ABLATION_BASELINES[@]}"; do
   if [[ "$b" == "fedkdl_r4" ]]; then
     run_baseline 20 1.0 "$b" 4  # r=4 ablation
+  elif [[ "$b" == "fedkdl_r8" ]]; then
+    run_baseline 20 1.0 "$b" 8  # r=8 ablation
   else
     run_baseline 20 1.0 "$b"
   fi
