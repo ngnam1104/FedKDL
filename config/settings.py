@@ -36,7 +36,7 @@ class AcousticChannelConfig:
 @dataclass
 class EnergyConfig:
     """Ngân sách Sinh tồn và Tiêu hao Năng lượng"""
-    E_INIT: float = 1200.0            # Vừa vặn hoàn hảo để sống sót 70 vòng với Rank 12
+    E_INIT: float = 1000.0            # 1000 Joules vừa khít sống sót 60 vòng (hao ~910 Joules)
     E_MIN: float = 50.0               # Ngưỡng pin dự trữ khẩn cấp để ngoi lên mặt nước (Joules)
     EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-11, "2D": 2.0e-12}) # Tiêu hao năng lượng trên mỗi FLOP (1D: FP32, 2D: INT8)
     F_CPU: float = 2.0e9              # Tần số CPU của AUV (Cycles/s hoặc FLOPs/s), ví dụ 2 GHz
@@ -49,7 +49,7 @@ class EnergyConfig:
 class FedKDLConfig:
     """Tham số Thuật toán Học liên kết & Đề xuất FedKDL"""
     # Baseline Parameters
-    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 50}) # Chu kỳ sống dự kiến cho từng tác vụ
+    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60}) # Chu kỳ sống dự kiến cho từng tác vụ
     MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 108000.0, "2D": 2.175e9}) # 1D: Autoencoder ~54k params | 2D: YOLOv8n ở 320x320
     FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2}) # Hệ số nhân: 1D (Full fine-tuning), 2D (LoRA)
     LOCAL_EPOCHS: int = 2             # Giảm xuống 2 để giảm Client Drift
