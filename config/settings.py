@@ -56,7 +56,7 @@ class FedKDLConfig:
     LOCAL_BATCH_SIZE: int = 16        # Trả về 16 vì batch 64 làm training bị nghẽn (2.9s/it)
     DATALOADER_WORKERS: int = 0       # Giữ 0 để an toàn tuyệt đối cho logic LoRA/KD
     CACHE_DATASET: bool = True        # Đưa toàn bộ dataset vào RAM để tăng tốc thay vì dùng đa luồng
-    LOCAL_LR: float = 0.005           # Giảm xuống 0.005 (thay vì 0.01) để ổn định nhưng không quá rùa bò
+    LOCAL_LR: float = 0.002           # Giảm xuống 0.002 để chống Client Drift / Overfitting cục bộ
     NON_IID_ALPHA: float = 0.1        # Phân phối Dirichlet cho Concept Drift/Data Skew
     DATASET_2D: str = "URPC_2020"     # Kịch bản 2 & 3
     DATASETS_1D: List[str] = None
