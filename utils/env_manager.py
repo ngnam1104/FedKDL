@@ -206,15 +206,18 @@ class EnvironmentManager:
                 
         num_samples = len(all_images)
         
-        # Tách 20% dữ liệu làm Public Dataset cho Gateway KD
-        public_samples = int(num_samples * 0.2)
-        client_samples = num_samples - public_samples
+        # Trích 30% dữ liệu làm Public Dataset (Proxy KD)
+        public_samples = int(num_samples * 0.3)
+        # 80% dữ liệu dành cho các Sensors (Underwater)
+        client_samples = int(num_samples * 0.8)
         
         indices = np.arange(num_samples)
         np.random.shuffle(indices)
         
+        # Lấy 30% đầu tiên cho Proxy
         public_indices = indices[:public_samples].tolist()
-        client_indices_pool = indices[public_samples:]
+        # Lấy 80% từ dưới lên cho Clients -> Tự động sinh ra 10% chồng chéo (overlap)
+        client_indices_pool = indices[-client_samples:]
         
         proportions = np.random.dirichlet(np.repeat(alpha, net_cfg.N_SENSORS))
         proportions = proportions / proportions.sum()
