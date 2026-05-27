@@ -29,7 +29,7 @@ def _patch_dataloader_with_dcp(trainer_instance):
     Monkey-patch YOLO trainer's dataset to apply DCP on each image.
     Override __getitem__ để chèn DCP vào pipeline đọc ảnh.
     """
-    from tasks.detection_2d_sota.knowledge_compression.dcp import apply_dcp_to_image_array
+    from tasks.detection_2d.knowledge_compression.dcp import apply_dcp_to_image_array
 
     original_get_item = trainer_instance.train_loader.dataset.__class__.__getitem__
 

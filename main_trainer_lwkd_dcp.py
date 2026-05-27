@@ -23,7 +23,7 @@ import ultralytics
 ultralytics.settings.update({'datasets_dir': str(Path('datasets').absolute())})
 
 from config.settings import network_cfg, fed_cfg
-from tasks.detection_2d_lwkd_dcp.simulator import SimulatorSOTA
+from tasks.detection_2d.simulator_sota import SimulatorSOTA
 from utils.log_export import build_experiment_bundle
 from utils.train_io import build_experiment_paths, run_trainer_with_artifacts
 

@@ -24,7 +24,7 @@ from federated_core.workers import BaseWorker, BaseFogNode, BaseGateway
 from federated_core.aggregator import fedavg_intra_cluster, fedavg_global
 
 from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
-from tasks.detection_2d_sota.trainer import local_sgd_od_sota, evaluate_od_sota
+from tasks.detection_2d.trainer_sota import local_sgd_od_sota, evaluate_od_sota
 
 from physics_models.energy import e_tx, e_comp_dynamic
 from physics_models.latency import comm_delay, comp_delay_dynamic
@@ -197,6 +197,16 @@ class SimulatorSOTA(BaseSimulator):
 
         self.gateway = BaseGateway(gateway_id=0)
         print(f"[SimulatorSOTA] {len(self.sensors)} sensors, {len(self.fog_nodes)} fogs.")
+
+    def evaluate(self) -> dict:
+        import gc
+        import torch
+        self.global_student.strip_inference_tensors()
+        self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
+        res = evaluate_od_sota(self.global_student, self.test_yaml, self.device)
+        gc.collect()
+        torch.cuda.empty_cache()
+        return res
 
     def run(self, T_rounds: int = 50, **kwargs) -> dict:
         """Vòng lặp FL chính."""
