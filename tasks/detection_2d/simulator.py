@@ -605,7 +605,7 @@ class Simulator2D(BaseSimulator):
         overrides = {
             'model': "yolo11n.pt",
             'data': proxy_yaml,
-            'epochs': 3,  # [CRITICAL FIX] Tăng lên 3 epochs để có đủ thời gian khắc phục Client Drift từ 20 Sensors
+            'epochs': 2,  # [CRITICAL FIX] Giảm xuống 2 vì BBox KD đã được kích hoạt, học rất nhanh
             'batch': 8,
             'device': self.device,
             'project': 'runs/gateway_kd',
