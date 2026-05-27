@@ -460,6 +460,8 @@ class KDDetectionTrainer(DetectionTrainer):
                         return train_out['bboxes']
                     elif 'pred_bboxes' in train_out:
                         return train_out['pred_bboxes']
+                    elif 'boxes' in train_out:
+                        return train_out['boxes']
                 
                 # 2. Handle older list format
                 feats = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], list)) else p
