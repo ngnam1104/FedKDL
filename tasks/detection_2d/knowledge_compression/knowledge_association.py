@@ -98,13 +98,44 @@ def knowledge_aware_association(
     djoint = compute_djoint_matrix(
         topology, G, sensor_label_hists, fog_label_hists, beta)
 
+    # Xác định số lượng Fog thực sự có thể kết nối
+    active_fogs = sum(1 for m in range(topology.M) if np.any(np.isfinite(djoint[:, m])))
+    active_fogs = max(1, active_fogs)
+    
+    # Đặt mức trần mềm (soft capacity constraint) cho mỗi Fog
+    # Thêm +1 để có độ linh hoạt (vd: 20 AUV / 4 Fog = 5, max = 6)
+    max_cap = int(np.ceil(topology.N / active_fogs)) + 1
+    
+    fog_counts = {m: 0 for m in range(topology.M)}
     association = {}
+    
+    # Trích xuất tất cả các đường truyền khả thi và sắp xếp theo D_joint tăng dần
+    links = []
     for i in range(topology.N):
-        row = djoint[i, :]
-        feasible_fogs = np.where(np.isfinite(row))[0]
-        if len(feasible_fogs) == 0:
-            continue  # Sensor cô lập — không có link âm thanh khả thi
-        best_fog = int(feasible_fogs[np.argmin(row[feasible_fogs])])
-        association[i] = best_fog
+        for m in range(topology.M):
+            if np.isfinite(djoint[i, m]):
+                links.append((djoint[i, m], i, m))
+                
+    links.sort(key=lambda x: x[0])  # Ưu tiên D_joint nhỏ nhất
+    unassigned = set(range(topology.N))
+    
+    # Pass 1: Gán AUV cho Fog với điều kiện chưa vượt qua max_cap
+    for cost, i, m in links:
+        if i in unassigned and fog_counts[m] < max_cap:
+            association[i] = m
+            fog_counts[m] += 1
+            unassigned.remove(i)
+            
+    # Pass 2: Gán nốt các AUV còn lại (do bị giới hạn max_cap ở Pass 1)
+    # Bỏ qua max_cap, gán vào Fog khả thi tốt nhất của AUV đó
+    if len(unassigned) > 0:
+        for cost, i, m in links:
+            if i in unassigned:
+                association[i] = m
+                fog_counts[m] += 1
+                unassigned.remove(i)
+                
+    # Pass 3: Các AUV hoàn toàn cô lập (không có link nào) sẽ bị bỏ qua
+    # Chúng sẽ không nằm trong dict association
 
     return association
