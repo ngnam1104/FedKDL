@@ -443,7 +443,7 @@ class BaseSimulator(ABC):
                 
                 # --- [NEW] Logging Trajectories to File ---
                 import os
-                traj_log_path = r"d:\Documents\HUST\2022-2026\Research_Thesis\FedKDL\results\train_logs\kdl\auv_trajectories.txt"
+                traj_log_path = os.path.join("results", "train_logs", "kdl", "auv_trajectories.txt")
                 os.makedirs(os.path.dirname(traj_log_path), exist_ok=True)
                 mode = 'w' if t == 1 else 'a'
                 with open(traj_log_path, mode, encoding='utf-8') as f:
