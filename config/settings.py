@@ -36,7 +36,7 @@ class AcousticChannelConfig:
 @dataclass
 class EnergyConfig:
     """Ngân sách Sinh tồn và Tiêu hao Năng lượng"""
-    E_INIT: float = 1000.0            # Pin khởi tạo của mỗi thiết bị (Joules) 
+    E_INIT: float = 2500.0            # Nâng lên 2500 Joules để gánh được Payload của Rank 12 trong 100 vòng
     E_MIN: float = 50.0               # Ngưỡng pin dự trữ khẩn cấp để ngoi lên mặt nước (Joules)
     EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-11, "2D": 2.0e-12}) # Tiêu hao năng lượng trên mỗi FLOP (1D: FP32, 2D: INT8)
     F_CPU: float = 2.0e9              # Tần số CPU của AUV (Cycles/s hoặc FLOPs/s), ví dụ 2 GHz
@@ -71,9 +71,10 @@ class FedKDLConfig:
     # KD-LoRA-INT8 Parameters
     # Kịch bản 1: LORA_RANK=4 → payload ~74KB  (LoRA 72KB + Head partial 2KB)
     # Kịch bản 2: LORA_RANK=8 → payload ~146KB (LoRA 144KB + Head partial 2KB) ≈ 150KB target
-    LORA_RANK: int = 8                # Giữ nguyên r=8 để bảo toàn pin cho 100 vòng
+    # Kịch bản 3: LORA_RANK=12 → payload ~196KB -> tau_round ~1650s (<1800s limit)
+    LORA_RANK: int = 12               # Nâng lên 12 để não to hơn
     QUANTIZATION_BITS: int = 8        # Affine Quantization từng tensor riêng biệt (INT8)
-    TARGET_PAYLOAD_KB: float = 150.0  # Target payload: 150KB (LoRA+Head partial INT8)
+    TARGET_PAYLOAD_KB: float = 200.0  # Target payload: 200KB (LoRA+Head partial INT8)
     
     # Deterministic Rules Thresholds
     BETA_EMD: float = 0.5             # Trọng số lai D_joint giữa Tri thức (EMD) và Địa lý
