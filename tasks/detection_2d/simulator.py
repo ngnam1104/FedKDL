@@ -552,7 +552,7 @@ class Simulator2D(BaseSimulator):
 
         # --- Adaptive KD Dropout Gate ---
         # Số vòng liên tiếp metrics giảm để kích hoạt ngắt KD
-        CONSEC_DROP_THRESHOLD = getattr(self, '_kd_drop_threshold', 5)
+        CONSEC_DROP_THRESHOLD = getattr(self, '_kd_drop_threshold', 3)
 
         # Khởi tạo trạng thái tracking nếu chưa có
         if not hasattr(self, '_kd_disabled'):
