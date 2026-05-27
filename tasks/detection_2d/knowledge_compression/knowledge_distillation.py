@@ -486,21 +486,6 @@ class KDDetectionTrainer(DetectionTrainer):
                     s_shape = s_box.shape if s_box is not None else None
                     t_shape = t_box.shape if t_box is not None else None
                     print(f"[KD Warning] Extract bboxes failed or mismatch. s_box: {s_shape}, t_box: {t_shape}")
-                    if isinstance(preds, dict):
-                        print(f"[KD Debug] preds is dict with keys: {list(preds.keys())}")
-                        for k, v in preds.items():
-                            if hasattr(v, 'shape'):
-                                print(f"    preds['{k}'].shape: {v.shape}")
-                    elif isinstance(preds, tuple) and len(preds) > 1 and isinstance(preds[1], dict):
-                        print(f"[KD Debug] preds[1] is dict with keys: {list(preds[1].keys())}")
-                    
-                    if isinstance(t_preds, dict):
-                        print(f"[KD Debug] t_preds is dict with keys: {list(t_preds.keys())}")
-                    elif isinstance(t_preds, tuple) and len(t_preds) > 1 and isinstance(t_preds[1], dict):
-                        print(f"[KD Debug] t_preds[1] is dict with keys: {list(t_preds[1].keys())}")
-                        for k, v in t_preds[1].items():
-                            if hasattr(v, 'shape'):
-                                print(f"    t_preds[1]['{k}'].shape: {v.shape}")
                 loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
         except Exception as e:
             if self.batch_count == 0:
