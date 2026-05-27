@@ -256,11 +256,17 @@ class Simulator2D(BaseSimulator):
                 txt_path = temp_dir / f"client_{sid}_train.txt"
                 with open(txt_path, 'w') as f:
                     f.write("\n".join(c_images))
+                
+                # Tạo file val giả chỉ có 1 ảnh để YOLO cache siêu nhanh (0.001s) thay vì cache lại toàn bộ train
+                dummy_val_path = temp_dir / f"client_{sid}_val.txt"
+                with open(dummy_val_path, 'w') as f:
+                    f.write(c_images[0] + "\n" if len(c_images) > 0 else "")
+
                 c_yaml_path = temp_dir / f"client_{sid}.yaml"
                 c_cfg = base_cfg.copy()
                 c_cfg['train'] = str(txt_path.absolute())
                 if 'val' in c_cfg:
-                    c_cfg['val'] = c_cfg['train']  # Ép YOLO không đọc tập val thật để tiết kiệm 15s caching mỗi client
+                    c_cfg['val'] = str(dummy_val_path.absolute())
                 original_path = base_cfg.get('path', '')
                 c_cfg['path'] = str((Path(base_yaml_path).parent / original_path).absolute())
                 with open(c_yaml_path, 'w') as f:
