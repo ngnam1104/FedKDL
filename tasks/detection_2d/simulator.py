@@ -563,7 +563,7 @@ class Simulator2D(BaseSimulator):
 
         # --- Adaptive KD Dropout Gate ---
         # Số vòng liên tiếp metrics giảm để kích hoạt ngắt KD
-        CONSEC_DROP_THRESHOLD = getattr(self, '_kd_drop_threshold', 3)
+        CONSEC_DROP_THRESHOLD = getattr(self, '_kd_drop_threshold', 5)
 
         # Khởi tạo trạng thái tracking nếu chưa có
         if not hasattr(self, '_kd_disabled'):
@@ -600,6 +600,9 @@ class Simulator2D(BaseSimulator):
             if self._consec_drop_count >= CONSEC_DROP_THRESHOLD:
                 self._kd_disabled = True
                 self._fedprox_mu_override = 0.01  # Bật FedProx để bù cho KD bị tắt
+                # [CRITICAL FIX] Flush AdamW cache to prevent gradient explosion after loss shift
+                for sensor in self.sensors.values():
+                    sensor._optimizer_state = None
                 print(f"[Gateway KD] 🚫 Disabling KD permanently after {CONSEC_DROP_THRESHOLD} consecutive drops "
                       f"— switching to FedProx (mu=0.01) convergence mode.")
                 self._last_kd_metrics = {
