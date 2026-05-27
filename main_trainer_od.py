@@ -151,7 +151,7 @@ def main():
                 data=test_yaml,
                 epochs=T_rounds,
                 imgsz=640,
-                batch=16,
+                batch=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
                 device=device,
                 project=args.out_dir,
                 name=f"centralized_{stem}",
