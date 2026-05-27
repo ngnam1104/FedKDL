@@ -81,6 +81,7 @@ class SensorWorkerSOTA(BaseWorker):
             client_yaml=self.client_yaml,
             client_id=self.sensor_id,
             epochs=epochs,
+            batch_size=getattr(self.fed_cfg, 'LOCAL_BATCH_SIZE', 16),
             lr=lr,
             device=device,
             use_dcp=True,
