@@ -246,6 +246,7 @@ def local_sgd_od(
         'lrf': 1.0,
         'cos_lr': False,
         'device': device,
+        'amp': False,  # Vô hiệu hóa FP16 để tránh overflow (Inf/NaN) khi train LoRA/KD
         'project': 'runs/fl_clients',
         'name': f'client_{client_id}',
         'exist_ok': True,
