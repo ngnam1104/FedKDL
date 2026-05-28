@@ -189,19 +189,19 @@ class BaseSimulator(ABC):
                     
                     if hasattr(self, 'auv_label_counts') and self.auv_label_counts is not None:
                         relay_summaries = {}
-                        for s_id in range(self.topology.N):
-                            assoc = self.association.get(s_id, -1)
-                            if assoc >= 0:
-                                if assoc not in relay_summaries:
-                                    relay_summaries[assoc] = np.zeros_like(self.auv_label_counts[s_id])
-                                relay_summaries[assoc] += self.auv_label_counts[s_id]
-                                
+                        relay_positions = {}
+                        for s_id, r_id in self.association.items():
+                            if r_id not in relay_summaries:
+                                relay_summaries[r_id] = np.zeros(self.net_cfg.nc, dtype=np.float32)
+                                relay_positions[r_id] = self.topology.relay_positions[r_id]
+                            relay_summaries[r_id] += self.auv_label_counts[s_id]
                         if relay_summaries:
-                            f.write(f"\n--- Relay Summaries ---\n")
+                            f.write("\n--- Relay Summaries ---\n")
                             for r_id in sorted(relay_summaries.keys()):
                                 counts = relay_summaries[r_id]
+                                pos = relay_positions[r_id]
                                 counts_str = " | Total Counts: [" + ", ".join([f"{int(x):4d}" for x in counts]) + "]"
-                                f.write(f"Relay {r_id:2d}{counts_str}\n")
+                                f.write(f"Relay {r_id:2d}: X={pos[0]:.0f}, Y={pos[1]:.0f}, Z={pos[2]:.0f}{counts_str}\n")
                     f.write("\n")
             # --- Phase 1: AUV Tier ---
             alive_auvs = [s.auv_id for s in self.auvs.values() if s.alive]
@@ -367,13 +367,22 @@ class BaseSimulator(ABC):
             tau_round = latency_info['tau_round']
             self.latency_tracker.add_round(t, latency_info)
 
+            # --- Đánh giá Global Model TRƯỚC khi KD để debug mAP/Prec/Rec ---
+            pre_kd_metrics = {}
+            if 'kd' in self.baseline:
+                print(f"\n[Simulator] Evaluating Global Model PRE-KD (Round {t})...")
+                pre_eval = self.evaluate()
+                pre_kd_metrics = {f"pre_kd_{k}": v for k, v in pre_eval.items()}
+
             # --- Phase 3b: Gateway-side Knowledge Distillation (Tier 3) ---
             # Chạy KD TRƯỚC evaluate để lưu được post-KD metrics vào history.
             # Adaptive Dropout Gate sẽ đọc history vòng trước để quyết định có chạy KD không.
             # Simulator2D (fedkdl) override → Teacher KD. Simulator1D → no-op.
             kd_metrics = self._gateway_knowledge_distillation() or {}
 
+            print(f"\n[Simulator] Evaluating Global Model POST-KD (Round {t})...")
             eval_metrics = self.evaluate()
+            eval_metrics.update(pre_kd_metrics)
 
             # --- Lưu post-KD metrics vào history cho Adaptive Dropout vòng sau ---
             if not hasattr(self, '_round_metrics_history'):

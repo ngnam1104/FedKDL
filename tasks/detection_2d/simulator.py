@@ -401,7 +401,7 @@ class Simulator2D(BaseSimulator):
                 G=self.G,
                 auv_label_hists=self.auv_label_hists,
                 relay_label_hists=self.relay_label_hists,
-                beta=0.2  # 80% Khoảng cách, 20% EMD
+                beta=0.0  # TẮT EMD theo yêu cầu: 100% Khoảng cách vật lý
             )
             
             # Đếm số lượng thay đổi
@@ -606,10 +606,20 @@ class Simulator2D(BaseSimulator):
             from pathlib import Path
             with open(proxy_yaml, 'r') as f:
                 p_cfg = yaml.safe_load(f)
+            if 'path' in p_cfg and 'val' in p_cfg:
+                # Convert relative val path to absolute before popping 'path'
+                dataset_dir = Path(proxy_yaml).parent
+                base_dir = dataset_dir / p_cfg['path']
+                
+                # YOLO có thể dùng chuỗi đường dẫn trực tiếp, ta chuyển nó thành absolute
+                if isinstance(p_cfg['val'], str):
+                    p_cfg['val'] = str((base_dir / p_cfg['val']).resolve())
+                elif isinstance(p_cfg['val'], list):
+                    p_cfg['val'] = [str((base_dir / v).resolve()) for v in p_cfg['val']]
             
             p_cfg.pop('path', None)  # Xoá path đi để YOLO bắt buộc dùng đường dẫn tuyệt đối ở dưới
             p_cfg['train'] = getattr(self, 'proxy_kd_txt', '')
-            p_cfg['val'] = getattr(self, 'proxy_kd_txt', '')
+            # p_cfg['val'] được giữ nguyên (đã chuyển thành absolute path) thay vì gán bằng train
             
             proxy_yaml_abs = "datasets/proxy_kd_data.yaml"
             with open(proxy_yaml_abs, 'w') as f:
@@ -632,7 +642,10 @@ class Simulator2D(BaseSimulator):
             'workers': 0,
             'close_mosaic': 0,
             'optimizer': 'AdamW',
-            'lr0': 1e-3,          # [CRITICAL FIX] Tăng lên 1e-3 để đủ lực kéo lại AUV Drift (1e-4 quá yếu)
+            
+            # [FIX] Cập nhật LR giảm dần (Global Decay) qua các vòng FL thay vì cứng 1e-3
+            'lr0': max(1e-4, 1e-3 * (1.0 - (getattr(self, 'current_round', 1) - 1) / getattr(self.fed_cfg, 'T_ROUNDS', 100))),
+            
             'warmup_epochs': 0,   # [CRITICAL FIX] Tắt hoàn toàn warmup! Nếu để mặc định warmup_epochs=3 > epochs=1
                                   # thì TOÀN BỘ epoch là warmup phase → warmup_bias_lr=0.1 áp lên bias params
                                   # = gấp 1000 lần lr0=1e-4 → overwrite hoàn toàn detection head bias → mAP tụt!

@@ -250,13 +250,24 @@ class EnvironmentManager:
         print("  [Habitat Buckets] " +
               " | ".join(f"H{h}({len(imgs_by_habitat[h])})" for h in range(4)))
 
-        # 3. Trích 30% làm Public Dataset (Proxy KD) rải đều 4 habitat
-        proxy_per_habitat = max(1, int(num_samples * 0.3) // 4)
+        # 3. Trích 20% làm Public Dataset (Proxy KD) rải đều 4 habitat và CÔ LẬP hoàn toàn
+        proxy_per_habitat = max(1, int(num_samples * 0.2) // 4)
         public_indices = []
+        
+        print("\n  [Data Partitioning] Tách 20% Public Data và 80% AUV Data:")
         for h in range(4):
-            pool = list(imgs_by_habitat[h])
+            pool = imgs_by_habitat[h] # Trỏ trực tiếp vào kho
+            old_size = len(pool)
             random.shuffle(pool)
+            
+            # Đưa vào tập Public (Proxy KD)
             public_indices.extend(pool[:proxy_per_habitat])
+            
+            # XÓA TRIỆT ĐỂ 20% này khỏi kho, 80% còn lại mới để cho AUV chia nhau
+            imgs_by_habitat[h] = pool[proxy_per_habitat:]
+            new_size = len(imgs_by_habitat[h])
+            print(f"    - Habitat {h}: Tổng {old_size} ảnh -> Lấy {proxy_per_habitat} ảnh cho KD -> Còn lại {new_size} ảnh cho AUV")
+        print(f"  => Tổng Public (Proxy) Data: {len(public_indices)} ảnh.\n")
 
         # 4. Tính toán Gaussian Affinity (Độ bám dính Ecotone) cho từng AUV
         auv_pos = topo.auv_positions  # (N, 3)
