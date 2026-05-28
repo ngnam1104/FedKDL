@@ -514,11 +514,11 @@ class KDDetectionTrainer(DetectionTrainer):
         else:
             total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
         
-        # Tích lũy log (Phải in ra giá trị GỐC để theo dõi xem Loss có đang thực sự giảm hay không!)
-        self.epoch_box_loss += loss_box_kd.item()
-        self.epoch_kl_loss += loss_kl.item()
-        self.epoch_hidden_loss += loss_hidden.item()
-        self.epoch_attn_loss += loss_attn.item()
+        # Tích lũy log (Giá trị ĐÃ SCALE theo trọng số để thấy rõ độ lớn tham gia vào Gradient)
+        self.epoch_box_loss += (loss_box_kd.item() * 0.5)
+        self.epoch_kl_loss += (loss_kl.item() * 0.5)
+        self.epoch_hidden_loss += (loss_hidden.item() * 10.0)
+        self.epoch_attn_loss += (loss_attn.item() * 50.0)
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
 
