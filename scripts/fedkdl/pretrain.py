@@ -122,8 +122,8 @@ def main():
         teacher_model = YOLO(str(best_teacher_path))
         teacher_model.train(
             data=str(base_yaml_path),       # Toàn bộ URPC2020.yaml
-            epochs=200,                     # Đủ dài để vượt plateau (best ở ~43, cần thêm ~160 epochs)
-            patience=80,                    # Đủ lớn để không bị early stop sớm ở giai đoạn augmentation warm-up
+            epochs=50,                      # Huấn luyện thêm 50 epoch
+            patience=0,                     # Vô hiệu hóa Early Stopping
             batch=16,
             imgsz=640,
             device="0",
@@ -140,15 +140,15 @@ def main():
             cls=0.3,                        # Giảm từ 0.5 xuống 0.3
             box=7.5,                        # Giữ nguyên box regression weight
             project=str(REPO_ROOT / "runs/teacher_pretrain"),
-            name="yolo12l_oracle_finetune", # Tên run mới, không ghi đè run cũ
+            name="yolo12l_oracle_finetune_v2", # Tên run mới, không ghi đè run cũ
             exist_ok=True,
             verbose=True,
             workers=4,
             plots=False,
         )
 
-        best_finetune_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_finetune/weights/best.pt"
-        last_finetune_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_finetune/weights/last.pt"
+        best_finetune_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_finetune_v2/weights/best.pt"
+        last_finetune_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_finetune_v2/weights/last.pt"
 
         if best_finetune_path.exists():
             import shutil
@@ -174,8 +174,8 @@ def main():
         teacher_model = YOLO(str(teacher_ckpt))
         teacher_model.train(
             data=str(base_yaml_path),
-            epochs=200,
-            patience=80,
+            epochs=50,
+            patience=0,
             batch=16,
             imgsz=640,
             device="0",
@@ -210,65 +210,7 @@ def main():
     else:
         print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy {teacher_ckpt} hoặc best.pt. Vui lòng chuẩn bị file trước.")
 
-    # 5. Tiến hành Pre-train Student khởi tạo (YOLO11n) - Global Warm-up
-    student_ckpt = "yolo11n.pt"
-    target_student_path = REPO_ROOT / "yolo11n_pretrained.pt"
-    
-    if not target_student_path.exists():
-        print(f"\n[Pre-train Student] Bắt đầu khởi động ấm (Warm-up) {student_ckpt} trên Proxy Data (5 epochs)...")
-        
-        print("\n=== [Kiểm tra bộ nhớ (RAM/VRAM) trước khi Train Student] ===")
-        try:
-            import psutil
-            vm = psutil.virtual_memory()
-            print(f"[-] System RAM: Dùng {vm.used / (1024**3):.2f} GB / Tổng {vm.total / (1024**3):.2f} GB (Trống: {vm.available / (1024**3):.2f} GB)")
-        except ImportError:
-            print("[-] System RAM: (Thư viện psutil chưa cài đặt, không thể đo lường)")
-            
-        if torch.cuda.is_available():
-            device_id = torch.cuda.current_device()
-            vram_total = torch.cuda.get_device_properties(device_id).total_memory
-            vram_allocated = torch.cuda.memory_allocated(device_id)
-            vram_reserved = torch.cuda.memory_reserved(device_id)
-            vram_free = vram_total - vram_reserved
-            print(f"[-] GPU VRAM  : Đã cấp phát {vram_allocated / (1024**3):.2f} GB, Đã giữ {vram_reserved / (1024**3):.2f} GB / Tổng {vram_total / (1024**3):.2f} GB")
-            print(f"[-] GPU VRAM (Trống thực tế): {vram_free / (1024**3):.2f} GB")
-        else:
-            print("[-] GPU VRAM: Không tìm thấy GPU CUDA.")
-        print("============================================================\n")
-        
-        student_model = YOLO(student_ckpt)
-        
-        # Huấn luyện 10 epochs thay vì 3
-        student_model.train(
-            data=str(proxy_yaml_abs),
-            epochs=10,
-            batch=16,
-            imgsz=640,
-            device="0",  
-            project=str(REPO_ROOT / "runs/student_pretrain"),
-            name="yolo11n_warmup",
-            exist_ok=True,
-            verbose=True,
-            workers=2,    # Giảm số luồng load data để tránh tràn RAM hệ thống
-            plots=False   # Tắt vẽ biểu đồ ở cuối epoch để tránh lỗi Crash
-        )
-        
-        # Lưu kết quả ra file pretrained
-        best_student_path = REPO_ROOT / "runs/student_pretrain/yolo11n_warmup/weights/best.pt"
-        
-        if best_student_path.exists():
-            import shutil
-            shutil.copy(best_student_path, target_student_path)
-            print(f"\n[Pre-train Student] HOÀN THÀNH! Đã xuất Student Model khởi tạo ra: {target_student_path}")
-        else:
-            print(f"\n[Pre-train Student] Lỗi: Không tìm thấy file {best_student_path}")
-            
-        del student_model
-        gc.collect()
-        torch.cuda.empty_cache()
-    else:
-        print(f"\n[Pre-train Student] File {target_student_path} đã tồn tại, BỎ QUA khởi động ấm Student.")
+    # Đã tắt Pre-train Student (YOLO11n) theo yêu cầu (sử dụng yolo11n.pt gốc)
 
 if __name__ == "__main__":
     main()

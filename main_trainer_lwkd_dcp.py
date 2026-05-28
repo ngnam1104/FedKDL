@@ -91,11 +91,7 @@ def main():
                 if "urpc" in dataset.lower()
                 else "coco8.yaml"
             ),
-            student_ckpt=(
-                "yolo11n_pretrained.pt"
-                if Path("yolo11n_pretrained.pt").exists()
-                else "yolo11n.pt"
-            ),
+            student_ckpt="yolo11n.pt",
             teacher_ckpt=(
                 "yolo12l_pretrained.pt"
                 if Path("yolo12l_pretrained.pt").exists()
