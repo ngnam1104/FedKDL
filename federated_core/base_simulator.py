@@ -426,7 +426,7 @@ class BaseSimulator(ABC):
                         G=self.G,
                         auv_label_hists=self.auv_label_hists,
                         relay_label_hists=self.relay_label_hists,
-                        beta=0.2
+                        beta=0.8  # [CRITICAL FIX] EMD vượt trội hơn Khoảng cách vật lý (80% EMD vs 20% Dist)
                     )
                 else:
                     # Nếu chạy HFL Classic/1D, phân cụm theo SNR vật lý
