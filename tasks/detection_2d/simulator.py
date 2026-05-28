@@ -187,6 +187,7 @@ class Simulator2D(BaseSimulator):
         # Load Data Partition
         from utils.env_manager import EnvironmentManager
         data_part = EnvironmentManager.load_data_partition(data_path)
+        self.data_part = data_part
         self.alpha = data_part.alpha
         self.auv_data_indices = data_part.auv_data_indices
         self.auv_yamls = []
