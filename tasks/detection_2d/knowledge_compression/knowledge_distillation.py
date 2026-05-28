@@ -507,10 +507,9 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_attn_norm = loss_attn / (loss_attn.detach() + 1e-6)
 
         # Cấp Tỷ trọng ưu tiên (Priorities) cho 4 thành phần (Tổng = 8.0 để tối ưu với AdamW lr=0.002)
-        numerator = (loss_kl_norm * 2.5) + (loss_box_norm * 2.5) + (loss_hidden_norm * 1.5) + (loss_attn_norm * 1.5)
-        denominator = (loss_tch.sum() + loss_stu.sum()).detach() + 1e-6  # Tránh div/0
-
-        loss_dist_adaptive = numerator / denominator
+        # Vì các thành phần đã tự chuẩn hóa về 1.0, tổng giá trị của numerator sẽ luôn xấp xỉ 8.0.
+        # Ta KHÔNG cần chia cho denominator nữa (nếu chia sẽ làm gradient bị quá nhỏ -> triệt tiêu học tập).
+        loss_dist_adaptive = (loss_kl_norm * 2.5) + (loss_box_norm * 2.5) + (loss_hidden_norm * 1.5) + (loss_attn_norm * 1.5)
         
         # Ultralytics v8DetectionLoss trả về loss là tensor 3 elements (box, cls, dfl)
         # [CRITICAL FIX] TẮT HOÀN TOÀN Supervised Loss trên Proxy Data để chống Overfit!
