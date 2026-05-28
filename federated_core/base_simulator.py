@@ -135,6 +135,7 @@ class BaseSimulator(ABC):
         initial_lr = self.fed_cfg.LOCAL_LR
 
         for t in range(1, T_rounds + 1):
+            self.current_round = t
             # Tính toán Cosine Annealing Learning Rate cho toàn bộ quá trình FL
             progress = (t - 1) / max(1, T_rounds - 1)
             # LRF (Learning Rate Fraction) = 0.01 như mặc định của YOLO
