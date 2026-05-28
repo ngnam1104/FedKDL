@@ -165,7 +165,7 @@ def nearest_feasible_association(topology: Topology3D, G: Dict) -> Dict[int, int
     """AUV bắt tay Relay gần nhất khả thi (có cân bằng tải). Returns dict[auv_id → relay_id]."""
     import math
     N, M = topology.N, topology.M
-    max_capacity = math.ceil(N / M) + 2
+    max_capacity = math.ceil(N / M) + 3
     
     valid_pairs = []
     for i in range(N):
