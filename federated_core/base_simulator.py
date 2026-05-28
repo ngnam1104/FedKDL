@@ -175,6 +175,12 @@ class BaseSimulator(ABC):
                 os.makedirs(os.path.dirname(traj_log_path), exist_ok=True)
                 mode = 'w' if t == 1 else 'a'
                 with open(traj_log_path, mode, encoding='utf-8') as f:
+                    if t == 1 and hasattr(self, 'data_part') and hasattr(self.data_part, 'log_text') and self.data_part.log_text:
+                        f.write("============================================================\n")
+                        f.write("DATA PARTITIONING SUMMARY\n")
+                        f.write("============================================================\n")
+                        f.write(self.data_part.log_text + "\n\n")
+
                     f.write(f"--- Round {t} ---\n")
                     for s_id in range(self.topology.N):
                         pos = self.topology.auv_positions[s_id]
