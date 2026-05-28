@@ -53,11 +53,25 @@ echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..
 "$PYTHON" scripts/fedkdl/pretrain.py
 
 # =========================================================
-# Hàm chạy chung để tránh lặp code (Giữ nguyên đoạn này trở xuống)
+# Định nghĩa các mảng Task (Để tự động tính toán tiến độ)
 # =========================================================
-total_tasks=47
+KDL_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl")
+ABLATION_BASELINES=("fedkdl_r4" "fedkdl_r8" "full_param_kd" "full_param_nokd" "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd")
+CLASSIC_BASELINES=("centralized" "fedavg" "fedprox" "fedkd" "hfl_nocoop" "hfl_nearest" "hfl_selective" "sota_jiang2025")
+MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized" "fedkd")
+
+len_a1=${#KDL_BASELINES[@]}
+len_a2=${#ABLATION_BASELINES[@]}
+len_a3=${#CLASSIC_BASELINES[@]}
+len_b=$(( ${#MAIN_BASELINES[@]} * 3 )) # N=30, 40, 50
+len_c=${#MAIN_BASELINES[@]}           # Alpha=10000.0
+
+total_tasks=$(( len_a1 + len_a2 + len_a3 + len_b + len_c ))
 current_task=0
 
+# =========================================================
+# Hàm chạy chung để tránh lặp code (Giữ nguyên đoạn này trở xuống)
+# =========================================================
 run_baseline() {
   local n=$1
   local alpha=$2
@@ -124,9 +138,7 @@ echo "=== GROUP A1: KDL-Accelerated Baselines ==="
 # N=20, Alpha=1.0
 # Đã áp dụng toàn bộ KDL (LoRA+INT8+KD) vào các chiến lược truyền thống.
 # fedkdl (hfl_selective_kdl) chạy ĐẦU TIÊN
-KDL_BASELINES=(
-  "fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl"
-)
+
 for b in "${KDL_BASELINES[@]}"; do
   run_baseline 20 1.0 "$b"
 done
@@ -139,10 +151,7 @@ echo "=== GROUP A2: FedKDL Ablation Studies ==="
 #    VD: 'full_param_kd' gửi toàn bộ 2.6M tham số, nhưng được ép xuống INT8 (1 byte/param) nên payload chỉ còn ~2.5 MB.
 # 2. Nếu tên có chữ 'noint8' (như 'lora_head_kd_noint8'), code sẽ giữ nguyên định dạng Float32 (4 bytes/param).
 # 3. Tương tự: 'nolora' sẽ gửi full param; 'nokd' sẽ bỏ qua bước Knowledge Distillation tại Gateway.
-ABLATION_BASELINES=(
-  "fedkdl_r4" "fedkdl_r8" "full_param_kd" "full_param_nokd" 
-  "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd"
-)
+
 for b in "${ABLATION_BASELINES[@]}"; do
   if [[ "$b" == "fedkdl_r4" ]]; then
     run_baseline 20 1.0 "$b" 4  # r=4 ablation
@@ -160,10 +169,7 @@ echo "=== GROUP A3: Classic Full-Param Baselines ==="
 # Với các thuật toán truyền thống (nằm trong mảng classic_baselines của python code),
 # hệ thống sẽ tự động ép cờ: use_lora=False và use_int8=False.
 # Do đó các thuật toán dưới đây sẽ truyền 100% tham số ở chuẩn FP32 nguyên bản (Payload ~10.5 MB).
-CLASSIC_BASELINES=(
-  "centralized" "fedavg" "fedprox" "fedkd" "hfl_nocoop" "hfl_nearest" "hfl_selective"
-  "sota_jiang2025"
-)
+
 for b in "${CLASSIC_BASELINES[@]}"; do
   run_baseline 20 1.0 "$b"
 done
@@ -172,7 +178,7 @@ echo ""
 echo "=== GROUP B: Scalability ==="
 # N=20, 30, 40, 50 — với 5 Relay, cần ít nhất N=20 để ý nghĩa thống kê (4 auv/relay)
 # Áp dụng công nghệ nén KDL lên tất cả, chỉ so sánh sự khác biệt của thuật toán gom nhóm.
-MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized" "fedkd")
+
 for n in 30 40 50; do
   for b in "${MAIN_BASELINES[@]}"; do
     run_baseline "$n" 1.0 "$b"
