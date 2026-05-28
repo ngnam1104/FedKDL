@@ -281,9 +281,9 @@ class BaseSimulator(ABC):
                 e_r2r_total += self._aggregate_intra_relay(m, relay, payloads, auv_n_samples)
 
             # Liên cụm (Inter-cluster Cooperation)
-            if 'selective' in self.baseline or 'fedkdl' in self.baseline:
+            if 'selective' in self.baseline:
                 coop_rule = 'selective'
-            elif 'nearest' in self.baseline:
+            elif 'nearest' in self.baseline or 'fedkdl' in self.baseline:
                 coop_rule = 'nearest'
             else:
                 coop_rule = 'nocoop'
