@@ -407,8 +407,12 @@ class BaseSimulator(ABC):
                 self.G = build_feasibility_graph(self.topology, self.ac_cfg)
                 
                 # Tái phân cụm
-                # Nếu là Simulator2D (có EMD), kết hợp EMD + Khoảng cách vật lý
-                if hasattr(self, 'auv_label_hists') and hasattr(self, 'relay_label_hists'):
+                classic_flat_baselines = ['fedavg', 'fedprox', 'centralized']
+                if self.baseline in classic_flat_baselines:
+                    from physics_models.topology import flat_topology_association
+                    new_assoc = flat_topology_association(self.topology, self.G)
+                elif hasattr(self, 'auv_label_hists') and hasattr(self, 'relay_label_hists'):
+                    # Nếu là Simulator2D (có EMD), kết hợp EMD + Khoảng cách vật lý
                     from tasks.detection_2d.knowledge_compression.knowledge_association import knowledge_aware_association
                     class DummyTopo:
                         def __init__(self, n, m): self.N = n; self.M = m
@@ -421,7 +425,8 @@ class BaseSimulator(ABC):
                         beta=0.2
                     )
                 else:
-                    # Nếu chạy Classic/1D, chỉ phân cụm theo SNR vật lý
+                    # Nếu chạy HFL Classic/1D, phân cụm theo SNR vật lý
+                    from physics_models.topology import nearest_feasible_association
                     new_assoc = nearest_feasible_association(self.topology, self.G)
 
                 # In ra chi tiết AUV nào đổi sang cụm nào
