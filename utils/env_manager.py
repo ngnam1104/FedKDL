@@ -52,6 +52,7 @@ class DataPartitionSnapshot:
     input_dim: int                     # window_size * n_features
     n_train_samples: int               # So luong window trong train_ds
     public_data_indices: List[int] = None # proxy dataset cho Gateway KD
+    log_text: str = ""                    # Log metadata for saving to txt
 
 
 class EnvironmentManager:
@@ -150,6 +151,13 @@ class EnvironmentManager:
         with open(path, "wb") as f:
             pickle.dump(data_part, f, protocol=pickle.HIGHEST_PROTOCOL)
         print(f"  [saved] {path.name}  ({os.path.getsize(path)/1024:.1f} KB)")
+        
+        # Save log metadata to txt if exists
+        if getattr(data_part, 'log_text', ""):
+            txt_path = path.with_suffix('.txt')
+            with open(txt_path, "w", encoding='utf-8') as f:
+                f.write(data_part.log_text)
+                
         return path
 
     @classmethod
@@ -247,14 +255,18 @@ class EnvironmentManager:
         for i, idx in enumerate(imgs_noclass):
             imgs_by_habitat[i % 4].append(idx)
 
-        print("  [Habitat Buckets] " +
-              " | ".join(f"H{h}({len(imgs_by_habitat[h])})" for h in range(4)))
+        logs = []
+        log_str = "  [Habitat Buckets] " + " | ".join(f"H{h}({len(imgs_by_habitat[h])})" for h in range(4))
+        print(log_str)
+        logs.append(log_str)
 
         # 3. Trích 20% làm Public Dataset (Proxy KD) rải đều 4 habitat và CÔ LẬP hoàn toàn
         proxy_per_habitat = max(1, int(num_samples * 0.2) // 4)
         public_indices = []
         
-        print("\n  [Data Partitioning] Tách 20% Public Data và 80% AUV Data:")
+        log_str = "\n  [Data Partitioning] Tách 20% Public Data và 80% AUV Data:"
+        print(log_str)
+        logs.append(log_str)
         for h in range(4):
             pool = imgs_by_habitat[h] # Trỏ trực tiếp vào kho
             old_size = len(pool)
@@ -266,8 +278,12 @@ class EnvironmentManager:
             # XÓA TRIỆT ĐỂ 20% này khỏi kho, 80% còn lại mới để cho AUV chia nhau
             imgs_by_habitat[h] = pool[proxy_per_habitat:]
             new_size = len(imgs_by_habitat[h])
-            print(f"    - Habitat {h}: Tổng {old_size} ảnh -> Lấy {proxy_per_habitat} ảnh cho KD -> Còn lại {new_size} ảnh cho AUV")
-        print(f"  => Tổng Public (Proxy) Data: {len(public_indices)} ảnh.\n")
+            log_str = f"    - Habitat {h}: Tổng {old_size} ảnh -> Lấy {proxy_per_habitat} ảnh cho KD -> Còn lại {new_size} ảnh cho AUV"
+            print(log_str)
+            logs.append(log_str)
+        log_str = f"  => Tổng Public (Proxy) Data: {len(public_indices)} ảnh.\n"
+        print(log_str)
+        logs.append(log_str)
 
         # 4. Tính toán Gaussian Affinity (Độ bám dính Ecotone) cho từng AUV
         auv_pos = topo.auv_positions  # (N, 3)
@@ -295,8 +311,9 @@ class EnvironmentManager:
                 auv_primary_habitat[i] = int(np.argmax(affinity_matrix[i]))
             
         habitat_count = [int(np.sum(auv_primary_habitat == h)) for h in range(4)]
-        print("  [AUV Primary Habitat] " +
-              " | ".join(f"H{h}:{habitat_count[h]}auvs" for h in range(4)))
+        log_str = "\n  [AUV Primary Habitat] " + " | ".join(f"H{h}:{habitat_count[h]}auvs" for h in range(4))
+        print(log_str)
+        logs.append(log_str)
 
         # 5. Phân bổ Quantity Skew (Dựa trên Primary Habitat và Dirichlet)
         auv_total_images = np.zeros(net_cfg.N_AUVS, dtype=int)
@@ -383,6 +400,14 @@ class EnvironmentManager:
             random.shuffle(chosen)
             auv_data_indices[i] = chosen
             
+        # Thêm thông tin tọa độ và số ảnh vào log
+        logs.append("\n  [Chi tiết AUV]")
+        for i in range(net_cfg.N_AUVS):
+            pos = auv_pos[i]
+            n_imgs = len(auv_data_indices[i])
+            h = auv_primary_habitat[i]
+            logs.append(f"    - AUV {i:2d}: Z={pos[2]:6.1f} | Primary Habitat={h} | Nhận {n_imgs} ảnh")
+
         return DataPartitionSnapshot(
             dataset_name=dataset_name,
             N=net_cfg.N_AUVS,
@@ -392,7 +417,8 @@ class EnvironmentManager:
             val_indices=[], # YOLO validates via the base yaml's val set
             input_dim=0, # not used for images in the same way
             n_train_samples=num_samples,
-            public_data_indices=public_indices
+            public_data_indices=public_indices,
+            log_text="\n".join(logs)
         )
 
     # --- HELPERS ---

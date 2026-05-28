@@ -192,7 +192,7 @@ class BaseSimulator(ABC):
                         relay_positions = {}
                         for s_id, r_id in self.association.items():
                             if r_id not in relay_summaries:
-                                relay_summaries[r_id] = np.zeros(self.net_cfg.nc, dtype=np.float32)
+                                relay_summaries[r_id] = np.zeros(len(self.auv_label_counts[s_id]), dtype=np.float32)
                                 relay_positions[r_id] = self.topology.relay_positions[r_id]
                             relay_summaries[r_id] += self.auv_label_counts[s_id]
                         if relay_summaries:
