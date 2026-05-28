@@ -498,18 +498,18 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 6. Adaptive Attention Loss — MSE(A^t, A^s) ───────────────────
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
-        # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
-        # [DYNAMIC BALANCED KD] Tự động chuẩn hóa độ lớn về 1.0 ở mỗi batch bằng cách chia cho .detach()
-        # [CRITICAL FIX] Dùng torch.clamp(min=0.01) thay vì 1e-6 để chống nổ Gradient (Exploding Gradients) khi Loss tiến dần về 0.
-        loss_kl_norm = loss_kl / torch.clamp(loss_kl.detach(), min=0.01)
-        loss_box_norm = loss_box_kd / torch.clamp(loss_box_kd.detach(), min=0.01)
-        loss_hidden_norm = loss_hidden / torch.clamp(loss_hidden.detach(), min=0.01)
-        loss_attn_norm = loss_attn / torch.clamp(loss_attn.detach(), min=0.01)
-
-        # Cấp Tỷ trọng ưu tiên (Priorities) cho 4 thành phần (Tổng = 8.0 để tối ưu với AdamW lr=0.002)
-        # Vì các thành phần đã tự chuẩn hóa về 1.0, tổng giá trị của numerator sẽ luôn xấp xỉ 8.0.
-        # Ta KHÔNG cần chia cho denominator nữa (nếu chia sẽ làm gradient bị quá nhỏ -> triệt tiêu học tập).
-        loss_dist_adaptive = (loss_kl_norm * 2.5) + (loss_box_norm * 2.5) + (loss_hidden_norm * 1.5) + (loss_attn_norm * 1.5)
+        # ── 7. Tổng distillation với Fixed-Weight Combination (Eq. 37) ──────
+        # Trọng số cố định, KL/Box ưu tiên hơn Hidden/Attn 2–4× để phản ánh
+        # tầm quan trọng của việc mimicking prediction và feature distribution.
+        #   KL:    0.40  (semantic output matching — quan trọng nhất)
+        #   Box:   0.30  (spatial localization matching)
+        #   Hidden:0.20  (intermediate feature alignment)
+        #   Attn:  0.10  (attention map alignment — hỗ trợ thêm)
+        # → KL / Attn = 4×  |  Box / Attn = 3×  |  Tổng = 1.0
+        loss_dist_adaptive = (loss_kl     * 0.40 +
+                              loss_box_kd  * 0.30 +
+                              loss_hidden  * 0.20 +
+                              loss_attn    * 0.10)
         
         # Ultralytics v8DetectionLoss trả về loss là tensor 3 elements (box, cls, dfl)
         # [CRITICAL FIX] TẮT HOÀN TOÀN Supervised Loss trên Proxy Data để chống Overfit!
