@@ -499,22 +499,13 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
-        # [DYNAMIC BALANCED KD] Tự động chuẩn hóa độ lớn về 1.0 ở mỗi batch bằng cách chia cho .detach()
-        # [CRITICAL FIX] Dùng torch.clamp(min=0.01) thay vì 1e-6 để chống nổ Gradient (Exploding Gradients) khi Loss tiến dần về 0.
-        loss_kl_norm = loss_kl / torch.clamp(loss_kl.detach(), min=0.01)
-        loss_box_norm = loss_box_kd / torch.clamp(loss_box_kd.detach(), min=0.01)
-        loss_hidden_norm = loss_hidden / torch.clamp(loss_hidden.detach(), min=0.01)
-        loss_attn_norm = loss_attn / torch.clamp(loss_attn.detach(), min=0.01)
-
-        # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL theo hướng Feature-based: 
-        # Giảm KL (để khác biệt KD truyền thống), tăng mạnh Box và Features (Hidden + Attn) 
-        # giúp Student học sâu đặc trưng không gian của Teacher, từ đó tự tìm ra vật thể (tăng Recall). Tổng = 8.0
-        loss_dist_adaptive = (loss_kl_norm * 1.5) + (loss_box_norm * 2.5) + (loss_hidden_norm * 2.0) + (loss_attn_norm * 2.0)
+        # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL theo hướng Feature-based
+        # Khôi phục loss tự nhiên (không chia cho .detach() vì gây nhiễu gradient khi loss nhỏ)
+        loss_dist_adaptive = (loss_kl * 1.5) + (loss_box_kd * 2.5) + (loss_hidden * 2.0) + (loss_attn * 2.0)
         
-        # Ultralytics v8DetectionLoss trả về loss là tensor 3 elements (box, cls, dfl)
-        # [CRITICAL FIX] TẮT HOÀN TOÀN Supervised Loss trên Proxy Data để chống Overfit!
-        # Chỉ giữ lại KD loss để ép Student mimic Teacher.
-        total_loss = loss_stu.clone() * 0.0
+        # [FIX] Trả lại Supervised Loss (YOLO task loss) với trọng số nhỏ (0.5) 
+        # để Student vẫn bám vào Ground Truth thực tế, tránh việc học mù quáng theo Teacher
+        total_loss = loss_stu.clone() * 0.5
         
         if total_loss.ndim == 0:
             total_loss = total_loss + self.kd_lambda * loss_dist_adaptive
