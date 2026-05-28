@@ -174,10 +174,26 @@ class BaseSimulator(ABC):
                         counts_str = ""
                         if hasattr(self, 'auv_label_counts') and self.auv_label_counts is not None:
                             counts = self.auv_label_counts[s_id]
-                            counts_str = " | Counts: [" + ", ".join([f"{int(x)}" for x in counts]) + "]"
+                            counts_str = " | Counts: [" + ", ".join([f"{int(x):3d}" for x in counts]) + "]"
                             
                         f.write(f"AUV {s_id:2d}: X={pos[0]:.0f}, Y={pos[1]:.0f}, Z={pos[2]:.0f} | Relay: {assoc:2d}{counts_str}\n")
-
+                    
+                    if hasattr(self, 'auv_label_counts') and self.auv_label_counts is not None:
+                        relay_summaries = {}
+                        for s_id in range(self.topology.N):
+                            assoc = self.association.get(s_id, -1)
+                            if assoc >= 0:
+                                if assoc not in relay_summaries:
+                                    relay_summaries[assoc] = np.zeros_like(self.auv_label_counts[s_id])
+                                relay_summaries[assoc] += self.auv_label_counts[s_id]
+                                
+                        if relay_summaries:
+                            f.write(f"\n--- Relay Summaries ---\n")
+                            for r_id in sorted(relay_summaries.keys()):
+                                counts = relay_summaries[r_id]
+                                counts_str = " | Total Counts: [" + ", ".join([f"{int(x):4d}" for x in counts]) + "]"
+                                f.write(f"Relay {r_id:2d}{counts_str}\n")
+                    f.write("\n")
             # --- Phase 1: AUV Tier ---
             alive_auvs = [s.auv_id for s in self.auvs.values() if s.alive]
             dead_auvs = [s.auv_id for s in self.auvs.values() if not s.alive]
