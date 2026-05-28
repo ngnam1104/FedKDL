@@ -499,7 +499,10 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
-        numerator = loss_kl + loss_hidden + loss_attn + loss_box_kd
+        # [ĐỘT PHÁ] Chỉ chưng cất đặc trưng (Feature KD: Hidden + Attn).
+        # BỎ HOÀN TOÀN Logit KD (KL) và BBox KD để đầu phát hiện (Detection Head)
+        # không bị overfit vào tập Proxy, giữ nguyên sự thích nghi của AUV.
+        numerator = loss_hidden + loss_attn
         denominator = (loss_tch.sum() + loss_stu.sum()).detach() + 1e-6  # Tránh div/0
 
         loss_dist_adaptive = numerator / denominator
