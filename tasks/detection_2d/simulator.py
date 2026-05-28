@@ -644,8 +644,8 @@ class Simulator2D(BaseSimulator):
             'close_mosaic': 0,
             'optimizer': 'AdamW',
             
-            # [FIX] Cập nhật LR giảm dần (Global Decay) qua các vòng FL thay vì cứng 1e-3
-            'lr0': max(1e-4, 1e-3 * (1.0 - (getattr(self, 'current_round', 1) - 1) / getattr(self.fed_cfg, 'T_ROUNDS', 100))),
+            # [FIX] Sử dụng LR siêu nhỏ (5e-5) để căn chỉnh tinh tế theo Teacher mà không gây Gradient Shock làm sập mAP
+            'lr0': 5e-5,
             
             'warmup_epochs': 0,   # [CRITICAL FIX] Tắt hoàn toàn warmup! Nếu để mặc định warmup_epochs=3 > epochs=1
                                   # thì TOÀN BỘ epoch là warmup phase → warmup_bias_lr=0.1 áp lên bias params
