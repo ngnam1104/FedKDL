@@ -162,17 +162,40 @@ def build_feasibility_graph(topology: Topology3D, acoustic_cfg) -> Dict:
 
 
 def nearest_feasible_association(topology: Topology3D, G: Dict) -> Dict[int, int]:
-    """AUV bắt tay Relay gần nhất khả thi. Returns dict[auv_id → relay_id]."""
-    association = {}
-    for i in range(topology.N):
-        best_relay, best_dist = None, float('inf')
-        for m in range(topology.M):
+    """AUV bắt tay Relay gần nhất khả thi (có cân bằng tải). Returns dict[auv_id → relay_id]."""
+    import math
+    N, M = topology.N, topology.M
+    max_capacity = math.ceil(N / M) + 2
+    
+    valid_pairs = []
+    for i in range(N):
+        for m in range(M):
             key = ('auv', i, 'relay', m)
-            if key in G and G[key].distance < best_dist:
-                best_dist = G[key].distance
-                best_relay = m
-        if best_relay is not None:
-            association[i] = best_relay
+            if key in G:
+                valid_pairs.append((G[key].distance, i, m))
+                
+    valid_pairs.sort(key=lambda x: x[0])
+    
+    association = {}
+    relay_counts = {m: 0 for m in range(M)}
+    
+    for dist, auv_id, relay_id in valid_pairs:
+        if auv_id not in association and relay_counts[relay_id] < max_capacity:
+            association[auv_id] = relay_id
+            relay_counts[relay_id] += 1
+            
+    for i in range(N):
+        if i not in association:
+            best_relay, best_dist = None, float('inf')
+            for m in range(M):
+                key = ('auv', i, 'relay', m)
+                if key in G and G[key].distance < best_dist:
+                    best_dist = G[key].distance
+                    best_relay = m
+            if best_relay is not None:
+                association[i] = best_relay
+                relay_counts[best_relay] += 1
+                
     return association
 
 

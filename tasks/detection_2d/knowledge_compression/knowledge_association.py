@@ -95,16 +95,41 @@ def knowledge_aware_association(
 
     m* = argmin_{m: (i,m) ∈ G} D_joint(i, m)
     """
+    import math
     djoint = compute_djoint_matrix(
         topology, G, auv_label_hists, relay_label_hists, beta)
 
+    N, M = topology.N, topology.M
+    max_capacity = math.ceil(N / M) + 2
+    
+    # 1. Thu thập tất cả các cặp (cost, auv_id, relay_id) khả thi
+    valid_pairs = []
+    for i in range(N):
+        for m in range(M):
+            cost = djoint[i, m]
+            if np.isfinite(cost):
+                valid_pairs.append((cost, i, m))
+                
+    # 2. Sắp xếp theo cost tăng dần (ưu tiên gán cặp tốt nhất trước)
+    valid_pairs.sort(key=lambda x: x[0])
+    
     association = {}
-    for i in range(topology.N):
-        row = djoint[i, :]
-        feasible_relays = np.where(np.isfinite(row))[0]
-        if len(feasible_relays) == 0:
-            continue  # AUV cô lập — không có link âm thanh khả thi
-        best_relay = int(feasible_relays[np.argmin(row[feasible_relays])])
-        association[i] = best_relay
+    relay_counts = {m: 0 for m in range(M)}
+    
+    # 3. Phân bổ có ràng buộc sức chứa (Capacity-Constrained Assignment)
+    for cost, auv_id, relay_id in valid_pairs:
+        if auv_id not in association and relay_counts[relay_id] < max_capacity:
+            association[auv_id] = relay_id
+            relay_counts[relay_id] += 1
+            
+    # 4. Fallback: Gán vét cho các AUV bị rớt lại (do các Relay tốt đều đã đầy)
+    for i in range(N):
+        if i not in association:
+            row = djoint[i, :]
+            feasible_relays = np.where(np.isfinite(row))[0]
+            if len(feasible_relays) > 0:
+                best_relay = int(feasible_relays[np.argmin(row[feasible_relays])])
+                association[i] = best_relay
+                relay_counts[best_relay] += 1
 
     return association
