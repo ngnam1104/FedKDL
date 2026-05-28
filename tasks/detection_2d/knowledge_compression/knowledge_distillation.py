@@ -501,7 +501,9 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
         # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL theo hướng Feature-based
         # Khôi phục loss tự nhiên (không chia cho .detach() vì gây nhiễu gradient khi loss nhỏ)
-        loss_dist_adaptive = (loss_kl * 1.5) + (loss_box_kd * 2.5) + (loss_hidden * 2.0) + (loss_attn * 2.0)
+        # Tăng mạnh trọng số Hidden (x10) và Attn (x50) vì độ lớn (magnitude) của chúng quá nhỏ (0.5 và 0.03)
+        # Giảm KL và Box xuống để giảm bớt sự khắt khe (strictness) từ Teacher gây tụt Recall.
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_hidden * 10.0) + (loss_attn * 50.0)
         
         # [FIX] Trả lại Supervised Loss (YOLO task loss) với trọng số nhỏ (0.5) 
         # để Student vẫn bám vào Ground Truth thực tế, tránh việc học mù quáng theo Teacher
