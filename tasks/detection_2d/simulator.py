@@ -103,12 +103,7 @@ class AUVWorker2D(BaseWorker):
 
         # [TỐI ƯU HÓA] Bỏ qua đánh giá local model trên tập train của auv
         # Việc này tiết kiệm 30% tổng thời gian huấn luyện mà không ảnh hưởng kết quả Global
-        local_metrics = {
-            'local_mAP50': 0.0,
-            'local_mAP50-95': 0.0,
-            'local_Prec': 0.0,
-            'local_Rec': 0.0
-        }
+        local_metrics = {}
         print(f"[AUV {self.auv_id}] Local train metrics skipped to save time.")
 
         if delta_norm < fed_cfg.DELTA_SKIP:
