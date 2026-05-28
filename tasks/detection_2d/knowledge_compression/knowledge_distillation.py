@@ -506,9 +506,10 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_hidden_norm = loss_hidden / torch.clamp(loss_hidden.detach(), min=0.01)
         loss_attn_norm = loss_attn / torch.clamp(loss_attn.detach(), min=0.01)
 
-        # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL: 
-        # Tăng mạnh trọng số KL (phân loại/confidence) và Box để Student tự tin hơn, giữ tổng = 8.0.
-        loss_dist_adaptive = (loss_kl_norm * 4.0) + (loss_box_norm * 3.0) + (loss_hidden_norm * 0.5) + (loss_attn_norm * 0.5)
+        # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL theo hướng Feature-based: 
+        # Giảm KL (để khác biệt KD truyền thống), tăng mạnh Box và Features (Hidden + Attn) 
+        # giúp Student học sâu đặc trưng không gian của Teacher, từ đó tự tìm ra vật thể (tăng Recall). Tổng = 8.0
+        loss_dist_adaptive = (loss_kl_norm * 1.5) + (loss_box_norm * 2.5) + (loss_hidden_norm * 2.0) + (loss_attn_norm * 2.0)
         
         # Ultralytics v8DetectionLoss trả về loss là tensor 3 elements (box, cls, dfl)
         # [CRITICAL FIX] TẮT HOÀN TOÀN Supervised Loss trên Proxy Data để chống Overfit!
