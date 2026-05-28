@@ -55,10 +55,10 @@ echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..
 # =========================================================
 # Định nghĩa các mảng Task (Để tự động tính toán tiến độ)
 # =========================================================
-KDL_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl")
+KDL_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_selective_kdl")
 ABLATION_BASELINES=("fedkdl_r4" "fedkdl_r8" "full_param_kd" "full_param_nokd" "lora_head_kd_noint8" "head_kd_int8_nolora" "lora_head_int8_nokd")
 CLASSIC_BASELINES=("centralized" "fedavg" "fedprox" "fedkd" "hfl_nocoop" "hfl_nearest" "hfl_selective" "sota_jiang2025")
-MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_nearest_kdl" "centralized" "fedkd")
+MAIN_BASELINES=("fedkdl" "fedavg_kdl" "fedprox_kdl" "hfl_nocoop_kdl" "hfl_selective_kdl" "centralized" "fedkd")
 
 len_a1=${#KDL_BASELINES[@]}
 len_a2=${#ABLATION_BASELINES[@]}
