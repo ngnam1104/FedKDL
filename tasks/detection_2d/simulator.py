@@ -583,33 +583,18 @@ class Simulator2D(BaseSimulator):
             return self._last_kd_metrics
 
         # Lấy metrics vòng vừa rồi từ lịch sử round logs
+        # [MODIFIED] Bỏ qua Adaptive Dropout, ép KD chạy 100% (cả 60 vòng)
+        self._kd_disabled = False
         if hasattr(self, '_round_metrics_history') and len(self._round_metrics_history) >= 2:
-            prev = self._round_metrics_history[-2]   # 2 vòng trước
-            curr = self._round_metrics_history[-1]   # vòng vừa xong
+            prev = self._round_metrics_history[-2]
+            curr = self._round_metrics_history[-1]
             prev_score = (prev.get('mAP50', 0) + prev.get('Prec', 0) + prev.get('Rec', 0)) / 3.0
             curr_score = (curr.get('mAP50', 0) + curr.get('Prec', 0) + curr.get('Rec', 0)) / 3.0
             if curr_score < prev_score:
                 self._consec_drop_count += 1
-                print(f"[Gateway KD] ⚠️  Metrics drop detected ({self._consec_drop_count}/{CONSEC_DROP_THRESHOLD}): "
-                      f"score {prev_score:.4f} → {curr_score:.4f} "
-                      f"(mAP50: {curr.get('mAP50',0):.4f}, Prec: {curr.get('Prec',0):.4f}, Rec: {curr.get('Rec',0):.4f})")
+                print(f"[Gateway KD] ⚠️  Metrics drop detected ({self._consec_drop_count}/∞) - KD VẪN ĐƯỢC GIỮ NGUYÊN!")
             else:
-                self._consec_drop_count = 0  # Reset nếu metrics đang hồi phục
-
-            if self._consec_drop_count >= CONSEC_DROP_THRESHOLD:
-                self._kd_disabled = True
-                self._fedprox_mu_override = 0.01  # Bật FedProx để bù cho KD bị tắt
-                # [CRITICAL FIX] Flush AdamW cache to prevent gradient explosion after loss shift
-                for auv in self.auvs.values():
-                    auv._optimizer_state = None
-                print(f"[Gateway KD] 🚫 Disabling KD permanently after {CONSEC_DROP_THRESHOLD} consecutive drops "
-                      f"— switching to FedProx (mu=0.01) convergence mode.")
-                self._last_kd_metrics = {
-                    'kd_active': False, 'kd_epochs': 0,
-                    'kd_kl': 0.0, 'kd_hidden': 0.0,
-                    'kd_attn': 0.0, 'kd_weighted': 0.0,
-                }
-                return self._last_kd_metrics
+                self._consec_drop_count = 0
 
         import os
         from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
