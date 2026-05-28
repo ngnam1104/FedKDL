@@ -276,7 +276,12 @@ class EnvironmentManager:
                 
             total_w = sum(weights)
             affinity_matrix[i] = [w / total_w for w in weights]
-            auv_primary_habitat[i] = int(np.argmax(affinity_matrix[i]))
+            
+            # Nếu là IID, gán primary habitat xoay vòng để log đẹp, không ảnh hưởng logic rút ảnh
+            if alpha >= 1000.0:
+                auv_primary_habitat[i] = i % 4
+            else:
+                auv_primary_habitat[i] = int(np.argmax(affinity_matrix[i]))
             
         habitat_count = [int(np.sum(auv_primary_habitat == h)) for h in range(4)]
         print("  [AUV Primary Habitat] " +
@@ -284,32 +289,48 @@ class EnvironmentManager:
 
         # 5. Phân bổ Quantity Skew (Dựa trên Primary Habitat và Dirichlet)
         auv_total_images = np.zeros(net_cfg.N_AUVS, dtype=int)
-        auvs_in_habitat = {h: [] for h in range(4)}
-        for i in range(net_cfg.N_AUVS):
-            auvs_in_habitat[int(auv_primary_habitat[i])].append(i)
+        
+        if alpha >= 1000.0:
+            # IID: Tính tổng ảnh khả dụng của CẢ 4 KHO
+            total_pool_size = sum(len(imgs_by_habitat[h]) for h in range(4))
+            proportions = np.random.dirichlet(np.repeat(alpha, net_cfg.N_AUVS))
             
-        for h in range(4):
-            auv_list = auvs_in_habitat[h]
-            n_auvs_in_h = len(auv_list)
-            if n_auvs_in_h == 0:
-                continue
-                
-            # Tổng lượng ảnh khả dụng của vùng này (không tính proxy)
-            pool_size_h = len(imgs_by_habitat[h])
-            
-            # Dirichlet phân bổ Quantity (SỐ LƯỢNG) cho các AUV trong vùng
-            proportions = np.random.dirichlet(np.repeat(alpha, n_auvs_in_h))
-            
-            min_img = min(20, pool_size_h // n_auvs_in_h) if n_auvs_in_h > 0 else 0
-            remaining = max(0, pool_size_h - min_img * n_auvs_in_h)
+            min_img = min(20, total_pool_size // net_cfg.N_AUVS) if net_cfg.N_AUVS > 0 else 0
+            remaining = max(0, total_pool_size - min_img * net_cfg.N_AUVS)
             
             splits = (proportions * remaining).astype(int) + min_img
-            if pool_size_h > 0 and sum(splits) < pool_size_h:
-                splits[-1] += pool_size_h - sum(splits)
+            if total_pool_size > 0 and sum(splits) < total_pool_size:
+                splits[-1] += total_pool_size - sum(splits)
                 
-            for idx, auv_id in enumerate(auv_list):
-                # Đây là tổng số ảnh mà AUV sẽ gom được (chưa nói rõ là ảnh loại gì)
-                auv_total_images[auv_id] = splits[idx]
+            for i in range(net_cfg.N_AUVS):
+                auv_total_images[i] = splits[i]
+        else:
+            # Non-IID: Phân bổ theo từng vùng
+            auvs_in_habitat = {h: [] for h in range(4)}
+            for i in range(net_cfg.N_AUVS):
+                auvs_in_habitat[int(auv_primary_habitat[i])].append(i)
+                
+            for h in range(4):
+                auv_list = auvs_in_habitat[h]
+                n_auvs_in_h = len(auv_list)
+                if n_auvs_in_h == 0:
+                    continue
+                    
+                # Tổng lượng ảnh khả dụng của vùng này (không tính proxy)
+                pool_size_h = len(imgs_by_habitat[h])
+                
+                # Dirichlet phân bổ Quantity (SỐ LƯỢNG) cho các AUV trong vùng
+                proportions = np.random.dirichlet(np.repeat(alpha, n_auvs_in_h))
+                
+                min_img = min(20, pool_size_h // n_auvs_in_h) if n_auvs_in_h > 0 else 0
+                remaining = max(0, pool_size_h - min_img * n_auvs_in_h)
+                
+                splits = (proportions * remaining).astype(int) + min_img
+                if pool_size_h > 0 and sum(splits) < pool_size_h:
+                    splits[-1] += pool_size_h - sum(splits)
+                    
+                for idx, auv_id in enumerate(auv_list):
+                    auv_total_images[auv_id] = splits[idx]
 
         # 6. Rút ảnh từ các kho dựa vào Ecotone Affinity
         auv_data_indices = {}
