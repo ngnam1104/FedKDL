@@ -151,13 +151,6 @@ class EnvironmentManager:
         with open(path, "wb") as f:
             pickle.dump(data_part, f, protocol=pickle.HIGHEST_PROTOCOL)
         print(f"  [saved] {path.name}  ({os.path.getsize(path)/1024:.1f} KB)")
-        
-        # Save log metadata to txt if exists
-        if getattr(data_part, 'log_text', ""):
-            txt_path = path.with_suffix('.txt')
-            with open(txt_path, "w", encoding='utf-8') as f:
-                f.write(data_part.log_text)
-                
         return path
 
     @classmethod
