@@ -500,11 +500,11 @@ class KDDetectionTrainer(DetectionTrainer):
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
         # [DYNAMIC BALANCED KD] Tự động chuẩn hóa độ lớn về 1.0 ở mỗi batch bằng cách chia cho .detach()
-        # Đảm bảo gradient được phân bổ đều bất chấp độ chênh lệch tuyệt đối của hàm Loss
-        loss_kl_norm = loss_kl / (loss_kl.detach() + 1e-6)
-        loss_box_norm = loss_box_kd / (loss_box_kd.detach() + 1e-6)
-        loss_hidden_norm = loss_hidden / (loss_hidden.detach() + 1e-6)
-        loss_attn_norm = loss_attn / (loss_attn.detach() + 1e-6)
+        # [CRITICAL FIX] Dùng torch.clamp(min=0.01) thay vì 1e-6 để chống nổ Gradient (Exploding Gradients) khi Loss tiến dần về 0.
+        loss_kl_norm = loss_kl / torch.clamp(loss_kl.detach(), min=0.01)
+        loss_box_norm = loss_box_kd / torch.clamp(loss_box_kd.detach(), min=0.01)
+        loss_hidden_norm = loss_hidden / torch.clamp(loss_hidden.detach(), min=0.01)
+        loss_attn_norm = loss_attn / torch.clamp(loss_attn.detach(), min=0.01)
 
         # Cấp Tỷ trọng ưu tiên (Priorities) cho 4 thành phần (Tổng = 8.0 để tối ưu với AdamW lr=0.002)
         # Vì các thành phần đã tự chuẩn hóa về 1.0, tổng giá trị của numerator sẽ luôn xấp xỉ 8.0.
