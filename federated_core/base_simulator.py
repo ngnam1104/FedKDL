@@ -159,6 +159,25 @@ class BaseSimulator(ABC):
                     flush=True,
                 )
 
+            # --- [NEW] Logging Trajectories to File (Trước khi bắt đầu vòng FL) ---
+            if self.task_key == "2D":
+                import os
+                traj_log_path = os.path.join("results", "train_logs", "kdl", "auv_trajectories.txt")
+                os.makedirs(os.path.dirname(traj_log_path), exist_ok=True)
+                mode = 'w' if t == 1 else 'a'
+                with open(traj_log_path, mode, encoding='utf-8') as f:
+                    f.write(f"--- Round {t} ---\n")
+                    for s_id in range(self.topology.N):
+                        pos = self.topology.auv_positions[s_id]
+                        assoc = self.association.get(s_id, -1)
+                        
+                        counts_str = ""
+                        if hasattr(self, 'auv_label_counts') and self.auv_label_counts is not None:
+                            counts = self.auv_label_counts[s_id]
+                            counts_str = " | Counts: [" + ", ".join([f"{int(x)}" for x in counts]) + "]"
+                            
+                        f.write(f"AUV {s_id:2d}: X={pos[0]:.0f}, Y={pos[1]:.0f}, Z={pos[2]:.0f} | Relay: {assoc:2d}{counts_str}\n")
+
             # --- Phase 1: AUV Tier ---
             alive_auvs = [s.auv_id for s in self.auvs.values() if s.alive]
             dead_auvs = [s.auv_id for s in self.auvs.values() if not s.alive]
@@ -449,24 +468,6 @@ class BaseSimulator(ABC):
                 self.association = new_assoc
                     
                 self.clusters = build_clusters(self.association, self.topology.M)
-                
-                # --- [NEW] Logging Trajectories to File ---
-                import os
-                traj_log_path = os.path.join("results", "train_logs", "kdl", "auv_trajectories.txt")
-                os.makedirs(os.path.dirname(traj_log_path), exist_ok=True)
-                mode = 'w' if t == 1 else 'a'
-                with open(traj_log_path, mode, encoding='utf-8') as f:
-                    f.write(f"--- Round {t} ---\n")
-                    for s_id in range(self.topology.N):
-                        pos = self.topology.auv_positions[s_id]
-                        assoc = self.association.get(s_id, -1)
-                        
-                        hist_str = ""
-                        if hasattr(self, 'auv_label_hists') and self.auv_label_hists is not None:
-                            hist = self.auv_label_hists[s_id]
-                            hist_str = " | Hist: [" + ", ".join([f"{x:.2f}" for x in hist]) + "]"
-                            
-                        f.write(f"AUV {s_id:2d}: X={pos[0]:.0f}, Y={pos[1]:.0f}, Z={pos[2]:.0f} | Relay: {assoc:2d}{hist_str}\n")
                 
                 # Cập nhật danh sách quản lý vào đối tượng Relay và AUV
                 for relay_id, relay in self.relays.items():

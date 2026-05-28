@@ -351,13 +351,14 @@ class Simulator2D(BaseSimulator):
                                     if 0 <= c < num_classes:
                                         hist[c] += 1
                 if hist.sum() > 0:
-                    hist = hist / hist.sum()
+                    normalized = hist / hist.sum()
                 else:
-                    hist = np.ones(num_classes, dtype=np.float32) / num_classes
+                    normalized = np.ones(num_classes, dtype=np.float32) / num_classes
             except Exception as e:
                 print(f"[Warning] Không thể đọc histogram từ {auv_yaml_path}: {e}")
-                hist = np.ones(num_classes, dtype=np.float32) / num_classes
-            return hist
+                hist = np.zeros(num_classes, dtype=np.float32)
+                normalized = np.ones(num_classes, dtype=np.float32) / num_classes
+            return normalized, hist
 
         # 2. Xây dựng Histogram cho toàn bộ mạng lưới
         N = self.net_cfg.N_AUVS
@@ -370,9 +371,12 @@ class Simulator2D(BaseSimulator):
         if 'fedkdl' in self.baseline:
             print(f"\n[Simulator2D] Khởi tạo Knowledge-Aware Association (EMD β=0.2)...")
             self.auv_label_hists = np.zeros((N, nc), dtype=np.float32)
+            self.auv_label_counts = np.zeros((N, nc), dtype=np.float32)
             for s_id in range(N):
                 if s_id in getattr(self, 'auv_yamls', {}):
-                    self.auv_label_hists[s_id] = get_label_histogram(self.auv_yamls[s_id], nc)
+                    n_hist, c_hist = get_label_histogram(self.auv_yamls[s_id], nc)
+                    self.auv_label_hists[s_id] = n_hist
+                    self.auv_label_counts[s_id] = c_hist
             
             # Tính Relay Histogram từ các cụm vật lý ban đầu
             self.relay_label_hists = np.zeros((M, nc), dtype=np.float32)
