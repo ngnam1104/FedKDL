@@ -522,11 +522,11 @@ class KDDetectionTrainer(DetectionTrainer):
         else:
             total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
         
-        # Tích lũy log (Lưu giá trị đã được chuẩn hóa và nhân tỷ trọng để in ra mAP cho đúng)
-        self.epoch_box_loss += (loss_box_norm * 2.5).item()
-        self.epoch_kl_loss += (loss_kl_norm * 2.5).item()
-        self.epoch_hidden_loss += (loss_hidden_norm * 1.5).item()
-        self.epoch_attn_loss += (loss_attn_norm * 1.5).item()
+        # Tích lũy log (Phải in ra giá trị GỐC để theo dõi xem Loss có đang thực sự giảm hay không!)
+        self.epoch_box_loss += loss_box_kd.item()
+        self.epoch_kl_loss += loss_kl.item()
+        self.epoch_hidden_loss += loss_hidden.item()
+        self.epoch_attn_loss += loss_attn.item()
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
 
