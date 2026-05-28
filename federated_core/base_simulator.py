@@ -459,7 +459,14 @@ class BaseSimulator(ABC):
                     f.write(f"--- Round {t} ---\n")
                     for s_id in range(self.topology.N):
                         pos = self.topology.auv_positions[s_id]
-                        f.write(f"AUV {s_id}: X={pos[0]:.2f}, Y={pos[1]:.2f}, Z={pos[2]:.2f}\n")
+                        assoc = self.association.get(s_id, -1)
+                        
+                        hist_str = ""
+                        if hasattr(self, 'auv_label_hists') and self.auv_label_hists is not None:
+                            hist = self.auv_label_hists[s_id]
+                            hist_str = " | Hist: [" + ", ".join([f"{x:.2f}" for x in hist]) + "]"
+                            
+                        f.write(f"AUV {s_id:2d}: X={pos[0]:.0f}, Y={pos[1]:.0f}, Z={pos[2]:.0f} | Relay: {assoc:2d}{hist_str}\n")
                 
                 # Cập nhật danh sách quản lý vào đối tượng Relay và AUV
                 for relay_id, relay in self.relays.items():
