@@ -407,8 +407,12 @@ class BaseSimulator(ABC):
                 self.G = build_feasibility_graph(self.topology, self.ac_cfg)
                 
                 # Tái phân cụm
-                classic_flat_baselines = ['fedavg', 'fedprox', 'centralized']
-                if self.baseline in classic_flat_baselines:
+                flat_baselines = [
+                    'fedavg', 'fedavg_kdl', 
+                    'fedprox', 'fedprox_kdl', 
+                    'centralized', 'fedkd'
+                ]
+                if self.baseline in flat_baselines:
                     from physics_models.topology import flat_topology_association
                     new_assoc = flat_topology_association(self.topology, self.G)
                 elif hasattr(self, 'auv_label_hists') and hasattr(self, 'relay_label_hists'):
