@@ -169,7 +169,9 @@ class BaseSimulator(ABC):
             # --- [NEW] Logging Trajectories to File (Trước khi bắt đầu vòng FL) ---
             if self.task_key == "2D":
                 import os
-                traj_log_path = os.path.join("results", "train_logs", "kdl", "auv_trajectories.txt")
+                alpha_str = str(self.alpha).replace('.', 'p') if hasattr(self, 'alpha') else "unknown"
+                filename = f"auv_trajectories_N{self.N_actual}_{self.baseline}_a{alpha_str}.txt"
+                traj_log_path = os.path.join("results", "train_logs", "kdl", filename)
                 os.makedirs(os.path.dirname(traj_log_path), exist_ok=True)
                 mode = 'w' if t == 1 else 'a'
                 with open(traj_log_path, mode, encoding='utf-8') as f:

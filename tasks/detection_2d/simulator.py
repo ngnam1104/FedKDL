@@ -187,8 +187,8 @@ class Simulator2D(BaseSimulator):
         # Load Data Partition
         from utils.env_manager import EnvironmentManager
         data_part = EnvironmentManager.load_data_partition(data_path)
-        
-        # Generate YAMLs
+        self.alpha = data_part.alpha
+        self.auv_data_indices = data_part.auv_data_indices
         self.auv_yamls = []
         base_yaml_path = self.test_yaml
         if not os.path.exists(base_yaml_path):
