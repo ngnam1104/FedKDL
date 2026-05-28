@@ -654,7 +654,7 @@ class Simulator2D(BaseSimulator):
         }
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.student_wrapper = self.global_student
-        trainer.kd_lambda = 1.0
+        trainer.kd_lambda = 0.5
         trainer.set_teacher(self.teacher.yolo.model)
         
         # [FIX] Đảm bảo model không bị dính cờ inference tensor từ hàm evaluate vòng trước
