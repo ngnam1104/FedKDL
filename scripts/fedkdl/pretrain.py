@@ -94,67 +94,121 @@ def main():
     # 4. Giai đoạn 2: Tiến hành huấn luyện thêm Teacher (YOLO12l) trên TOÀN BỘ dữ liệu
     teacher_ckpt = REPO_ROOT / "yolo12l_pretrained.pt"
     target_teacher_path_full = REPO_ROOT / "yolo12l_pretrained_full.pt"
-    
-    last_teacher_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/last.pt"
-    args_yaml = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/args.yaml"
-    
-    if last_teacher_path.exists() and not target_teacher_path_full.exists():
-        print(f"\n[Pre-train Teacher Hack] TÌM THẤY BẢN LAST.PT! Kích hoạt chế độ RESUME CHUẨN...")
-        
-        # Mở args.yaml và ép max epochs lên 300 để mô hình có không gian chạy tiếp (resume thêm)
-        if args_yaml.exists():
-            with open(args_yaml, 'r') as f:
-                args = yaml.safe_load(f)
-            args['epochs'] = 170
-            with open(args_yaml, 'w') as f:
-                yaml.safe_dump(args, f)
-                
-        teacher_model = YOLO(str(last_teacher_path))
-        teacher_model.train(resume=True)
-        
-    elif teacher_ckpt.exists() and not target_teacher_path_full.exists():
-        print(f"\n[Pre-train Teacher Hack] Bắt đầu huấn luyện TỪ ĐẦU (150 epochs) từ checkpoint {teacher_ckpt}...")
-        teacher_model = YOLO(str(teacher_ckpt))
+
+    best_teacher_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/best.pt"
+
+    # ── CHIẾN LƯỢC TRAINING MỚI ─────────────────────────────────────────────────
+    # Phân tích results.csv cho thấy:
+    #   - Model tốt nhất (best.pt) đạt được ở epoch ~43 (mAP50=0.749, Recall=0.682)
+    #   - Sau epoch 43, val loss bắt đầu tăng nhẹ trong khi train loss vẫn giảm
+    #     → dấu hiệu OVERFIT, KHÔNG NÊN resume từ last.pt (epoch 96)
+    #
+    # Giải pháp: Fine-tune từ best.pt với một run MỚI, thêm augmentation mạnh
+    # để mô hình thoát khỏi local minima và cải thiện Recall:
+    #   - mixup=0.15: trộn ảnh để mô hình dám detect ở vùng nhập nhòe
+    #   - copy_paste=0.1: copy-paste object để tăng đa dạng hóa
+    #   - cls=0.3 (giảm từ 0.5): giảm penalty phân loại, ép mô hình dám detect khi không chắc
+    #   - lr0=0.001: LR nhỏ hơn để fine-tune ổn định, không phá vỡ weights tốt
+    #   - patience=80: đủ lớn để không bị early stop quá sớm
+    #   - epochs=200: đủ dài để vượt qua giai đoạn plateau và đạt điểm mới
+    # ────────────────────────────────────────────────────────────────────────────
+
+    if best_teacher_path.exists() and not target_teacher_path_full.exists():
+        print(f"\n[Pre-train Teacher] TÌM THẤY BEST.PT! Bắt đầu Fine-tune từ checkpoint tốt nhất...")
+        print(f"  → Source: {best_teacher_path}")
+        print(f"  → Strategy: Fine-tune mới với Augmentation mạnh để boost Recall")
+        print(f"  → Epochs: 200 | LR: 0.001 | Patience: 80 | Augmentation: mixup+copy_paste")
+
+        teacher_model = YOLO(str(best_teacher_path))
         teacher_model.train(
-            data=str(base_yaml_path), # Toàn bộ URPC2020.yaml
-            epochs=150,
-            patience=50,
+            data=str(base_yaml_path),       # Toàn bộ URPC2020.yaml
+            epochs=200,                     # Đủ dài để vượt plateau (best ở ~43, cần thêm ~160 epochs)
+            patience=80,                    # Đủ lớn để không bị early stop sớm ở giai đoạn augmentation warm-up
             batch=16,
             imgsz=640,
             device="0",
+            lr0=0.001,                      # LR nhỏ hơn để fine-tune ổn định
+            lrf=0.01,                       # Cosine anneal xuống 0.001*0.01 = 1e-5 ở cuối
+            momentum=0.937,
+            weight_decay=0.0005,
+            # Augmentation mạnh hơn để thoát overfit và tăng Recall
+            mixup=0.15,                     # Trộn ảnh → mô hình dám detect vùng nhập nhòe
+            copy_paste=0.1,                 # Copy-paste object → đa dạng hóa vị trí object
+            mosaic=1.0,                     # Giữ nguyên mosaic
+            degrees=5.0,                    # Xoay nhẹ để robust hơn
+            # Giảm cls weight để mô hình dám detect khi không chắc → tăng Recall
+            cls=0.3,                        # Giảm từ 0.5 xuống 0.3
+            box=7.5,                        # Giữ nguyên box regression weight
+            project=str(REPO_ROOT / "runs/teacher_pretrain"),
+            name="yolo12l_oracle_finetune", # Tên run mới, không ghi đè run cũ
+            exist_ok=True,
+            verbose=True,
+            workers=4,
+            plots=False,
+        )
+
+        best_finetune_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_finetune/weights/best.pt"
+        last_finetune_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_finetune/weights/last.pt"
+
+        if best_finetune_path.exists():
+            import shutil
+            shutil.copy(best_finetune_path, target_teacher_path_full)
+            shutil.copy(best_finetune_path, teacher_ckpt)   # Ghi đè để Simulator dùng bản mạnh nhất
+            print(f"\n[Pre-train Teacher] HOÀN THÀNH FINE-TUNE!")
+            print(f"  → Đã xuất Teacher (best) vào: {teacher_ckpt}")
+
+            if last_finetune_path.exists():
+                import shutil as _shutil
+                last_ckpt = REPO_ROOT / "yolo12l_last_pretrained.pt"
+                _shutil.copy(last_finetune_path, last_ckpt)
+                print(f"  → Đã lưu last.pt vào: {last_ckpt}")
+        else:
+            print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy {best_finetune_path}")
+
+        del teacher_model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    elif teacher_ckpt.exists() and not target_teacher_path_full.exists():
+        print(f"\n[Pre-train Teacher] Không tìm thấy best.pt. Bắt đầu huấn luyện TỪ ĐẦU (200 epochs)...")
+        teacher_model = YOLO(str(teacher_ckpt))
+        teacher_model.train(
+            data=str(base_yaml_path),
+            epochs=200,
+            patience=80,
+            batch=16,
+            imgsz=640,
+            device="0",
+            lr0=0.01,
+            cls=0.3,
+            mixup=0.15,
+            copy_paste=0.1,
+            degrees=5.0,
             project=str(REPO_ROOT / "runs/teacher_pretrain"),
             name="yolo12l_oracle_full",
             exist_ok=True,
             verbose=True,
             workers=4,
-            plots=False
+            plots=False,
         )
-        
-    # Đoạn này nằm ngoài if/elif, đảm bảo DÙ RESUME HAY CHẠY TỪ ĐẦU thì khi xong cũng xuất file ra!
-    if not target_teacher_path_full.exists() and (last_teacher_path.exists() or teacher_ckpt.exists()):
-        best_teacher_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/best.pt"
-        last_out_path = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/last.pt"
-        
-        if best_teacher_path.exists():
+
+        best_out = REPO_ROOT / "runs/teacher_pretrain/yolo12l_oracle_full/weights/best.pt"
+        if best_out.exists():
             import shutil
-            shutil.copy(best_teacher_path, target_teacher_path_full)
-            shutil.copy(best_teacher_path, teacher_ckpt) # Ghi đè file cũ để Simulator dùng bản mạnh nhất
-            print(f"\n[Pre-train Teacher Hack] HOÀN THÀNH! Đã ghi Teacher bằng phiên bản Full Data (từ best.pt) vào {teacher_ckpt}")
-            
-            if last_out_path.exists():
-                last_ckpt = REPO_ROOT / "yolo12l_last_pretrained.pt"
-                shutil.copy(last_out_path, last_ckpt)
-                print(f"[Pre-train Teacher Hack] Đồng thời đã lưu bản last.pt vào {last_ckpt}")
+            shutil.copy(best_out, target_teacher_path_full)
+            shutil.copy(best_out, teacher_ckpt)
+            print(f"\n[Pre-train Teacher] HOÀN THÀNH! Đã xuất Teacher vào: {teacher_ckpt}")
         else:
-            print(f"\n[Pre-train Teacher Hack] Lỗi: Không tìm thấy file {best_teacher_path} (Có thể mô hình chưa train xong)")
-            
+            print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy {best_out}")
+
         del teacher_model
         gc.collect()
         torch.cuda.empty_cache()
+
     elif target_teacher_path_full.exists():
-        print(f"\n[Pre-train Teacher Hack] File {target_teacher_path_full} đã tồn tại, BỎ QUA huấn luyện thêm Teacher.")
+        print(f"\n[Pre-train Teacher] File {target_teacher_path_full} đã tồn tại, BỎ QUA huấn luyện thêm Teacher.")
     else:
-        print(f"\n[Pre-train Teacher Hack] Lỗi: Không tìm thấy {teacher_ckpt} để train tiếp. Vui lòng chuẩn bị file này trước.")
+        print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy {teacher_ckpt} hoặc best.pt. Vui lòng chuẩn bị file trước.")
 
     # 5. Tiến hành Pre-train Student khởi tạo (YOLO11n) - Global Warm-up
     student_ckpt = "yolo11n.pt"
