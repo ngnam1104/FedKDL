@@ -152,6 +152,13 @@ class BaseSimulator(ABC):
                     f"[*] LR Schedule | round={t}/{T_rounds} | "
                     f"base_lr={initial_lr:.6f} -> current_lr={self.current_lr:.8f}"
                 )
+                print("\n" + "="*60)
+                print("[*] CLUSTER TOPOLOGY INFO:")
+                if self.is_flat:
+                    print("    (Flat Topology: AUVs connect directly or via relays to Gateway)")
+                for relay_id, relay in self.relays.items():
+                    print(f"    - Relay {relay_id} manages auvs: {relay.cluster_members}")
+                print("="*60 + "\n")
             else:
                 print(
                     f"   -> [FL Simulator 1D] Round {t}/{T_rounds} | "
