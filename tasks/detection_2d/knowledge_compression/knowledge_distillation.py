@@ -506,10 +506,9 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_hidden_norm = loss_hidden / torch.clamp(loss_hidden.detach(), min=0.01)
         loss_attn_norm = loss_attn / torch.clamp(loss_attn.detach(), min=0.01)
 
-        # Cấp Tỷ trọng ưu tiên (Priorities) cho 4 thành phần (Tổng = 8.0 để tối ưu với AdamW lr=0.002)
-        # Vì các thành phần đã tự chuẩn hóa về 1.0, tổng giá trị của numerator sẽ luôn xấp xỉ 8.0.
-        # Ta KHÔNG cần chia cho denominator nữa (nếu chia sẽ làm gradient bị quá nhỏ -> triệt tiêu học tập).
-        loss_dist_adaptive = (loss_kl_norm * 2.5) + (loss_box_norm * 2.5) + (loss_hidden_norm * 1.5) + (loss_attn_norm * 1.5)
+        # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL: 
+        # Tăng mạnh trọng số KL (phân loại/confidence) và Box để Student tự tin hơn, giữ tổng = 8.0.
+        loss_dist_adaptive = (loss_kl_norm * 4.0) + (loss_box_norm * 3.0) + (loss_hidden_norm * 0.5) + (loss_attn_norm * 0.5)
         
         # Ultralytics v8DetectionLoss trả về loss là tensor 3 elements (box, cls, dfl)
         # [CRITICAL FIX] TẮT HOÀN TOÀN Supervised Loss trên Proxy Data để chống Overfit!
