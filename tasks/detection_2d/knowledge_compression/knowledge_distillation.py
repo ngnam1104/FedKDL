@@ -478,12 +478,16 @@ class KDDetectionTrainer(DetectionTrainer):
             t_cls = _extract_cls(t_preds)
             
             if s_cls is not None and t_cls is not None and s_cls.shape == t_cls.shape:
-                num_anchors = s_cls.shape[2]
-                loss_kl = F.kl_div(
-                    F.log_softmax(s_cls / T, dim=1),
-                    F.softmax(t_cls / T, dim=1).detach(),
-                    reduction='batchmean',
-                ) * (T * T) / num_anchors
+                # [CRITICAL FIX] YOLOv8/11/12 uses independent Sigmoids (BCE) for classification, NOT Softmax.
+                # If we use Softmax on background anchors (where logits are all negative), 
+                # it forces the probabilities to sum to 1.0, creating massive false positives 
+                # everywhere and completely destroying the model's calibration and recall.
+                t_prob = torch.sigmoid(t_cls / T).detach()
+                loss_kl = F.binary_cross_entropy_with_logits(
+                    s_cls / T,
+                    t_prob,
+                    reduction='mean'
+                ) * (T * T)
             else:
                 if self.batch_count == 0:
                     s_shape = s_cls.shape if s_cls is not None else None
