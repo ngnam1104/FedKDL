@@ -55,7 +55,9 @@ class LoRAConv2d(nn.Module):
         alpha = alpha if alpha is not None else float(rank)
         self.scaling = alpha / rank
 
-        nn.init.kaiming_uniform_(self.lora_A, a=5 ** 0.5)
+        # [UPDATE] Khởi tạo Random Gaussian (Phân phối chuẩn) theo đúng nguyên tác FFA-LoRA paper
+        # Để tránh nổ Gradient do phương sai quá lớn, ta scale std = 1 / sqrt(in_features)
+        nn.init.normal_(self.lora_A, mean=0.0, std=1.0 / (in_features ** 0.5))
         nn.init.zeros_(self.lora_B)
 
     def forward(self, x):
