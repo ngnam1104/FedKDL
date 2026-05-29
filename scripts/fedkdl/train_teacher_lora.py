@@ -46,7 +46,7 @@ def main():
     
     results = teacher_lora.yolo.train(
         data=str(yaml_path),
-        epochs=200,  # 200 epochs để có Teacher LoRA cực mạnh
+        epochs=100,  # 100 epochs là đủ cho LoRA hội tụ (có Early Stopping)
         imgsz=640,
         batch=8,     # Giảm batch size xuống 8 để tránh tràn VRAM trên A30
         workers=2,   # Giảm workers để tránh tràn RAM hệ thống (Exit code 137)
