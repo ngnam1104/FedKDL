@@ -210,7 +210,41 @@ def main():
     else:
         print(f"\n[Pre-train Teacher] Lỗi: Không tìm thấy {teacher_ckpt} hoặc best.pt. Vui lòng chuẩn bị file trước.")
 
-    # Đã tắt Pre-train Student (YOLO11n) theo yêu cầu (sử dụng yolo11n.pt gốc)
-
+    # 5. Giai đoạn 3: Khởi động ấm (Warm-up) Student (YOLO11n) trên Proxy Data
+    student_ckpt = REPO_ROOT / "yolo11n.pt"
+    warmup_ckpt = REPO_ROOT / "yolo11n_warmup.pt"
+    
+    if not warmup_ckpt.exists():
+        print("\n[Pre-train Student] Bắt đầu Warm-up Student trên Proxy Data (3 epochs)...")
+        from ultralytics import YOLO
+        student_model = YOLO(str(student_ckpt))
+        student_model.train(
+            data=str(proxy_yaml_abs),
+            epochs=3,  # Chỉ 3 epoch để định hình Detection Head (từ 80 classes của COCO -> 4 classes)
+            batch=16,
+            device="0",
+            lr0=0.01,
+            project=str(REPO_ROOT / "runs/student_warmup"),
+            name="yolo11n_proxy_warmup",
+            exist_ok=True,
+            verbose=False,
+            workers=4,
+            plots=False,
+        )
+        
+        warmup_out = REPO_ROOT / "runs/student_warmup/yolo11n_proxy_warmup/weights/best.pt"
+        if warmup_out.exists():
+            import shutil
+            shutil.copy(warmup_out, warmup_ckpt)
+            print(f"\n[Pre-train Student] HOÀN THÀNH! Đã xuất Student Warm-up vào: {warmup_ckpt}")
+        else:
+            print(f"\n[Pre-train Student] Lỗi: Không tìm thấy {warmup_out}")
+            
+        del student_model
+        import gc, torch
+        gc.collect()
+        torch.cuda.empty_cache()
+    else:
+        print(f"\n[Pre-train Student] File {warmup_ckpt} đã tồn tại, BỎ QUA quá trình Warm-up.")
 if __name__ == "__main__":
     main()
