@@ -644,8 +644,8 @@ class Simulator2D(BaseSimulator):
             'close_mosaic': 0,
             'optimizer': 'AdamW',
             
-            # Tăng LR lên 5e-4 để Gradient của SP Loss đủ lớn tác động lên Feature Map
-            'lr0': 5e-4,
+            # Giảm LR xuống 1e-4 để tránh sốc optimizer (AdamW cold-start) làm hỏng trọng số FedAvg
+            'lr0': 1e-4,
             
             'warmup_epochs': 1.0,
 
