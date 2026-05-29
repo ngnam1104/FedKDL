@@ -497,9 +497,9 @@ class KDDetectionTrainer(DetectionTrainer):
                 loss_kl_unreduced = F.binary_cross_entropy_with_logits(s_cls, t_prob, reduction='none')
                 
                 # Tính Mean BCE trên Foreground (chia cho số anchors * số classes)
-                # Nhân 10.0 để Scale magnitude tương đương với cls_loss gốc của YOLO
+                # Bỏ nhân hệ số 10.0 vì Mean BCE ở vùng Foreground tự nhiên đã rơi vào khoảng 3.0 - 5.0,
+                # tương đương hoàn hảo với cls_loss gốc của YOLO (từ 2.0 - 4.5).
                 loss_kl = (loss_kl_unreduced * fg_mask).sum() / (valid_anchors * s_cls.shape[1])
-                loss_kl = loss_kl * 10.0
             else:
                 if self.batch_count == 0:
                     s_shape = s_cls.shape if s_cls is not None else None
