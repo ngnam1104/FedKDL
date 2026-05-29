@@ -103,3 +103,86 @@ def fedavg_global(
                 global_sd[key] += w * relay_sd[key].float()
 
     return global_sd
+
+
+def svd_lora_aggregate(
+    client_sds: List[Dict[str, torch.Tensor]],
+    weights: List[float],
+) -> Dict[str, torch.Tensor]:
+    """
+    SVD-based Aggregation for FlexLoRA.
+    """
+    if not client_sds:
+        return {}
+
+    aggregated_sd = {}
+    all_keys = set()
+    for sd in client_sds:
+        all_keys.update(sd.keys())
+
+    # Find all lora_B keys
+    lora_B_keys = [k for k in all_keys if 'lora_B' in k]
+
+    for k in all_keys:
+        if k in lora_B_keys:
+            continue
+        if 'lora_A' in k:
+            continue
+        
+        # Standard FedAvg cho các keys khác (Detection Head)
+        original_dtype = None
+        weighted_sum = None
+        for sd, w in zip(client_sds, weights):
+            if k in sd:
+                if original_dtype is None:
+                    original_dtype = sd[k].dtype
+                    weighted_sum = torch.zeros_like(sd[k].float())
+                weighted_sum += sd[k].float() * w
+        if weighted_sum is not None:
+            aggregated_sd[k] = weighted_sum.to(original_dtype)
+
+    # SVD cho LoRA keys
+    for b_key in lora_B_keys:
+        a_key = b_key.replace('lora_B', 'lora_A')
+        
+        rank = None
+        W_avg = None
+        original_dtype = None
+        
+        for sd, w in zip(client_sds, weights):
+            if b_key in sd and a_key in sd:
+                B_i = sd[b_key].float()
+                A_i = sd[a_key].float()
+                if original_dtype is None:
+                    original_dtype = sd[b_key].dtype
+                    rank = B_i.shape[1]
+                    out_features = B_i.shape[0]
+                    in_features = A_i.shape[1]
+                    W_avg = torch.zeros((out_features, in_features), dtype=torch.float32, device=B_i.device)
+                
+                # B_i: (out, rank), A_i: (rank, in) => W_i: (out, in)
+                W_i = torch.matmul(B_i, A_i)
+                W_avg += W_i * w
+
+        if W_avg is not None:
+            # SVD decomposition
+            # W_avg = U @ S @ Vh
+            try:
+                U, S, Vh = torch.linalg.svd(W_avg, full_matrices=False)
+                # Giữ lại top 'rank' singular values
+                B_new = U[:, :rank] * S[:rank].unsqueeze(0)
+                A_new = Vh[:rank, :]
+                
+                aggregated_sd[b_key] = B_new.to(original_dtype)
+                aggregated_sd[a_key] = A_new.to(original_dtype)
+            except Exception as e:
+                print(f"[SVD Error] Lỗi phân rã SVD tại {b_key}: {e}. Fallback to standard FedAvg.")
+                B_sum = torch.zeros_like(sd[b_key].float())
+                A_sum = torch.zeros_like(sd[a_key].float())
+                for sd, w in zip(client_sds, weights):
+                    if b_key in sd: B_sum += sd[b_key].float() * w
+                    if a_key in sd: A_sum += sd[a_key].float() * w
+                aggregated_sd[b_key] = B_sum.to(original_dtype)
+                aggregated_sd[a_key] = A_sum.to(original_dtype)
+
+    return aggregated_sd

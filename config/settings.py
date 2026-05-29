@@ -74,8 +74,8 @@ class FedKDLConfig:
     # FFA-LoRA khóa A, chỉ gửi B, nên payload thực tế giảm kinh hoàng:
     # LORA_RANK=8 ➜ payload gốc A+B = 146KB ➜ FFA-LoRA (chỉ gửi B) = ~40KB!
     # LORA_RANK=16 ➜ payload gốc A+B = 278KB ➜ FFA-LoRA (chỉ gửi B) = 78.3KB!
-    # Do đó ta có thể dễ dàng tăng Rank lên 32 mà vẫn chưa chạm mốc 200KB.
-    LORA_RANK: int = 16               # Tạm set 16 (tương đương 78.3KB INT8)
+    # FlexLoRA cần gửi cả A và B nên LORA_RANK phải là 8 để payload < 200KB.
+    LORA_RANK: int = 8                # Tạm set 8 (FlexLoRA gửi cả A+B tốn ~146KB INT8)
     QUANTIZATION_BITS: int = 8        # Affine Quantization từng tensor riêng biệt (INT8)
     TARGET_PAYLOAD_KB: float = 200.0  # Target payload: 200KB (LoRA+Head partial INT8)
     

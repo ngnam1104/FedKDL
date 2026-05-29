@@ -44,19 +44,14 @@ class LoRAConv2d(nn.Module):
         in_features = (self.in_channels * self.kernel_size[0]
                        * self.kernel_size[1] // self.groups)
         
-        # [CRITICAL FIX v14] Đóng băng ma trận A (FFA-LoRA)
-        # Nếu để cả A và B cùng train ở các AUV khác nhau (Non-IID),
-        # khi Server tính trung bình (A1+A2)/2 và (B1+B2)/2, tích B_avg @ A_avg sẽ sinh ra
-        # các cross-terms rác (B1@A2, B2@A1) phá nát hoàn toàn Feature Map!
-        # Giải pháp: Khóa cứng A ở mức khởi tạo ngẫu nhiên, chỉ train B. Tính chất tuyến tính
-        # được bảo toàn tuyệt đối khi FedAvg.
-        self.lora_A = nn.Parameter(torch.zeros(rank, in_features), requires_grad=False)
+        # FlexLoRA: Cả A và B đều được huấn luyện (requires_grad=True).
+        # Phương pháp này sẽ dùng SVD ở server để giải quyết cross-terms khi FedAvg.
+        self.lora_A = nn.Parameter(torch.zeros(rank, in_features), requires_grad=True)
         self.lora_B = nn.Parameter(torch.zeros(self.out_channels, rank), requires_grad=True)
         alpha = alpha if alpha is not None else float(rank)
         self.scaling = alpha / rank
 
-        # [UPDATE] Khởi tạo Random Gaussian (Phân phối chuẩn) theo đúng nguyên tác FFA-LoRA paper
-        # Để tránh nổ Gradient do phương sai quá lớn, ta scale std = 1 / sqrt(in_features)
+        # Khởi tạo Random Gaussian cho A và Zeros cho B
         nn.init.normal_(self.lora_A, mean=0.0, std=1.0 / (in_features ** 0.5))
         nn.init.zeros_(self.lora_B)
 

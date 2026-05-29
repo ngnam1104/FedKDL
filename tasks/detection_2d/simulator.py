@@ -134,6 +134,7 @@ class RelayNode2D(BaseRelayNode):
     def aggregate_intra_cluster(self, global_state_dict, payloads, auv_n_samples, use_kd_lora_int8=True):
         import torch
         from tasks.detection_2d.knowledge_compression.int8_quantization import unpack_payload
+        from federated_core.aggregator import svd_lora_aggregate
         
         c_updates = []
         valid_sids = []
@@ -152,18 +153,13 @@ class RelayNode2D(BaseRelayNode):
             self.final_state_dict = copy.deepcopy(global_state_dict)
             return
 
-        self.intra_state_dict = {}
         total_samples = sum(auv_n_samples.get(sid, 0) for sid in valid_sids)
         if total_samples == 0:
             total_samples = 1
 
-        for k in c_updates[0]:
-            original_dtype = c_updates[0][k].dtype
-            weighted_sum = torch.zeros_like(c_updates[0][k].float())
-            for i, sid in enumerate(valid_sids):
-                weight = auv_n_samples.get(sid, 0) / total_samples
-                weighted_sum += c_updates[i][k].float() * weight
-            self.intra_state_dict[k] = weighted_sum.to(original_dtype)
+        weights = [auv_n_samples.get(sid, 0) / total_samples for sid in valid_sids]
+        
+        self.intra_state_dict = svd_lora_aggregate(c_updates, weights)
             
         import copy
         self.final_state_dict = copy.deepcopy(self.intra_state_dict)

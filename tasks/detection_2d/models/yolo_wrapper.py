@@ -69,18 +69,9 @@ class StudentModel:
             print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         if not self.full_param and self.use_lora:
-            # [CRITICAL FIX v14.1] Đảm bảo ma trận A giống hệt nhau trên MỌI THIẾT BỊ
-            # FFA-LoRA yêu cầu ma trận A phải được khóa cứng và giống hệt nhau ở mọi node.
-            # Ta phải fix seed ngẫu nhiên trước khi inject_lora để đảm bảo thứ tự sinh số ngẫu nhiên
-            # của ma trận A luôn khớp nhau tuyệt đối giữa Global Model và các Local Model.
-            rng_state = torch.get_rng_state()
-            torch.manual_seed(42)
-            
+            # FlexLoRA: Không khóa seed, cho phép A khởi tạo ngẫu nhiên và được train độc lập ở mỗi AUV
             injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank)
             print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
-            
-            # Trả lại trạng thái ngẫu nhiên cũ để không ảnh hưởng tới các thành phần khác
-            torch.set_rng_state(rng_state)
 
         if self.full_param:
             for param in self.yolo.model.parameters():
@@ -99,10 +90,13 @@ class StudentModel:
             # và dùng Batch statistics để chuẩn hóa trong lúc train, gây ra sự sai lệch nghiêm trọng
             # giữa các AUV và khi suy luận (đó là lý do mô hình bị nổ ở Round 4-5).
             
-            for m in self.yolo.model.modules():
-                if isinstance(m, torch.nn.BatchNorm2d):
-                    m.__class__ = FrozenBatchNorm2d
-                    m.eval()
+            for name, module in self.yolo.model.named_modules():
+                if isinstance(module, torch.nn.BatchNorm2d):
+                    # Bỏ đóng băng BN của Detection Head để tránh lỗi Domain Shift
+                    if 'model.22' in name or 'model.23' in name:
+                        continue
+                    module.__class__ = FrozenBatchNorm2d
+                    module.eval()
 
         trainable = sum(p.numel() for p in self.yolo.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.yolo.model.parameters())
@@ -122,9 +116,11 @@ class StudentModel:
     )
 
     def _is_payload_key(self, k: str) -> bool:
-        # [CRITICAL FIX v14] Chỉ gửi lora_B lên Server (do lora_A đã bị đóng băng vĩnh viễn)
-        # Tiết kiệm chính xác 50% dung lượng payload, và đảm bảo toán học tuyệt đối cho FFA-LoRA
-        if 'lora_B' in k and self.use_lora:
+        # FlexLoRA gửi cả lora_A và lora_B lên Server để phân rã SVD
+        if ('lora_B' in k or 'lora_A' in k) and self.use_lora:
+            return True
+        # Gửi toàn bộ BatchNorm của Detection Head lên Server để tổng hợp (FedBN -> Global BN)
+        if ('model.22' in k or 'model.23' in k) and 'bn' in k:
             return True
         for suffix in self._HEAD_OUTPUT_SUFFIXES:
             if k.endswith(suffix):
