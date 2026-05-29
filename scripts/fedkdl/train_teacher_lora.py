@@ -46,26 +46,28 @@ def main():
     
     results = teacher_lora.yolo.train(
         data=str(yaml_path),
-        epochs=10, # Train 10 epochs là đủ để có LoRA tốt
+        epochs=200,  # 200 epochs để có Teacher LoRA cực mạnh
         imgsz=640,
         batch=16,
         device="cuda" if torch.cuda.is_available() else "cpu",
         project="runs/teacher_lora",
         name="yolo12l_lora_urpc",
         exist_ok=True,
-        # Các tham số khác có thể mượn từ YOLO mặc định
+        resume=True,  # Tự động resume nếu bị sập giữa chừng
     )
     
     # 3. Lưu mô hình lại
     save_path = REPO_ROOT / "yolo12l_lora_pretrained.pt"
-    # Lấy weights từ file best.pt vừa train
-    best_weights = Path("runs/teacher_lora/yolo12l_lora_urpc/weights/best.pt")
-    if best_weights.exists():
+    # Ưu tiên best.pt, fallback về last.pt nếu chưa có best
+    best_weights = REPO_ROOT / "runs/teacher_lora/yolo12l_lora_urpc/weights/best.pt"
+    last_weights = REPO_ROOT / "runs/teacher_lora/yolo12l_lora_urpc/weights/last.pt"
+    chosen = best_weights if best_weights.exists() else last_weights
+    if chosen.exists():
         import shutil
-        shutil.copy(best_weights, save_path)
-        print(f"\n[Thành công] Đã lưu Teacher LoRA model tại: {save_path}")
+        shutil.copy(chosen, save_path)
+        print(f"\n[Thành công] Đã lưu Teacher LoRA model tại: {save_path} (nguồn: {chosen.name})")
     else:
-        print("\n[Lỗi] Không tìm thấy file best.pt!")
+        print("\n[Lỗi] Không tìm thấy best.pt hoặc last.pt!")
 
 if __name__ == "__main__":
     main()

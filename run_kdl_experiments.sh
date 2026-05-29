@@ -48,9 +48,47 @@ echo "[KDL] Generating topologies and data partitions..."
 "$PYTHON" utils/generate_all_envs.py --n 40 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 "$PYTHON" utils/generate_all_envs.py --n 50 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 
-# Pre-train Teacher & Khởi động ấm Student
-echo "[KDL] Đang tiến hành chuẩn bị các mô hình Teacher và Student..."
-"$PYTHON" scripts/fedkdl/pretrain.py
+# =========================================================
+# BƯỚC 1: Pre-train Teacher LoRA (200 epochs, có resume nếu sập)
+# =========================================================
+echo "[KDL] Bắt đầu huấn luyện Teacher LoRA (YOLO12l, 200 epochs)..."
+if [[ -f "yolo12l_lora_pretrained.pt" ]]; then
+  echo "[KDL] yolo12l_lora_pretrained.pt đã tồn tại, BỎ QUA bước này."
+else
+  # Dùng set +e để script không dừng nếu có lỗi nhỏ, resume tự xử lý
+  set +e
+  "$PYTHON" scripts/fedkdl/train_teacher_lora.py
+  TEACHER_RC=$?
+  set -e
+  if [[ $TEACHER_RC -ne 0 ]]; then
+    echo "[Warning] train_teacher_lora.py kết thúc với exit code $TEACHER_RC. Kiểm tra log."
+    echo "[KDL] Nếu yolo12l_lora_pretrained.pt vẫn được tạo, các bước tiếp theo sẽ tiếp tục..."
+    if [[ ! -f "yolo12l_lora_pretrained.pt" ]]; then
+      echo "[Error] Không có yolo12l_lora_pretrained.pt. Dừng script."
+      exit 1
+    fi
+  fi
+fi
+
+# =========================================================
+# BƯỚC 2: Warmup Student LoRA (10 epochs trên Proxy Data / URPC2020)
+# =========================================================
+echo "[KDL] Đang Warm-up Student với LoRA (10 epochs)..."
+if [[ -f "yolo11n_warmup.pt" ]]; then
+  echo "[KDL] yolo11n_warmup.pt đã tồn tại, BỎ QUA bước Warm-up."
+else
+  set +e
+  "$PYTHON" scripts/fedkdl/train_student_warmup.py
+  STUDENT_RC=$?
+  set -e
+  if [[ $STUDENT_RC -ne 0 ]]; then
+    echo "[Warning] train_student_warmup.py exit=$STUDENT_RC."
+    if [[ ! -f "yolo11n_warmup.pt" ]]; then
+      echo "[Error] Không có yolo11n_warmup.pt. Dừng script."
+      exit 1
+    fi
+  fi
+fi
 
 # =========================================================
 # Định nghĩa các mảng Task (Để tự động tính toán tiến độ)
