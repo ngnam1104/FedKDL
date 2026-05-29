@@ -215,12 +215,13 @@ def main():
     warmup_ckpt = REPO_ROOT / "yolo12n_warmup.pt"
     
     if not warmup_ckpt.exists():
-        print("\n[Pre-train Student] Bắt đầu Warm-up Student trên Proxy Data (3 epochs)...")
+        print("\n[Pre-train Student] Bắt đầu Warm-up Student trên Proxy Data (1 epochs)...")
         from ultralytics import YOLO
         student_model = YOLO(str(student_ckpt))
         student_model.train(
             data=str(proxy_yaml_abs),
-            epochs=3,  # Chỉ 3 epoch để định hình Detection Head (từ 80 classes của COCO -> 4 classes)
+            epochs=1,  # Chỉ 1 epoch để định hình Detection Head
+
             batch=16,
             device="0",
             lr0=0.01,
