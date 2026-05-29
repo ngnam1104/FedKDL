@@ -493,9 +493,11 @@ class KDDetectionTrainer(DetectionTrainer):
                 # Tính BCE nguyên bản
                 loss_kl_unreduced = F.binary_cross_entropy_with_logits(s_cls, t_prob, reduction='none')
                 
-                # Tính số lượng vật thể thực tế (Foreground) để normalize
-                fg_mask = (t_prob.max(dim=1, keepdim=True)[0] > 0.05).float()
-                valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
+                # Tính số lượng vật thể thực tế (dựa trên tổng xác suất mềm) để normalize.
+                # Đây là [CRITICAL FIX v12] chống nổ Loss (KL vọt lên 99).
+                # Thay vì đếm cứng (>0.05) gây ra mẫu số quá nhỏ (e.g. 10), 
+                # ta dùng tổng xác suất t_prob.sum() giống hệt cách Ultralytics tính target_scores_sum!
+                valid_anchors = torch.clamp(t_prob.sum(), min=1.0)
                 
                 # Nhân Focal Weight và chia cho số vật thể (giống chuẩn YOLO)
                 loss_kl = (loss_kl_unreduced * focal_weight).sum() / valid_anchors
