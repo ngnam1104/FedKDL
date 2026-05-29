@@ -48,7 +48,7 @@ def main():
         data=str(yaml_path),
         epochs=200,  # 200 epochs để có Teacher LoRA cực mạnh
         imgsz=640,
-        batch=16,
+        batch=8,     # Giảm batch size xuống 8 để tránh tràn VRAM trên A30
         device="cuda" if torch.cuda.is_available() else "cpu",
         project="runs/teacher_lora",
         name="yolo12l_lora_urpc",
