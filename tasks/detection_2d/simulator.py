@@ -630,7 +630,7 @@ class Simulator2D(BaseSimulator):
         overrides = {
             'model': "yolo12n.pt",
             'data': proxy_yaml,
-            'epochs': 5,  # Tăng lên 5 epoch để SP Loss có thời gian hội tụ
+            'epochs': 2,  # Giữ ở mức 2 epoch theo yêu cầu để tiết kiệm thời gian
             'batch': 8,
             'device': self.device,
             'project': 'runs/gateway_kd',
