@@ -242,7 +242,7 @@ def local_sgd_od(
         'close_mosaic': 0,
         'lr0': lr,
         'optimizer': 'AdamW',
-        'warmup_epochs': 0.0,
+        'warmup_epochs': 1.0,
         'lrf': 1.0,
         'cos_lr': False,
         'device': device,
