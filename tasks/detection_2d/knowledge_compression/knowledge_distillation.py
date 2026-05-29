@@ -534,7 +534,13 @@ class KDDetectionTrainer(DetectionTrainer):
             t_box = _extract_bboxes(t_preds)
 
             if s_box is not None and t_box is not None and s_box.shape == t_box.shape:
-                # Dùng lại fg_mask từ bước KL Loss
+                # [CRITICAL FIX v8] Tái tạo lại fg_mask để Box KD không bị văng lỗi NameError 
+                # (Vì mình đã xóa fg_mask ở phần KL KD phía trên).
+                # Đồng thời Box KD bắt buộc phải có mask để không học tọa độ rác từ Background.
+                t_prob_raw = torch.sigmoid(t_cls).detach()
+                fg_mask = (t_prob_raw.max(dim=1, keepdim=True)[0] > 0.05).float()
+                valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
+                
                 loss_box_unreduced = F.mse_loss(s_box, t_box.detach(), reduction='none')
                 loss_box_kd = (loss_box_unreduced * fg_mask).sum() / (valid_anchors * s_box.shape[1])
             else:
@@ -554,8 +560,9 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 6. Adaptive Attention Loss — MSE(A^t, A^s) ───────────────────
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
-        # [FIX v7] Phục hồi SP Loss và Attn Loss. 
-        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 10.0) + (loss_attn * 20.0)
+        # [FIX v8] Giảm mạnh trọng số Feature KD (SP và Attn) xuống 1.0 và 2.0
+        # Theo như phân tích, không nên để Feature KD đè bẹp Task KD (KL và Box).
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 1.0) + (loss_attn * 2.0)
         
         # [FIX v7] TRẢ LẠI SUPERVISED LOSS! 
         # Vì KL KD đã được fix chuẩn tỷ lệ (không còn phá mô hình), Supervised Loss (1.0)
