@@ -69,10 +69,13 @@ class FedKDLConfig:
     COOP_THRESHOLD_MULTIPLIER: float = 0.75 
     
     # KD-LoRA-INT8 Parameters
-    # Kịch bản 1: LORA_RANK=4 ➜ payload ~74KB  (LoRA 72KB + Head partial 2KB)
-    # Kịch bản 2: LORA_RANK=8 ➜ payload ~146KB (LoRA 144KB + Head partial 2KB) ≈ 150KB target
-    # Kịch bản 3: LORA_RANK=16 ➜ payload sẽ rơi vào khoảng ~200KB.
-    LORA_RANK: int = 16               # Nâng lên 16 theo yêu cầu
+    # ĐIỀU BẤT NGỜ CỦA FFA-LoRA (Cắt giảm 90% thay vì 50%):
+    # Vì ma trận A liên kết với in_features (kernel 3x3 -> gấp 9 lần channel), A lớn gấp 9 lần B!
+    # FFA-LoRA khóa A, chỉ gửi B, nên payload thực tế giảm kinh hoàng:
+    # LORA_RANK=8 ➜ payload gốc A+B = 146KB ➜ FFA-LoRA (chỉ gửi B) = ~40KB!
+    # LORA_RANK=16 ➜ payload gốc A+B = 278KB ➜ FFA-LoRA (chỉ gửi B) = 78.3KB!
+    # Do đó ta có thể dễ dàng tăng Rank lên 32 mà vẫn chưa chạm mốc 200KB.
+    LORA_RANK: int = 16               # Tạm set 16 (tương đương 78.3KB INT8)
     QUANTIZATION_BITS: int = 8        # Affine Quantization từng tensor riêng biệt (INT8)
     TARGET_PAYLOAD_KB: float = 200.0  # Target payload: 200KB (LoRA+Head partial INT8)
     
