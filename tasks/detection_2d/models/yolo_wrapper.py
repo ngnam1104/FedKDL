@@ -8,6 +8,12 @@ from ultralytics import YOLO
 from tasks.detection_2d.models.lora import inject_lora
 
 
+class FrozenBatchNorm2d(torch.nn.BatchNorm2d):
+    """Bản vá lỗi Pickle cho BatchNorm2d khi bị đóng băng trong PEFT (LoRA)."""
+    def train(self, mode=False):
+        return super().train(False)
+
+
 class StudentModel:
     """
     YOLO11n + LoRA injection cho Federated Learning.
@@ -82,11 +88,11 @@ class StudentModel:
             # Tuy nhiên, nếu không khóa BatchNorm, nó vẫn sẽ cập nhật running_mean/var 
             # và dùng Batch statistics để chuẩn hóa trong lúc train, gây ra sự sai lệch nghiêm trọng
             # giữa các AUV và khi suy luận (đó là lý do mô hình bị nổ ở Round 4-5).
+            
             for m in self.yolo.model.modules():
                 if isinstance(m, torch.nn.BatchNorm2d):
+                    m.__class__ = FrozenBatchNorm2d
                     m.eval()
-                    # Khóa cứng hàm train() để Ultralytics không thể chuyển nó về chế độ train
-                    m.train = lambda mode=False: m.eval()
 
         trainable = sum(p.numel() for p in self.yolo.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.yolo.model.parameters())

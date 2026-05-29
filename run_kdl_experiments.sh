@@ -28,7 +28,7 @@ export PYTHONIOENCODING=utf-8
 # Cấu hình thử nghiệm (Chỉnh sửa các tham số tại đây)
 # =========================================================
 ROUNDS=60
-SEED=42
+SEED=1104
 DS="URPC"
 M_RELAYS_2D=4       # Thay đổi số lượng Relay tại đây (vd: 4, 5, 10...)
 # =========================================================
