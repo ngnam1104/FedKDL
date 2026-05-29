@@ -126,8 +126,9 @@ def _similarity_preserving_loss(
             continue
             
         # 1. Ép phẳng không gian (C, H, W) -> 1D vector cho mỗi ảnh
-        s_flat = s_feat.view(B, -1)
-        t_flat = t_feat.detach().view(B, -1)
+        # BẮT BUỘC ép kiểu float32 để tránh tràn số (Overflow) gây lỗi NaN khi dùng Mixed Precision (AMP float16)
+        s_flat = s_feat.view(B, -1).to(torch.float32)
+        t_flat = t_feat.detach().view(B, -1).to(torch.float32)
 
         # 2. Tính ma trận Gram (tính dot-product giữa các ảnh trong batch)
         # G_s, G_t có shape (B, B)

@@ -86,7 +86,7 @@ def main():
             data_path=str(data_path),
             baseline=args.baseline,
             test_yaml="datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml",
-            student_ckpt="yolo12n_warmup.pt",
+            student_ckpt="yolov8n_warmup.pt",
             teacher_ckpt="yolo12l_pretrained.pt" if Path("yolo12l_pretrained.pt").exists() else "yolo12l.pt",
             device=device,
         )
@@ -143,7 +143,7 @@ def main():
             
             # Khởi tạo mô hình dựa trên config full_param, LORA, v.v.
             # Centralized thường train full params hoặc có thể test LoRA. Ở đây giả định train full params.
-            model = YOLO("yolo12n_warmup.pt")
+            model = YOLO("yolov8n_warmup.pt")
             
             # Train trực tiếp trên dataset yaml tương ứng
             test_yaml = "datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml"

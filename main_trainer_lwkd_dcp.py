@@ -91,7 +91,7 @@ def main():
                 if "urpc" in dataset.lower()
                 else "coco8.yaml"
             ),
-            student_ckpt="yolo12n_warmup.pt",
+            student_ckpt="yolov8n_warmup.pt",
             teacher_ckpt=(
                 "yolo12l_pretrained.pt"
                 if Path("yolo12l_pretrained.pt").exists()
@@ -118,7 +118,7 @@ def main():
                 "seed":     seed,
                 "topo_path": str(topo_path),
                 "data_path": str(data_path),
-                "payload_note": "Full YOLO12n Float32 (~5.4 MB per auv per round, no LoRA, no INT8)",
+                "payload_note": "Full YOLOv8n Float32 (~5.4 MB per auv per round, no LoRA, no INT8)",
                 "kd_note": "Local KD at AUV (Teacher YOLO12l), DCP preprocessing, no Gateway KD",
             },
             "metrics": history,

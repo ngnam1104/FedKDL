@@ -70,7 +70,7 @@ class AUVWorkerSOTA(BaseWorker):
 
         # Student: TOÀN BỘ tham số, KHÔNG LoRA, KHÔNG INT8
         local_student = StudentModel(
-            "yolo11n.pt", rank=4, nc=nc,
+            "yolov8n.pt", rank=4, nc=nc,
             full_param=True, use_lora=False
         )
         local_student.load_trainable_state_dict(global_state)
@@ -125,7 +125,7 @@ class SimulatorSOTA(BaseSimulator):
 
     def __init__(self, topo_path: str, data_path: str,
                  test_yaml: str = "datasets/URPC2020.yaml",
-                 student_ckpt: str = "yolo11n.pt",
+                 student_ckpt: str = "yolov8n.pt",
                  teacher_ckpt: str = "yolo12l.pt",
                  device: str = "cpu"):
         super().__init__(topo_path, data_path)
@@ -324,7 +324,7 @@ class SimulatorSOTA(BaseSimulator):
             # ── Phase 4: Evaluate ───────────────────────────────────────────
             nc = self._get_nc()
             eval_student = StudentModel(
-                "yolo11n.pt", rank=4, nc=nc,
+                "yolov8n.pt", rank=4, nc=nc,
                 full_param=True, use_lora=False
             )
             eval_student.load_trainable_state_dict(self.global_state)
