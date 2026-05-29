@@ -478,18 +478,27 @@ class KDDetectionTrainer(DetectionTrainer):
             t_cls = _extract_cls(t_preds)
             
             if s_cls is not None and t_cls is not None and s_cls.shape == t_cls.shape:
-                # [CRITICAL FIX v7] LOẠI BỎ TEMPERATURE (T=4.0) CHO BÀI TOÁN SIGMOID!
-                # Việc dùng T>1.0 rồi nhân với T^2 chỉ đúng cho Softmax (Hinton KD). 
-                # Với Sigmoid (YOLO), T=4 sẽ khuếch đại gradient của 8300 background anchors lên 10-16 lần,
-                # khiến mô hình bị phá hủy hoàn toàn (đó là lý do Prec/Rec dao động điên rồ).
+                # [CRITICAL FIX v9] Áp dụng Quality Focal Loss (QFL) cho KD!
+                # Vấn đề gốc rễ: Tính BCE trên TẤT CẢ 8400 anchors khiến Background (vốn chiếm 99%) 
+                # tạo ra một khối lượng Loss khổng lồ (dù đã chia sum), đè bẹp Foreground và làm tụt Recall.
+                # Giải pháp đỉnh cao: Dùng Focal Weight = |Teacher_Prob - Student_Prob|^gamma
+                # Khi đó, Background (nơi Student đã đoán đúng là 0) sẽ bị triệt tiêu Loss về 0.
+                # Còn những chỗ Student đoán sai (False Positive hoặc False Negative) sẽ được nhân mạnh lên!
                 t_prob = torch.sigmoid(t_cls).detach()
+                s_prob = torch.sigmoid(s_cls)
                 
-                # Tính BCE nguyên bản trên TẤT CẢ anchors (không mask) để học cách nén False Positives
+                # Tính trọng số Focal (gamma = 2.0)
+                focal_weight = torch.abs(t_prob - s_prob) ** 2.0
+                
+                # Tính BCE nguyên bản
                 loss_kl_unreduced = F.binary_cross_entropy_with_logits(s_cls, t_prob, reduction='none')
                 
-                # Scale chuẩn như YOLO supervised: chia cho tổng xác suất của Teacher (giống target_scores_sum)
-                t_scores_sum = torch.clamp(t_prob.sum(), min=1.0)
-                loss_kl = loss_kl_unreduced.sum() / t_scores_sum
+                # Tính số lượng vật thể thực tế (Foreground) để normalize
+                fg_mask = (t_prob.max(dim=1, keepdim=True)[0] > 0.05).float()
+                valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
+                
+                # Nhân Focal Weight và chia cho số vật thể (giống chuẩn YOLO)
+                loss_kl = (loss_kl_unreduced * focal_weight).sum() / valid_anchors
             else:
                 if self.batch_count == 0:
                     s_shape = s_cls.shape if s_cls is not None else None
