@@ -66,8 +66,10 @@ def compute_djoint_matrix(
     finite_emd = emd_raw[np.isfinite(emd_raw)]
     emd_min = finite_emd.min() if len(finite_emd) > 0 else 0.0
     emd_max = finite_emd.max() if len(finite_emd) > 0 else 1.0
-    emd_range = emd_max - emd_min; if emd_range == 0: emd_range = 1e-9 if emd_max > emd_min else 1.0
-
+    emd_range = emd_max - emd_min
+    if emd_range == 0:
+        emd_range = 1e-9
+    
     emd_norm = np.where(np.isfinite(emd_raw),
                         (emd_raw - emd_min) / emd_range,
                         np.inf)
