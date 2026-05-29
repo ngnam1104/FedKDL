@@ -119,29 +119,50 @@ def _similarity_preserving_loss(
     n_pairs = min(len(student_feats), len(teacher_feats))
     valid_pairs = 0
 
-    for s_feat, t_feat in zip(student_feats[:n_pairs], teacher_feats[:n_pairs]):
-        B = s_feat.shape[0]
-        if B <= 1:
-            # SP yêu cầu batch_size > 1 để tính ma trận tương quan giữa các ảnh
-            continue
+    # Tắt AMP Autocast để ngăn PyTorch tự động ép kiểu (downcast) torch.mm về float16 gây tràn số
+    with torch.amp.autocast('cuda', enabled=False):
+        for s_feat, t_feat in zip(student_feats[:n_pairs], teacher_feats[:n_pairs]):
+            B = s_feat.shape[0]
+            if B <= 1:
+                # SP yêu cầu batch_size > 1 để tính ma trận tương quan giữa các ảnh
+                continue
+                
+            # 1. Ép phẳng không gian (C, H, W) -> 1D vector cho mỗi ảnh
+            # BẮT BUỘC ép kiểu float32 để tránh tràn số (Overflow) gây lỗi NaN khi dùng Mixed Precision (AMP float16)
+            s_flat = s_feat.view(B, -1).to(torch.float32)
+            t_flat = t_feat.detach().view(B, -1).to(torch.float32)
             
-        # 1. Ép phẳng không gian (C, H, W) -> 1D vector cho mỗi ảnh
-        # BẮT BUỘC ép kiểu float32 để tránh tràn số (Overflow) gây lỗi NaN khi dùng Mixed Precision (AMP float16)
-        s_flat = s_feat.view(B, -1).to(torch.float32)
-        t_flat = t_feat.detach().view(B, -1).to(torch.float32)
+            # [DEBUG & FIX] Scale toàn cục vector về [-1, 1] trước khi nhân.
+            # Về mặt toán học: G_norm sẽ triệt tiêu hoàn toàn hệ số scale này, nên phép toán giống 100% bản gốc,
+            # nhưng về mặt máy tính: Chống tràn số tuyệt đối kể cả khi channel dimension > 1 triệu.
+            s_max = s_flat.abs().max() + 1e-6
+            t_max = t_flat.abs().max() + 1e-6
+            s_flat = s_flat / s_max
+            t_flat = t_flat / t_max
 
-        # 2. Tính ma trận Gram (tính dot-product giữa các ảnh trong batch)
-        # G_s, G_t có shape (B, B)
-        G_s = torch.mm(s_flat, s_flat.t())
-        G_t = torch.mm(t_flat, t_flat.t())
+            # 2. Tính ma trận Gram (tính dot-product giữa các ảnh trong batch)
+            # G_s, G_t có shape (B, B)
+            G_s = torch.mm(s_flat, s_flat.t())
+            G_t = torch.mm(t_flat, t_flat.t())
+            
+            if torch.isnan(G_s).any() or torch.isinf(G_s).any():
+                print(f"\n[DEBUG SP] G_s có NaN/Inf! s_max={s_max.item():.4f}")
 
-        # 3. Chuẩn hóa ma trận (L2-norm theo từng hàng)
-        G_s_norm = F.normalize(G_s, p=2, dim=1)
-        G_t_norm = F.normalize(G_t, p=2, dim=1)
+            # 3. Chuẩn hóa ma trận (L2-norm theo từng hàng)
+            # Thêm eps thủ công để đề phòng row có toàn số 0
+            G_s_norm = G_s / (G_s.norm(p=2, dim=1, keepdim=True) + 1e-8)
+            G_t_norm = G_t / (G_t.norm(p=2, dim=1, keepdim=True) + 1e-8)
 
-        # 4. Tính MSE Loss trên 2 ma trận tương quan
-        total = total + F.mse_loss(G_s_norm, G_t_norm)
-        valid_pairs += 1
+            if torch.isnan(G_s_norm).any():
+                print(f"\n[DEBUG SP] G_s_norm có NaN/Inf! G_s_min={G_s.min().item():.4f}, G_s_max={G_s.max().item():.4f}")
+
+            # 4. Tính MSE Loss trên 2 ma trận tương quan
+            loss_sp_layer = F.mse_loss(G_s_norm, G_t_norm)
+            if torch.isnan(loss_sp_layer):
+                print(f"\n[DEBUG SP] MSE Loss bị NaN ở layer này!")
+            
+            total = total + loss_sp_layer
+            valid_pairs += 1
 
     return total / max(valid_pairs, 1)
 
@@ -168,19 +189,34 @@ def _adaptive_attention_loss(
     total = torch.tensor(0.0)
     n_pairs = min(len(student_feats), len(teacher_feats))
 
-    for s_feat, t_feat in zip(student_feats[:n_pairs], teacher_feats[:n_pairs]):
-        a_s = _attention_map(s_feat)
-        a_t = _attention_map(t_feat.detach())
+    # Tắt AMP để an toàn, phòng trường hợp fp16 gây lỗi
+    with torch.amp.autocast('cuda', enabled=False):
+        for s_feat, t_feat in zip(student_feats[:n_pairs], teacher_feats[:n_pairs]):
+            # Đưa về float32 giống như SP Loss để đảm bảo độ chính xác
+            s_feat = s_feat.to(torch.float32)
+            t_feat = t_feat.detach().to(torch.float32)
 
-        # Align spatial nếu khác nhau
-        if a_s.shape != a_t.shape:
-            a_t = F.adaptive_avg_pool2d(a_t, a_s.shape[-2:])
+            a_s = _attention_map(s_feat)
+            a_t = _attention_map(t_feat)
 
-        # Normalize về [0,1] để tránh magnitude bias
-        a_s = a_s / (a_s.max() + 1e-6)
-        a_t = a_t / (a_t.max() + 1e-6)
+            # Align spatial nếu khác nhau
+            if a_s.shape != a_t.shape:
+                a_t = F.adaptive_avg_pool2d(a_t, a_s.shape[-2:])
 
-        total = total + F.mse_loss(a_s, a_t)
+            # Normalize về [0,1] để tránh magnitude bias
+            s_max = a_s.max() + 1e-6
+            t_max = a_t.max() + 1e-6
+            a_s = a_s / s_max
+            a_t = a_t / t_max
+            
+            if torch.isnan(a_s).any() or torch.isinf(a_s).any():
+                print(f"\n[DEBUG Attn] a_s có NaN/Inf! s_max={s_max.item():.4f}")
+
+            loss_a_layer = F.mse_loss(a_s, a_t)
+            if torch.isnan(loss_a_layer):
+                print(f"\n[DEBUG Attn] MSE Loss bị NaN ở layer này!")
+
+            total = total + loss_a_layer
 
     return total / max(n_pairs, 1)
 

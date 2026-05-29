@@ -50,7 +50,7 @@ class FedKDLConfig:
     """Tham số Thuật toán Học liên kết & Đề xuất FedKDL"""
     # Baseline Parameters
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60}) # Chu kỳ sống dự kiến cho từng tác vụ
-    MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 108000.0, "2D": 2.175e9}) # 1D: Autoencoder ~54k params | 2D: YOLOv8n ở 320x320
+    MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 108000.0, "2D": 2.175e9}) # 1D: Autoencoder ~54k params | 2D: YOLOv11n ở 320x320
     FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2}) # Hệ số nhân: 1D (Full fine-tuning), 2D (LoRA)
     LOCAL_EPOCHS: int = 2             # Giảm xuống 2 để giảm AUV Drift
     LOCAL_BATCH_SIZE: int = 16        # Trả về 16 vì batch 64 làm training bị nghẽn (2.9s/it)

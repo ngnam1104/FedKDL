@@ -233,7 +233,7 @@ def local_sgd_od(
 
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
     overrides = {
-        'model': "yolov8n.pt",
+        'model': "yolo11n.pt",
         'data': auv_yaml,
         'cache': getattr(fed_cfg, 'CACHE_DATASET', True),
         'epochs': epochs,
