@@ -576,9 +576,9 @@ class KDDetectionTrainer(DetectionTrainer):
         
         self.epoch_box_loss += (loss_box_kd.item() * 0.5)
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
-        self.epoch_hidden_loss += (loss_sp.item() * 10.0)
-        self.epoch_attn_loss += (loss_attn.item() * 20.0)
-        self.epoch_kd_loss += loss_dist_adaptive.item()
+        self.epoch_hidden_loss += (loss_sp.item() * 1.0)
+        self.epoch_attn_loss += (loss_attn.item() * 2.0)
+        self.epoch_kd_loss += total_loss.item() if total_loss.ndim == 0 else total_loss[0].item()
         self.batch_count += 1
 
         return total_loss, loss_items
