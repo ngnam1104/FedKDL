@@ -47,7 +47,7 @@ class _FeatureHook:
 
 
 def _register_hooks(model: nn.Module,
-                    target_class_names: Tuple[str, ...] = ('C2f', 'C3k2', 'SPPF')
+                    target_class_names: Tuple[str, ...] = ('C2f', 'C3k2', 'SPPF', 'A2C2f', 'PSA')
                     ) -> Tuple[_FeatureHook, List]:
     """
     Đăng ký forward hooks vào các block đặc trưng của YOLO.
