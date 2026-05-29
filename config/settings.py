@@ -69,10 +69,10 @@ class FedKDLConfig:
     COOP_THRESHOLD_MULTIPLIER: float = 0.75 
     
     # KD-LoRA-INT8 Parameters
-    # Kịch bản 1: LORA_RANK=4 → payload ~74KB  (LoRA 72KB + Head partial 2KB)
-    # Kịch bản 2: LORA_RANK=8 → payload ~146KB (LoRA 144KB + Head partial 2KB) ≈ 150KB target
-    # Kịch bản 3: LORA_RANK=12 → payload ~196KB -> tau_round ~1650s (<1800s limit)
-    LORA_RANK: int = 12               # Nâng lên 12 để não to hơn
+    # Kịch bản 1: LORA_RANK=4 ➜ payload ~74KB  (LoRA 72KB + Head partial 2KB)
+    # Kịch bản 2: LORA_RANK=8 ➜ payload ~146KB (LoRA 144KB + Head partial 2KB) ≈ 150KB target
+    # Kịch bản 3: LORA_RANK=16 ➜ payload sẽ rơi vào khoảng ~200KB.
+    LORA_RANK: int = 16               # Nâng lên 16 theo yêu cầu
     QUANTIZATION_BITS: int = 8        # Affine Quantization từng tensor riêng biệt (INT8)
     TARGET_PAYLOAD_KB: float = 200.0  # Target payload: 200KB (LoRA+Head partial INT8)
     

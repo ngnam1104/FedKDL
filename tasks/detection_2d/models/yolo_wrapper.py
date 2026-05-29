@@ -69,8 +69,18 @@ class StudentModel:
             print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         if not self.full_param and self.use_lora:
+            # [CRITICAL FIX v14.1] Đảm bảo ma trận A giống hệt nhau trên MỌI THIẾT BỊ
+            # FFA-LoRA yêu cầu ma trận A phải được khóa cứng và giống hệt nhau ở mọi node.
+            # Ta phải fix seed ngẫu nhiên trước khi inject_lora để đảm bảo thứ tự sinh số ngẫu nhiên
+            # của ma trận A luôn khớp nhau tuyệt đối giữa Global Model và các Local Model.
+            rng_state = torch.get_rng_state()
+            torch.manual_seed(42)
+            
             injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank)
             print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
+            
+            # Trả lại trạng thái ngẫu nhiên cũ để không ảnh hưởng tới các thành phần khác
+            torch.set_rng_state(rng_state)
 
         if self.full_param:
             for param in self.yolo.model.parameters():
