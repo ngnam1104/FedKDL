@@ -550,10 +550,16 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
-        # Box KD bị TẮT: MSE trên toàn bộ anchor grid ép cả background về 0,
-        # phá hủy các activation nhỏ của Student → Recall sập thảm.
-        # Chỉ giữ KL (T=4, soft label) + SP (định hướng feature nhẹ) + Attn.
-        loss_dist_adaptive = (loss_kl * 0.5) + (loss_sp * 10.0) + (loss_attn * 50.0)
+        # [FIX v3] CHẨN ĐOÁN CỐT LÕI:
+        # - Attention Loss (weight=50) ÉP magnitude activation của Student phải giống Teacher.
+        #   Teacher (12l) có magnitude cao hơn nhiều → Attn Loss kéo confidence của MỌI anchor lên.
+        #   Với 2 epoch ngắn, gradient không hội tụ được → overshooting cực đoan, dao động vòng 1→2.
+        # - Box KD (MSE toàn grid) ép background về 0 → giết Recall.
+        # - KL với T=4 (BCE): Student học soft-label của Teacher → tương đối ổn.
+        # - SP Loss (weight=10): định hướng correlation feature → nhẹ nhàng, không gây dao động.
+        #
+        # Công thức ổn định: chỉ KL + SP, bỏ Attn và Box.
+        loss_dist_adaptive = (loss_kl * 1.0) + (loss_sp * 10.0)
         
         # [FIX] Trả lại Supervised Loss nguyên vẹn (x1.0) để làm điểm neo (anchor) giữ vững Recall
         # Không được để KD lấn át hoàn toàn (dẫn đến Model Collapse)
@@ -565,10 +571,10 @@ class KDDetectionTrainer(DetectionTrainer):
             total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
         
         # Tích lũy log (Giá trị ĐÃ SCALE theo trọng số để thấy rõ độ lớn tham gia vào Gradient)
-        self.epoch_box_loss += 0.0  # Box KD đã tắt
-        self.epoch_kl_loss += (loss_kl.item() * 0.5)
+        self.epoch_box_loss += 0.0      # Box KD tắt
+        self.epoch_kl_loss += loss_kl.item()
         self.epoch_hidden_loss += (loss_sp.item() * 10.0)
-        self.epoch_attn_loss += (loss_attn.item() * 50.0)
+        self.epoch_attn_loss += 0.0    # Attn Loss tắt (gây dao động cực đoan với 2 epoch ngắn)
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
 

@@ -655,11 +655,9 @@ class Simulator2D(BaseSimulator):
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.student_wrapper = self.global_student
         
-        # [FIX] Giảm dần sự phụ thuộc vào KD qua các vòng FL (từ 0.5 xuống 0.1)
-        # Vì càng về sau Student càng tự học tốt từ Federated Learning, không cần Teacher "cầm tay chỉ việc" quá gắt nữa
-        current_r = getattr(self, 'current_round', 1)
-        total_r = getattr(self.fed_cfg, 'T_ROUNDS', 60)
-        trainer.kd_lambda = max(0.1, 0.5 * (1.0 - (current_r - 1) / total_r))
+        # [FIX v3] kd_lambda cố định 0.1 — KD chỉ là regularizer nhẹ, không được overwrite FL.
+        # 0.5 quá lớn: kết hợp với Attn Loss×50 gây dao động cực đoan vòng 1→2.
+        trainer.kd_lambda = 0.1
         
         trainer.set_teacher(self.teacher.yolo.model)
         
