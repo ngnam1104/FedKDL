@@ -478,21 +478,18 @@ class KDDetectionTrainer(DetectionTrainer):
             t_cls = _extract_cls(t_preds)
             
             if s_cls is not None and t_cls is not None and s_cls.shape == t_cls.shape:
-                # [CRITICAL FIX v4] Foreground-Masked KD
-                # Background anchors (hơn 8000 cái) sẽ đè bẹp các object anchors (vài chục cái).
-                # Nếu tính BCE/MSE trên toàn bộ lưới, Student sẽ bị ép học "Background" cực kỳ mạnh,
-                # dẫn đến thái độ siêu bảo thủ (Precision cao vọt, Recall sập thảm).
-                # Giải pháp: Lọc ra các anchor mà Teacher dự đoán có object (t_prob_raw > 0.05).
-                t_prob_raw = torch.sigmoid(t_cls).detach()
-                # Lấy max prob theo class cho từng anchor. Mask shape: [B, 1, Anchors]
-                fg_mask = (t_prob_raw.max(dim=1, keepdim=True)[0] > 0.05).float()
+                # [CRITICAL FIX v7] LOẠI BỎ TEMPERATURE (T=4.0) CHO BÀI TOÁN SIGMOID!
+                # Việc dùng T>1.0 rồi nhân với T^2 chỉ đúng cho Softmax (Hinton KD). 
+                # Với Sigmoid (YOLO), T=4 sẽ khuếch đại gradient của 8300 background anchors lên 10-16 lần,
+                # khiến mô hình bị phá hủy hoàn toàn (đó là lý do Prec/Rec dao động điên rồ).
+                t_prob = torch.sigmoid(t_cls).detach()
                 
-                t_prob_soft = torch.sigmoid(t_cls / T).detach()
-                loss_kl_unreduced = F.binary_cross_entropy_with_logits(s_cls / T, t_prob_soft, reduction='none')
+                # Tính BCE nguyên bản trên TẤT CẢ anchors (không mask) để học cách nén False Positives
+                loss_kl_unreduced = F.binary_cross_entropy_with_logits(s_cls, t_prob, reduction='none')
                 
-                # Chỉ tính trung bình trên các anchor thuộc vùng Foreground
-                valid_anchors = fg_mask.sum() + 1e-8
-                loss_kl = (loss_kl_unreduced * fg_mask).sum() / (valid_anchors * s_cls.shape[1]) * (T * T)
+                # Scale chuẩn như YOLO supervised: chia cho tổng xác suất của Teacher (giống target_scores_sum)
+                t_scores_sum = torch.clamp(t_prob.sum(), min=1.0)
+                loss_kl = loss_kl_unreduced.sum() / t_scores_sum
             else:
                 if self.batch_count == 0:
                     s_shape = s_cls.shape if s_cls is not None else None
@@ -506,7 +503,8 @@ class KDDetectionTrainer(DetectionTrainer):
             traceback.print_exc()
             loss_kl = torch.tensor(0.0, device=loss_stu.device)
 
-        # ── 4b. Bounding Box Distillation (MSE) ─────────────────────────
+        # ── 4. Bounding Box KD Loss (Regression) ────────────────────────────
+        # Box KD bắt buộc phải có MASK vì Box của Teacher ở vùng background là rác (không có vật thể).
         try:
             def _extract_bboxes(p):
                 # 1. Handle YOLOv11 new dict format
@@ -556,25 +554,18 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 6. Adaptive Attention Loss — MSE(A^t, A^s) ───────────────────
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
-        # [FIX v5] Phục hồi SP Loss và Attn Loss (Người dùng suy luận xuất sắc!)
-        # Do đã có Mask cho Box và KL, việc sập mô hình trước đó 99% là do Background Domination.
-        # SP và Attn làm việc trên Feature Map, không bị ảnh hưởng trực tiếp bởi Anchor Background.
-        # Phục hồi lại để tận dụng tối đa lượng tri thức (Knowledge) từ Teacher.
-        # (Để Attn weight = 20.0 thay vì 50.0 cho an toàn hơn trong 2 epochs).
+        # [FIX v7] Phục hồi SP Loss và Attn Loss. 
         loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 10.0) + (loss_attn * 20.0)
         
-        # [FIX v6 - CRITICAL] Tắt hoàn toàn Supervised Loss (Hard Labels) trong pha KD!
-        # Phân tích: Proxy Data chỉ chứa 20% dữ liệu. Nếu chúng ta dùng Hard Labels của Proxy
-        # Data để fine-tune, mô hình sẽ BỊ QUÊN (Catastrophic Forgetting) 80% kiến thức mà 
-        # các AUV vừa vất vả học được.
-        # Giải pháp: Dùng 100% tín hiệu từ Teacher (vì Teacher đã được train trên 100% dữ liệu).
-        # Teacher sẽ truyền lại toàn bộ phân phối chuẩn qua KL và Box KD.
-        total_loss = loss_stu.clone() * 0.0  # Tắt Hard Label
+        # [FIX v7] TRẢ LẠI SUPERVISED LOSS! 
+        # Vì KL KD đã được fix chuẩn tỷ lệ (không còn phá mô hình), Supervised Loss (1.0)
+        # kết hợp với KD (0.5) sẽ tạo thành bộ khung vững chắc chống Catastrophic Forgetting.
+        total_loss = loss_stu.clone() * 1.0
         
         if total_loss.ndim == 0:
-            total_loss = total_loss + loss_dist_adaptive  # Tự tin dùng 100% KD Loss
+            total_loss = total_loss + self.kd_lambda * loss_dist_adaptive
         else:
-            total_loss[0] = total_loss[0] + loss_dist_adaptive
+            total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
         
         self.epoch_box_loss += (loss_box_kd.item() * 0.5)
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
