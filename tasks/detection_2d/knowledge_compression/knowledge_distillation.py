@@ -500,14 +500,15 @@ class KDDetectionTrainer(DetectionTrainer):
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
         # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL theo hướng Feature-based
-        # Khôi phục loss tự nhiên (không chia cho .detach() vì gây nhiễu gradient khi loss nhỏ)
         # Tăng mạnh trọng số Hidden (x10) và Attn (x50) vì độ lớn (magnitude) của chúng quá nhỏ (0.5 và 0.03)
-        # Giảm KL và Box xuống để giảm bớt sự khắt khe (strictness) từ Teacher gây tụt Recall.
-        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_hidden * 10.0) + (loss_attn * 50.0)
+        # [CRITICAL FIX] Bỏ hoàn toàn Hidden Loss (x0.0) vì so sánh Feature Maps trực tiếp (khi khác kiến trúc 11n vs 12l) 
+        # mà KHÔNG có lớp adapter tuyến tính (trainable) sẽ phá vỡ hoàn toàn Backbone của Student, gây rớt mAP và Recall thảm hại.
+        # Giữ lại Attention Loss (so sánh heatmap không gian) nhưng hạ xuống x10.0 để tránh lấn át Supervised Loss.
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_hidden * 0.0) + (loss_attn * 10.0)
         
-        # [FIX] Trả lại Supervised Loss (YOLO task loss) với trọng số nhỏ (0.5) 
-        # để Student vẫn bám vào Ground Truth thực tế, tránh việc học mù quáng theo Teacher
-        total_loss = loss_stu.clone() * 0.5
+        # [FIX] Trả lại Supervised Loss nguyên vẹn (x1.0) để làm điểm neo (anchor) giữ vững Recall
+        # Không được để KD lấn át hoàn toàn (dẫn đến Model Collapse)
+        total_loss = loss_stu.clone() * 1.0
         
         if total_loss.ndim == 0:
             total_loss = total_loss + self.kd_lambda * loss_dist_adaptive
@@ -517,8 +518,8 @@ class KDDetectionTrainer(DetectionTrainer):
         # Tích lũy log (Giá trị ĐÃ SCALE theo trọng số để thấy rõ độ lớn tham gia vào Gradient)
         self.epoch_box_loss += (loss_box_kd.item() * 0.5)
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
-        self.epoch_hidden_loss += (loss_hidden.item() * 10.0)
-        self.epoch_attn_loss += (loss_attn.item() * 50.0)
+        self.epoch_hidden_loss += (loss_hidden.item() * 0.0)
+        self.epoch_attn_loss += (loss_attn.item() * 10.0)
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
 
