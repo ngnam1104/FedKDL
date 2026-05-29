@@ -485,22 +485,21 @@ class KDDetectionTrainer(DetectionTrainer):
                 # Khi đó, Background (nơi Student đã đoán đúng là 0) sẽ bị triệt tiêu Loss về 0.
                 # Còn những chỗ Student đoán sai (False Positive hoặc False Negative) sẽ được nhân mạnh lên!
                 t_prob = torch.sigmoid(t_cls).detach()
-                s_prob = torch.sigmoid(s_cls)
                 
-                # Tính trọng số Focal (gamma = 2.0)
-                focal_weight = torch.abs(t_prob - s_prob) ** 2.0
+                # [CRITICAL FIX v13] Masked KD (Foreground Only)
+                # Thay vì QFL trên toàn bộ 537,600 anchors (dẫn đến nổ Loss khi lệch kiến trúc),
+                # ta CHỈ distill ở những vùng Teacher có sự tự tin (t_prob > 0.05).
+                # Còn vùng Background, YOLO Supervised Loss đã lo liệu rất tốt!
+                fg_mask = (t_prob.max(dim=1, keepdim=True)[0] > 0.05).float()
+                valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
                 
                 # Tính BCE nguyên bản
                 loss_kl_unreduced = F.binary_cross_entropy_with_logits(s_cls, t_prob, reduction='none')
                 
-                # Tính số lượng vật thể thực tế (dựa trên tổng xác suất mềm) để normalize.
-                # Đây là [CRITICAL FIX v12] chống nổ Loss (KL vọt lên 99).
-                # Thay vì đếm cứng (>0.05) gây ra mẫu số quá nhỏ (e.g. 10), 
-                # ta dùng tổng xác suất t_prob.sum() giống hệt cách Ultralytics tính target_scores_sum!
-                valid_anchors = torch.clamp(t_prob.sum(), min=1.0)
-                
-                # Nhân Focal Weight và chia cho số vật thể (giống chuẩn YOLO)
-                loss_kl = (loss_kl_unreduced * focal_weight).sum() / valid_anchors
+                # Tính Mean BCE trên Foreground (chia cho số anchors * số classes)
+                # Nhân 10.0 để Scale magnitude tương đương với cls_loss gốc của YOLO
+                loss_kl = (loss_kl_unreduced * fg_mask).sum() / (valid_anchors * s_cls.shape[1])
+                loss_kl = loss_kl * 10.0
             else:
                 if self.batch_count == 0:
                     s_shape = s_cls.shape if s_cls is not None else None
