@@ -563,14 +563,18 @@ class KDDetectionTrainer(DetectionTrainer):
         # (Để Attn weight = 20.0 thay vì 50.0 cho an toàn hơn trong 2 epochs).
         loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 10.0) + (loss_attn * 20.0)
         
-        # [FIX] Trả lại Supervised Loss nguyên vẹn (x1.0) để làm điểm neo (anchor) giữ vững Recall
-        # Không được để KD lấn át hoàn toàn (dẫn đến Model Collapse)
-        total_loss = loss_stu.clone() * 1.0
+        # [FIX v6 - CRITICAL] Tắt hoàn toàn Supervised Loss (Hard Labels) trong pha KD!
+        # Phân tích: Proxy Data chỉ chứa 20% dữ liệu. Nếu chúng ta dùng Hard Labels của Proxy
+        # Data để fine-tune, mô hình sẽ BỊ QUÊN (Catastrophic Forgetting) 80% kiến thức mà 
+        # các AUV vừa vất vả học được.
+        # Giải pháp: Dùng 100% tín hiệu từ Teacher (vì Teacher đã được train trên 100% dữ liệu).
+        # Teacher sẽ truyền lại toàn bộ phân phối chuẩn qua KL và Box KD.
+        total_loss = loss_stu.clone() * 0.0  # Tắt Hard Label
         
         if total_loss.ndim == 0:
-            total_loss = total_loss + self.kd_lambda * loss_dist_adaptive
+            total_loss = total_loss + loss_dist_adaptive  # Tự tin dùng 100% KD Loss
         else:
-            total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
+            total_loss[0] = total_loss[0] + loss_dist_adaptive
         
         self.epoch_box_loss += (loss_box_kd.item() * 0.5)
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
