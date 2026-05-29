@@ -70,7 +70,7 @@ class AUVWorker2D(BaseWorker):
         from config.settings import fed_cfg
         rank = 4 if 'r4' in baseline else fed_cfg.LORA_RANK
 
-        local_student = StudentModel("yolo11n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
+        local_student = StudentModel("yolo12n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 
         # Cấp phát Teacher cục bộ nếu chạy thuật toán FedKD (Local KD)
@@ -176,7 +176,7 @@ class Simulator2D(BaseSimulator):
         data_path: str,
         baseline: str,
         test_yaml: str = "datasets/URPC2020.yaml",
-        student_ckpt: str = "yolo11n.pt",
+        student_ckpt: str = "yolo12n.pt",
         teacher_ckpt: str = "yolo12l.pt",
         device: str = "cpu",
     ):
@@ -448,8 +448,8 @@ class Simulator2D(BaseSimulator):
     def get_flop_multiplier(self) -> float:
         classic_baselines = ['fedavg', 'fedprox', 'centralized', 'hfl_selective', 'hfl_nearest', 'hfl_nocoop', 'fedkd']
         if self.baseline == 'fedkd':
-            # FedKD chạy Teacher (YOLOv12l) Forward pass + Student (YOLOv11n) Full pass.
-            # Tỷ lệ FLOPs của YOLOv12l so với YOLOv11n là ~30 lần. Cộng thêm 3 lần cho Student.
+            # FedKD chạy Teacher (YOLOv12l) Forward pass + Student (YOLOv12n) Full pass.
+            # Tỷ lệ FLOPs của YOLOv12l so với YOLOv12n là ~30 lần. Cộng thêm 3 lần cho Student.
             return 33.0 
         elif 'full_param' in self.baseline or self.baseline in classic_baselines:
             # Full param update (Forward + Backward qua tất cả tham số)
@@ -628,7 +628,7 @@ class Simulator2D(BaseSimulator):
             proxy_yaml = str(Path(proxy_yaml_abs).absolute())
 
         overrides = {
-            'model': "yolo11n.pt",
+            'model': "yolo12n.pt",
             'data': proxy_yaml,
             'epochs': 2,  # [CRITICAL FIX] Giảm xuống 2 vì BBox KD đã được kích hoạt, học rất nhanh
             'batch': 8,
