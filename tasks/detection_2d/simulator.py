@@ -647,9 +647,8 @@ class Simulator2D(BaseSimulator):
             # Tăng LR lên 5e-4 để Gradient của SP Loss đủ lớn tác động lên Feature Map
             'lr0': 5e-4,
             
-            'warmup_epochs': 0,   # [CRITICAL FIX] Tắt hoàn toàn warmup! Nếu để mặc định warmup_epochs=3 > epochs=1
-                                  # thì TOÀN BỘ epoch là warmup phase → warmup_bias_lr=0.1 áp lên bias params
-                                  # = gấp 1000 lần lr0=1e-4 → overwrite hoàn toàn detection head bias → mAP tụt!
+            'warmup_epochs': 1.0,
+
             'warmup_bias_lr': 0.0, # [CRITICAL FIX] Đảm bảo bias params không bị warmup với lr cao
         }
         trainer = KDDetectionTrainer(overrides=overrides)
