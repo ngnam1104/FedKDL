@@ -76,6 +76,17 @@ class StudentModel:
                     param.requires_grad_(True)
                 else:
                     param.requires_grad_(False)
+            
+            # [CRITICAL FIX v11] Đóng băng vĩnh viễn BatchNorm statistics!
+            # Nếu dùng LoRA (full_param=False), Backbone bị đóng băng. 
+            # Tuy nhiên, nếu không khóa BatchNorm, nó vẫn sẽ cập nhật running_mean/var 
+            # và dùng Batch statistics để chuẩn hóa trong lúc train, gây ra sự sai lệch nghiêm trọng
+            # giữa các AUV và khi suy luận (đó là lý do mô hình bị nổ ở Round 4-5).
+            for m in self.yolo.model.modules():
+                if isinstance(m, torch.nn.BatchNorm2d):
+                    m.eval()
+                    # Khóa cứng hàm train() để Ultralytics không thể chuyển nó về chế độ train
+                    m.train = lambda mode=False: m.eval()
 
         trainable = sum(p.numel() for p in self.yolo.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.yolo.model.parameters())
