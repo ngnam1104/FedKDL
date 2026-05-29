@@ -98,47 +98,51 @@ def _count_inference_tensors(module: nn.Module) -> tuple[int, list[str]]:
 #  Adaptive Hidden Loss và Attention Loss
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _adaptive_hidden_loss(
+def _similarity_preserving_loss(
     student_feats: List[torch.Tensor],
     teacher_feats: List[torch.Tensor],
 ) -> torch.Tensor:
     """
-    MSE(H^t, W^h H^s) — Eq. 37 Adaptive Hidden Loss.
-
-    Nếu spatial dimensions khác nhau, dùng adaptive_avg_pool2d để align.
-    Nếu channel dimensions khác nhau, dùng 1×1 projection tuyến tính nhanh.
+    Similarity-Preserving (SP) KD Loss.
+    Dựa trên paper Tung & Mori (ICCV 2019): "Similarity-Preserving Knowledge Distillation".
+    
+    Thay vì ép Student học trực tiếp pixel của Teacher (gây vỡ feature nếu sai lệch kiến trúc),
+    phương pháp này ép Student duy trì tỷ lệ tương đồng (similarity) giữa các ảnh trong một batch.
+    Ma trận tương quan G (kích thước BxB) triệt tiêu hoàn toàn sự khác biệt về Channel (C)
+    và Không gian (H, W), là giải pháp hoàn hảo cho Teacher và Student bất đồng kiến trúc.
     """
     if not student_feats or not teacher_feats:
         return torch.tensor(0.0)
 
     total = torch.tensor(0.0)
-    device = student_feats[0].device
-
-    # Chỉ so n_pairs đầu (YOLO student/teacher có thể có số block khác nhau)
+    # So sánh n_pairs đầu
     n_pairs = min(len(student_feats), len(teacher_feats))
+    valid_pairs = 0
 
     for s_feat, t_feat in zip(student_feats[:n_pairs], teacher_feats[:n_pairs]):
-        if s_feat.shape == t_feat.shape:
-            total = total + F.mse_loss(s_feat, t_feat.detach())
-        else:
-            # Align spatial dims
-            h_s, w_s = s_feat.shape[-2], s_feat.shape[-1]
-            t_aligned = F.adaptive_avg_pool2d(t_feat.detach(), (h_s, w_s))
+        B = s_feat.shape[0]
+        if B <= 1:
+            # SP yêu cầu batch_size > 1 để tính ma trận tương quan giữa các ảnh
+            continue
+            
+        # 1. Ép phẳng không gian (C, H, W) -> 1D vector cho mỗi ảnh
+        s_flat = s_feat.view(B, -1)
+        t_flat = t_feat.detach().view(B, -1)
 
-            # Align channel dims với projection tuyến tính nhanh (không trainable bias)
-            c_s = s_feat.shape[1]
-            c_t = t_aligned.shape[1]
-            if c_s != c_t:
-                with torch.no_grad():
-                    proj = torch.nn.functional.conv2d(
-                        t_aligned,
-                        weight=torch.eye(c_s, c_t, device=device).view(c_s, c_t, 1, 1),
-                        bias=None, stride=1, padding=0,
-                    )
-                t_aligned = proj
-            total = total + F.mse_loss(s_feat, t_aligned)
+        # 2. Tính ma trận Gram (tính dot-product giữa các ảnh trong batch)
+        # G_s, G_t có shape (B, B)
+        G_s = torch.mm(s_flat, s_flat.t())
+        G_t = torch.mm(t_flat, t_flat.t())
 
-    return total / max(n_pairs, 1)
+        # 3. Chuẩn hóa ma trận (L2-norm theo từng hàng)
+        G_s_norm = F.normalize(G_s, p=2, dim=1)
+        G_t_norm = F.normalize(G_t, p=2, dim=1)
+
+        # 4. Tính MSE Loss trên 2 ma trận tương quan
+        total = total + F.mse_loss(G_s_norm, G_t_norm)
+        valid_pairs += 1
+
+    return total / max(valid_pairs, 1)
 
 
 def _attention_map(feat: torch.Tensor) -> torch.Tensor:
@@ -492,19 +496,20 @@ class KDDetectionTrainer(DetectionTrainer):
                 print(f"[KD] Box fallback Error: {e}")
             loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
 
-        # ── 5. Adaptive Hidden Loss — MSE(H^t, W^h H^s) ─────────────────
-        loss_hidden = _adaptive_hidden_loss(student_feats, teacher_feats).to(loss_stu.device)
+        # ── 5. Similarity-Preserving Loss (Thay cho Hidden Loss cũ) ─────────
+        loss_sp = _similarity_preserving_loss(student_feats, teacher_feats).to(loss_stu.device)
 
         # ── 6. Adaptive Attention Loss — MSE(A^t, A^s) ───────────────────
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
         # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL theo hướng Feature-based
-        # Tăng mạnh trọng số Hidden (x10) và Attn (x50) vì độ lớn (magnitude) của chúng quá nhỏ (0.5 và 0.03)
-        # [CRITICAL FIX] Bỏ hoàn toàn Hidden Loss (x0.0) vì so sánh Feature Maps trực tiếp (khi khác kiến trúc 11n vs 12l) 
-        # mà KHÔNG có lớp adapter tuyến tính (trainable) sẽ phá vỡ hoàn toàn Backbone của Student, gây rớt mAP và Recall thảm hại.
-        # Giữ lại Attention Loss (so sánh heatmap không gian) nhưng hạ xuống x10.0 để tránh lấn át Supervised Loss.
-        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_hidden * 0.0) + (loss_attn * 10.0)
+        # [NEW FIX] Thay vì dùng Hidden Loss so sánh Feature trực tiếp gây vỡ Backbone,
+        # áp dụng SP Loss để so sánh ma trận tương quan giữa các ảnh (bỏ qua khác biệt Dimension).
+        # Theo Paper gốc (Tung & Mori 2019), hệ số gamma cho SP thường rất lớn (1000 - 3000) 
+        # vì giá trị F.mse_loss của 2 ma trận L2-normalized rất nhỏ (cỡ 1e-3 đến 1e-4).
+        # Tăng trọng số SP lên 500.0 và Attn lên 50.0 để chúng có tác động thực sự tới Gradient.
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 500.0) + (loss_attn * 50.0)
         
         # [FIX] Trả lại Supervised Loss nguyên vẹn (x1.0) để làm điểm neo (anchor) giữ vững Recall
         # Không được để KD lấn át hoàn toàn (dẫn đến Model Collapse)
@@ -518,8 +523,8 @@ class KDDetectionTrainer(DetectionTrainer):
         # Tích lũy log (Giá trị ĐÃ SCALE theo trọng số để thấy rõ độ lớn tham gia vào Gradient)
         self.epoch_box_loss += (loss_box_kd.item() * 0.5)
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
-        self.epoch_hidden_loss += (loss_hidden.item() * 0.0)
-        self.epoch_attn_loss += (loss_attn.item() * 10.0)
+        self.epoch_hidden_loss += (loss_sp.item() * 500.0)  # Log SP loss vào biến hidden_loss cũ
+        self.epoch_attn_loss += (loss_attn.item() * 50.0)
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
 
