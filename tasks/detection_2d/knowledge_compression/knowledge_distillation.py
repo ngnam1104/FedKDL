@@ -478,16 +478,21 @@ class KDDetectionTrainer(DetectionTrainer):
             t_cls = _extract_cls(t_preds)
             
             if s_cls is not None and t_cls is not None and s_cls.shape == t_cls.shape:
-                # [CRITICAL FIX] YOLOv8/11/12 uses independent Sigmoids (BCE) for classification, NOT Softmax.
-                # If we use Softmax on background anchors (where logits are all negative), 
-                # it forces the probabilities to sum to 1.0, creating massive false positives 
-                # everywhere and completely destroying the model's calibration and recall.
-                t_prob = torch.sigmoid(t_cls / T).detach()
-                loss_kl = F.binary_cross_entropy_with_logits(
-                    s_cls / T,
-                    t_prob,
-                    reduction='mean'
-                ) * (T * T)
+                # [CRITICAL FIX v4] Foreground-Masked KD
+                # Background anchors (hơn 8000 cái) sẽ đè bẹp các object anchors (vài chục cái).
+                # Nếu tính BCE/MSE trên toàn bộ lưới, Student sẽ bị ép học "Background" cực kỳ mạnh,
+                # dẫn đến thái độ siêu bảo thủ (Precision cao vọt, Recall sập thảm).
+                # Giải pháp: Lọc ra các anchor mà Teacher dự đoán có object (t_prob_raw > 0.05).
+                t_prob_raw = torch.sigmoid(t_cls).detach()
+                # Lấy max prob theo class cho từng anchor. Mask shape: [B, 1, Anchors]
+                fg_mask = (t_prob_raw.max(dim=1, keepdim=True)[0] > 0.05).float()
+                
+                t_prob_soft = torch.sigmoid(t_cls / T).detach()
+                loss_kl_unreduced = F.binary_cross_entropy_with_logits(s_cls / T, t_prob_soft, reduction='none')
+                
+                # Chỉ tính trung bình trên các anchor thuộc vùng Foreground
+                valid_anchors = fg_mask.sum() + 1e-8
+                loss_kl = (loss_kl_unreduced * fg_mask).sum() / (valid_anchors * s_cls.shape[1]) * (T * T)
             else:
                 if self.batch_count == 0:
                     s_shape = s_cls.shape if s_cls is not None else None
@@ -531,7 +536,9 @@ class KDDetectionTrainer(DetectionTrainer):
             t_box = _extract_bboxes(t_preds)
 
             if s_box is not None and t_box is not None and s_box.shape == t_box.shape:
-                loss_box_kd = F.mse_loss(s_box, t_box.detach())
+                # Dùng lại fg_mask từ bước KL Loss
+                loss_box_unreduced = F.mse_loss(s_box, t_box.detach(), reduction='none')
+                loss_box_kd = (loss_box_unreduced * fg_mask).sum() / (valid_anchors * s_box.shape[1])
             else:
                 if self.batch_count == 0:
                     s_shape = s_box.shape if s_box is not None else None
@@ -549,17 +556,13 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 6. Adaptive Attention Loss — MSE(A^t, A^s) ───────────────────
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
-        # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
-        # [FIX v3] CHẨN ĐOÁN CỐT LÕI:
-        # - Attention Loss (weight=50) ÉP magnitude activation của Student phải giống Teacher.
-        #   Teacher (12l) có magnitude cao hơn nhiều → Attn Loss kéo confidence của MỌI anchor lên.
-        #   Với 2 epoch ngắn, gradient không hội tụ được → overshooting cực đoan, dao động vòng 1→2.
-        # - Box KD (MSE toàn grid) ép background về 0 → giết Recall.
-        # - KL với T=4 (BCE): Student học soft-label của Teacher → tương đối ổn.
-        # - SP Loss (weight=10): định hướng correlation feature → nhẹ nhàng, không gây dao động.
-        #
-        # Công thức ổn định: chỉ KL + SP, bỏ Attn và Box.
-        loss_dist_adaptive = (loss_kl * 1.0) + (loss_sp * 10.0)
+        # [FIX v4] MASKED KD
+        # - Bây giờ KL Loss và Box Loss ĐÃ CÓ FOREGROUND MASK. Chúng sẽ chỉ học từ những
+        #   vật thể Teacher thực sự nhìn thấy, bỏ qua nhiễu background.
+        # - Bật lại Box KD (có mask thì Box KD rất tốt cho việc học localization).
+        # - Tạm tắt SP Loss (vì SP cũng so sánh toàn cục tính cả background).
+        # Tỷ lệ: KL * 0.5 + Box * 0.5. kd_lambda có thể để lại 0.5 trong simulator
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5)
         
         # [FIX] Trả lại Supervised Loss nguyên vẹn (x1.0) để làm điểm neo (anchor) giữ vững Recall
         # Không được để KD lấn át hoàn toàn (dẫn đến Model Collapse)
@@ -570,10 +573,9 @@ class KDDetectionTrainer(DetectionTrainer):
         else:
             total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
         
-        # Tích lũy log (Giá trị ĐÃ SCALE theo trọng số để thấy rõ độ lớn tham gia vào Gradient)
-        self.epoch_box_loss += 0.0      # Box KD tắt
-        self.epoch_kl_loss += loss_kl.item()
-        self.epoch_hidden_loss += (loss_sp.item() * 10.0)
+        self.epoch_box_loss += (loss_box_kd.item() * 0.5)
+        self.epoch_kl_loss += (loss_kl.item() * 0.5)
+        self.epoch_hidden_loss += 0.0
         self.epoch_attn_loss += 0.0    # Attn Loss tắt (gây dao động cực đoan với 2 epoch ngắn)
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1

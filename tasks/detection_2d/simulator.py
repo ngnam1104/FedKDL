@@ -655,9 +655,11 @@ class Simulator2D(BaseSimulator):
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.student_wrapper = self.global_student
         
-        # [FIX v3] kd_lambda cố định 0.1 — KD chỉ là regularizer nhẹ, không được overwrite FL.
-        # 0.5 quá lớn: kết hợp với Attn Loss×50 gây dao động cực đoan vòng 1→2.
-        trainer.kd_lambda = 0.1
+        # [FIX v4] Masked KD: lambda=0.5. Vì chỉ Foreground anchors đóng góp loss,
+        # magnitude tổng nhỏ hơn nhiều → cần lambda lớn hơn để signal đủ mạnh.
+        current_r = getattr(self, 'current_round', 1)
+        total_r = getattr(self.fed_cfg, 'T_ROUNDS', 60)
+        trainer.kd_lambda = max(0.1, 0.5 * (1.0 - (current_r - 1) / total_r))
         
         trainer.set_teacher(self.teacher.yolo.model)
         
