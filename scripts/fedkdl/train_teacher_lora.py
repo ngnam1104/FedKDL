@@ -31,7 +31,7 @@ def main():
     # Thủ thuật: Dùng StudentModel wrapper nhưng truyền yolo12l.pt
     # Điều này sẽ giúp ta tự động thay thế Head và inject_lora với rank tương ứng
     teacher_lora = StudentModel(
-        ckpt_path=teacher_ckpt, 
+        ckpt=teacher_ckpt, 
         rank=rank, 
         nc=4, # URPC2020 có 4 classes (holothurian, echinus, scallop, starfish)
         full_param=False, 

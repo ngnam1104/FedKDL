@@ -40,7 +40,7 @@ def main():
 
     print(f"-> Loading yolo11n.pt và tiêm LoRA (rank={rank})...")
     student = StudentModel(
-        ckpt_path="yolo11n.pt",
+        ckpt="yolo11n.pt",
         rank=rank,
         nc=4,          # URPC2020: holothurian, echinus, scallop, starfish
         full_param=False,
