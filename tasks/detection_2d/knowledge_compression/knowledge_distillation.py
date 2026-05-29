@@ -230,7 +230,7 @@ class KDDetectionTrainer(DetectionTrainer):
     Extend Ultralytics DetectionTrainer với Knowledge Distillation đầy đủ (Eq. 37).
 
     Teacher: YOLOv12-Large (~40M params), frozen, eval mode.
-    Student: YOLO26n với LoRA injection.
+    Student: YOLO11n với LoRA injection.
 
     Loss tổng hợp:
         L_total = L_stu + [KL(y^s, y^t) + MSE(H,H) + MSE(A,A)] / (L_tch + L_stu)
@@ -425,6 +425,8 @@ class KDDetectionTrainer(DetectionTrainer):
         student_feats = list(s_hook.outputs)
         _remove_hooks(s_handles)
         s_hook.clear()
+        if self.batch_count == 0:
+            print(f"[KD - Batch 1] Student captured {len(student_feats)} feature tensors. Shapes: {[f.shape for f in student_feats[:3]]}")
 
         # ── 3. Forward Teacher (no gradient) + thu features ──────────────
         if self.batch_count == 0:
@@ -442,6 +444,10 @@ class KDDetectionTrainer(DetectionTrainer):
         teacher_feats = list(t_hook.outputs)
         _remove_hooks(t_handles)
         t_hook.clear()
+        if self.batch_count == 0:
+            teacher_blocks = set(m.__class__.__name__ for _, m in self.teacher_model.named_modules() if any(c in m.__class__.__name__ for c in ('C2f', 'C3k2', 'SPPF', 'A2C2f', 'PSA')))
+            print(f"[KD - Batch 1] Teacher captured {len(teacher_feats)} feature tensors. Teacher block types: {teacher_blocks}")
+            print(f"[KD - Batch 1] Valid pairs for SP Loss: {min(len(student_feats), len(teacher_feats))}")
 
         # ── 4. KL Divergence trên soft logits ────────────────────────────
         if self.batch_count == 0:
@@ -546,7 +552,7 @@ class KDDetectionTrainer(DetectionTrainer):
         # Theo Paper gốc (Tung & Mori 2019), hệ số gamma cho SP thường rất lớn (1000 - 3000) 
         # vì giá trị F.mse_loss của 2 ma trận L2-normalized rất nhỏ (cỡ 1e-3 đến 1e-4).
         # Tăng trọng số SP lên 500.0 và Attn lên 50.0 để chúng có tác động thực sự tới Gradient.
-        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 500.0) + (loss_attn * 50.0)
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 100.0) + (loss_attn * 50.0)
         
         # [FIX] Trả lại Supervised Loss nguyên vẹn (x1.0) để làm điểm neo (anchor) giữ vững Recall
         # Không được để KD lấn át hoàn toàn (dẫn đến Model Collapse)
@@ -560,7 +566,7 @@ class KDDetectionTrainer(DetectionTrainer):
         # Tích lũy log (Giá trị ĐÃ SCALE theo trọng số để thấy rõ độ lớn tham gia vào Gradient)
         self.epoch_box_loss += (loss_box_kd.item() * 0.5)
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
-        self.epoch_hidden_loss += (loss_sp.item() * 500.0)  # Log SP loss vào biến hidden_loss cũ
+        self.epoch_hidden_loss += (loss_sp.item() * 100.0)  # Log SP loss vào biến hidden_loss cũ
         self.epoch_attn_loss += (loss_attn.item() * 50.0)
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1

@@ -1,6 +1,6 @@
 """
 yolo_wrapper.py
-Wrapper cho Student (YOLO26n + LoRA) và Teacher (YOLO12l, frozen).
+Wrapper cho Student (YOLO11n + LoRA) và Teacher (YOLO12l, frozen).
 Sử dụng fl_core/models/lora.py để inject LoRA.
 """
 import torch
