@@ -543,9 +543,6 @@ class KDDetectionTrainer(DetectionTrainer):
             t_box = _extract_bboxes(t_preds)
 
             if s_box is not None and t_box is not None and s_box.shape == t_box.shape:
-                # [CRITICAL FIX v8] Tái tạo lại fg_mask để Box KD không bị văng lỗi NameError 
-                # (Vì mình đã xóa fg_mask ở phần KL KD phía trên).
-                # Đồng thời Box KD bắt buộc phải có mask để không học tọa độ rác từ Background.
                 t_prob_raw = torch.sigmoid(t_cls).detach()
                 fg_mask = (t_prob_raw.max(dim=1, keepdim=True)[0] > 0.05).float()
                 valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
@@ -569,13 +566,18 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 6. Adaptive Attention Loss — MSE(A^t, A^s) ───────────────────
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
-        # [FIX v8] Giảm mạnh trọng số Feature KD (SP và Attn) xuống 1.0 và 2.0
-        # Theo như phân tích, không nên để Feature KD đè bẹp Task KD (KL và Box).
-        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 1.0) + (loss_attn * 2.0)
+        # [CRITICAL FIX v10] TẮT HOÀN TOÀN FEATURE KD KHI DÙNG LORA!
+        # Phát hiện lịch sử: Khi dùng LoRA, Backbone của Student bị ĐÓNG BĂNG, chỉ có các 
+        # adapter hạng siêu thấp (rank=4) được train. Việc dùng SP Loss và Attn Loss ép các 
+        # adapter nhỏ bé này phải mô phỏng lại toàn bộ Feature Map khổng lồ của Teacher là 
+        # nhiệm vụ BẤT KHẢ THI. LoRA adapters sẽ bị nổ/sập (collapse) khi cố gắng khớp Feature,
+        # dẫn đến luồng dữ liệu truyền lên Detection Head biến thành rác. 
+        # Hậu quả: Head nhận rác nên chỉ còn cách tự vệ bằng việc tiên đoán toàn bộ là Background 
+        # (Prec cao, Rec sập).
+        # Giải pháp: Chỉ giữ lại KD ở đầu ra (KL và Box) và tắt Feature KD!
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 0.0) + (loss_attn * 0.0)
         
-        # [FIX v7] TRẢ LẠI SUPERVISED LOSS! 
-        # Vì KL KD đã được fix chuẩn tỷ lệ (không còn phá mô hình), Supervised Loss (1.0)
-        # kết hợp với KD (0.5) sẽ tạo thành bộ khung vững chắc chống Catastrophic Forgetting.
+        # Mở lại Supervised Loss để giữ mỏ neo Ground Truth
         total_loss = loss_stu.clone() * 1.0
         
         if total_loss.ndim == 0:
@@ -585,8 +587,8 @@ class KDDetectionTrainer(DetectionTrainer):
         
         self.epoch_box_loss += (loss_box_kd.item() * 0.5)
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
-        self.epoch_hidden_loss += (loss_sp.item() * 1.0)
-        self.epoch_attn_loss += (loss_attn.item() * 2.0)
+        self.epoch_hidden_loss += (loss_sp.item() * 0.0)
+        self.epoch_attn_loss += (loss_attn.item() * 0.0)
         self.epoch_kd_loss += total_loss.item() if total_loss.ndim == 0 else total_loss[0].item()
         self.batch_count += 1
 
