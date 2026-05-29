@@ -452,7 +452,7 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 4. KL Divergence trên soft logits ────────────────────────────
         if self.batch_count == 0:
             print("[KD - Batch 1] Đang tính toán Distillation Loss (KL/Hidden/Attn)...")
-        T = self.kd_temperature
+        T = 4.0  # Tăng Temperature để soft-label của Teacher mờ hơn, tránh ép Student quá cứng
         try:
             def _extract_cls(p):
                 # 1. Handle YOLOv11 new dict format
@@ -546,13 +546,10 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
         # ── 7. Tổng distillation với Adaptive Denominator (Eq. 37) ───────
-        # Cấp Tỷ trọng ưu tiên (Priorities) để BOOST RECALL theo hướng Feature-based
-        # [NEW FIX] Thay vì dùng Hidden Loss so sánh Feature trực tiếp gây vỡ Backbone,
-        # áp dụng SP Loss để so sánh ma trận tương quan giữa các ảnh (bỏ qua khác biệt Dimension).
-        # Theo Paper gốc (Tung & Mori 2019), hệ số gamma cho SP thường rất lớn (1000 - 3000) 
-        # vì giá trị F.mse_loss của 2 ma trận L2-normalized rất nhỏ (cỡ 1e-3 đến 1e-4).
-        # Tăng trọng số SP lên 500.0 và Attn lên 50.0 để chúng có tác động thực sự tới Gradient.
-        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 100.0) + (loss_attn * 50.0)
+        # Box KD bị TẮT: MSE trên toàn bộ anchor grid ép cả background về 0,
+        # phá hủy các activation nhỏ của Student → Recall sập thảm.
+        # Chỉ giữ KL (T=4, soft label) + SP (định hướng feature nhẹ) + Attn.
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_sp * 10.0) + (loss_attn * 50.0)
         
         # [FIX] Trả lại Supervised Loss nguyên vẹn (x1.0) để làm điểm neo (anchor) giữ vững Recall
         # Không được để KD lấn át hoàn toàn (dẫn đến Model Collapse)
@@ -564,9 +561,9 @@ class KDDetectionTrainer(DetectionTrainer):
             total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
         
         # Tích lũy log (Giá trị ĐÃ SCALE theo trọng số để thấy rõ độ lớn tham gia vào Gradient)
-        self.epoch_box_loss += (loss_box_kd.item() * 0.5)
+        self.epoch_box_loss += 0.0  # Box KD đã tắt
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
-        self.epoch_hidden_loss += (loss_sp.item() * 100.0)  # Log SP loss vào biến hidden_loss cũ
+        self.epoch_hidden_loss += (loss_sp.item() * 10.0)
         self.epoch_attn_loss += (loss_attn.item() * 50.0)
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
