@@ -53,6 +53,7 @@ def main():
         epochs=10,      # Warm-up nhẹ nhàng, không cần nhiều epoch
         imgsz=640,
         batch=16,
+        workers=2,
         device="cuda" if torch.cuda.is_available() else "cpu",
         project="runs/student_warmup_lora",
         name="yolo11n_lora_warmup",

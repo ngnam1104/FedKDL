@@ -49,6 +49,7 @@ def main():
         epochs=200,  # 200 epochs để có Teacher LoRA cực mạnh
         imgsz=640,
         batch=8,     # Giảm batch size xuống 8 để tránh tràn VRAM trên A30
+        workers=2,   # Giảm workers để tránh tràn RAM hệ thống (Exit code 137)
         device="cuda" if torch.cuda.is_available() else "cpu",
         project="runs/teacher_lora",
         name="yolo12l_lora_urpc",
