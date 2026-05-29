@@ -70,7 +70,7 @@ class AUVWorker2D(BaseWorker):
         from config.settings import fed_cfg
         rank = 4 if 'r4' in baseline else fed_cfg.LORA_RANK
 
-        local_student = StudentModel("yolo12n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
+        local_student = StudentModel("yolo11n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 
         # Cấp phát Teacher cục bộ nếu chạy thuật toán FedKD (Local KD)
@@ -176,7 +176,7 @@ class Simulator2D(BaseSimulator):
         data_path: str,
         baseline: str,
         test_yaml: str = "datasets/URPC2020.yaml",
-        student_ckpt: str = "yolo12n.pt",
+        student_ckpt: str = "yolo11n.pt",
         teacher_ckpt: str = "yolo12l.pt",
         device: str = "cpu",
     ):
@@ -628,7 +628,7 @@ class Simulator2D(BaseSimulator):
             proxy_yaml = str(Path(proxy_yaml_abs).absolute())
 
         overrides = {
-            'model': "yolo12n.pt",
+            'model': "yolo11n.pt",
             'data': proxy_yaml,
             'epochs': 2,  # Giữ ở mức 2 epoch theo yêu cầu để tiết kiệm thời gian
             'batch': 8,
