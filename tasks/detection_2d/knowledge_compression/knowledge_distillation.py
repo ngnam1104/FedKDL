@@ -556,13 +556,12 @@ class KDDetectionTrainer(DetectionTrainer):
         # ── 6. Adaptive Attention Loss — MSE(A^t, A^s) ───────────────────
         loss_attn = _adaptive_attention_loss(student_feats, teacher_feats).to(loss_stu.device)
 
-        # [FIX v4] MASKED KD
-        # - Bây giờ KL Loss và Box Loss ĐÃ CÓ FOREGROUND MASK. Chúng sẽ chỉ học từ những
-        #   vật thể Teacher thực sự nhìn thấy, bỏ qua nhiễu background.
-        # - Bật lại Box KD (có mask thì Box KD rất tốt cho việc học localization).
-        # - Tạm tắt SP Loss (vì SP cũng so sánh toàn cục tính cả background).
-        # Tỷ lệ: KL * 0.5 + Box * 0.5. kd_lambda có thể để lại 0.5 trong simulator
-        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5)
+        # [FIX v5] Phục hồi SP Loss và Attn Loss (Người dùng suy luận xuất sắc!)
+        # Do đã có Mask cho Box và KL, việc sập mô hình trước đó 99% là do Background Domination.
+        # SP và Attn làm việc trên Feature Map, không bị ảnh hưởng trực tiếp bởi Anchor Background.
+        # Phục hồi lại để tận dụng tối đa lượng tri thức (Knowledge) từ Teacher.
+        # (Để Attn weight = 20.0 thay vì 50.0 cho an toàn hơn trong 2 epochs).
+        loss_dist_adaptive = (loss_kl * 0.5) + (loss_box_kd * 0.5) + (loss_sp * 10.0) + (loss_attn * 20.0)
         
         # [FIX] Trả lại Supervised Loss nguyên vẹn (x1.0) để làm điểm neo (anchor) giữ vững Recall
         # Không được để KD lấn át hoàn toàn (dẫn đến Model Collapse)
@@ -575,8 +574,8 @@ class KDDetectionTrainer(DetectionTrainer):
         
         self.epoch_box_loss += (loss_box_kd.item() * 0.5)
         self.epoch_kl_loss += (loss_kl.item() * 0.5)
-        self.epoch_hidden_loss += 0.0
-        self.epoch_attn_loss += 0.0    # Attn Loss tắt (gây dao động cực đoan với 2 epoch ngắn)
+        self.epoch_hidden_loss += (loss_sp.item() * 10.0)
+        self.epoch_attn_loss += (loss_attn.item() * 20.0)
         self.epoch_kd_loss += loss_dist_adaptive.item()
         self.batch_count += 1
 
