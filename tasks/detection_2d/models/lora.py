@@ -40,11 +40,18 @@ class LoRAConv2d(nn.Module):
         else:
             self.register_parameter('bias', None)
 
-        # Ma trận LoRA: A (rank × in_features), B (out × rank)
+        # Ma trận LoRA: A (rank x in_features), B (out x rank)
         in_features = (self.in_channels * self.kernel_size[0]
                        * self.kernel_size[1] // self.groups)
-        self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
-        self.lora_B = nn.Parameter(torch.zeros(self.out_channels, rank))
+        
+        # [CRITICAL FIX v14] Đóng băng ma trận A (FFA-LoRA)
+        # Nếu để cả A và B cùng train ở các AUV khác nhau (Non-IID),
+        # khi Server tính trung bình (A1+A2)/2 và (B1+B2)/2, tích B_avg @ A_avg sẽ sinh ra
+        # các cross-terms rác (B1@A2, B2@A1) phá nát hoàn toàn Feature Map!
+        # Giải pháp: Khóa cứng A ở mức khởi tạo ngẫu nhiên, chỉ train B. Tính chất tuyến tính
+        # được bảo toàn tuyệt đối khi FedAvg.
+        self.lora_A = nn.Parameter(torch.zeros(rank, in_features), requires_grad=False)
+        self.lora_B = nn.Parameter(torch.zeros(self.out_channels, rank), requires_grad=True)
         alpha = alpha if alpha is not None else float(rank)
         self.scaling = alpha / rank
 

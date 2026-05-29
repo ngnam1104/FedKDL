@@ -112,7 +112,9 @@ class StudentModel:
     )
 
     def _is_payload_key(self, k: str) -> bool:
-        if 'lora_' in k and self.use_lora:
+        # [CRITICAL FIX v14] Chỉ gửi lora_B lên Server (do lora_A đã bị đóng băng vĩnh viễn)
+        # Tiết kiệm chính xác 50% dung lượng payload, và đảm bảo toán học tuyệt đối cho FFA-LoRA
+        if 'lora_B' in k and self.use_lora:
             return True
         for suffix in self._HEAD_OUTPUT_SUFFIXES:
             if k.endswith(suffix):
