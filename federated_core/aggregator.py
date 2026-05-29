@@ -169,9 +169,17 @@ def svd_lora_aggregate(
             # W_avg = U @ S @ Vh
             try:
                 U, S, Vh = torch.linalg.svd(W_avg, full_matrices=False)
-                # Giữ lại top 'rank' singular values
-                B_new = U[:, :rank] * S[:rank].unsqueeze(0)
-                A_new = Vh[:rank, :]
+                
+                # Xử lý trường hợp M < rank (ví dụ lớp Conv có số channel nhỏ)
+                M = S.shape[0]
+                if M < rank:
+                    B_new = torch.zeros((out_features, rank), dtype=torch.float32, device=B_i.device)
+                    A_new = torch.zeros((rank, in_features), dtype=torch.float32, device=A_i.device)
+                    B_new[:, :M] = U * S.unsqueeze(0)
+                    A_new[:M, :] = Vh
+                else:
+                    B_new = U[:, :rank] * S[:rank].unsqueeze(0)
+                    A_new = Vh[:rank, :]
                 
                 aggregated_sd[b_key] = B_new.to(original_dtype)
                 aggregated_sd[a_key] = A_new.to(original_dtype)
