@@ -50,6 +50,8 @@ def main():
         imgsz=640,
         batch=8,     # Giảm batch size xuống 8 để tránh tràn VRAM trên A30
         workers=2,   # Giảm workers để tránh tràn RAM hệ thống (Exit code 137)
+        optimizer="AdamW",  # Bắt buộc dùng AdamW cho LoRA để tránh sốc LR
+        lr0=1e-3,           # LR nhỏ vừa đủ cho LoRA
         device="cuda" if torch.cuda.is_available() else "cpu",
         project="runs/teacher_lora",
         name="yolo12l_lora_urpc",

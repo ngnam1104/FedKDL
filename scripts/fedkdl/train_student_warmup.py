@@ -54,11 +54,12 @@ def main():
         imgsz=640,
         batch=16,
         workers=2,
+        optimizer="AdamW",
+        lr0=1e-3,
         device="cuda" if torch.cuda.is_available() else "cpu",
         project="runs/student_warmup_lora",
         name="yolo11n_lora_warmup",
         exist_ok=True,
-        lr0=0.01,
         close_mosaic=0,
     )
 
