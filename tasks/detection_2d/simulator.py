@@ -70,7 +70,7 @@ class AUVWorker2D(BaseWorker):
         from config.settings import fed_cfg
         rank = 4 if 'r4' in baseline else fed_cfg.LORA_RANK
 
-        local_student = StudentModel("yolo11n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
+        local_student = StudentModel("yolo12n.pt", rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 
         # Cấp phát Teacher cục bộ nếu chạy thuật toán FedKD (Local KD)
@@ -176,7 +176,7 @@ class Simulator2D(BaseSimulator):
         data_path: str,
         baseline: str,
         test_yaml: str = "datasets/URPC2020.yaml",
-        student_ckpt: str = "yolo11n.pt",
+        student_ckpt: str = "yolo12n.pt",
         teacher_ckpt: str = "yolo12l.pt",
         device: str = "cpu",
     ):
@@ -628,9 +628,9 @@ class Simulator2D(BaseSimulator):
             proxy_yaml = str(Path(proxy_yaml_abs).absolute())
 
         overrides = {
-            'model': "yolo11n.pt",
+            'model': "yolo12n.pt",
             'data': proxy_yaml,
-            'epochs': 2,  # [CRITICAL FIX] Giảm xuống 2 vì BBox KD đã được kích hoạt, học rất nhanh
+            'epochs': 5,  # Tăng lên 5 epoch để SP Loss có thời gian hội tụ
             'batch': 8,
             'device': self.device,
             'project': 'runs/gateway_kd',
@@ -644,8 +644,8 @@ class Simulator2D(BaseSimulator):
             'close_mosaic': 0,
             'optimizer': 'AdamW',
             
-            # [FIX] Sử dụng LR siêu nhỏ (5e-5) để căn chỉnh tinh tế theo Teacher mà không gây Gradient Shock làm sập mAP
-            'lr0': 5e-5,
+            # Tăng LR lên 5e-4 để Gradient của SP Loss đủ lớn tác động lên Feature Map
+            'lr0': 5e-4,
             
             'warmup_epochs': 0,   # [CRITICAL FIX] Tắt hoàn toàn warmup! Nếu để mặc định warmup_epochs=3 > epochs=1
                                   # thì TOÀN BỘ epoch là warmup phase → warmup_bias_lr=0.1 áp lên bias params

@@ -208,7 +208,7 @@ def local_sgd_od_sota(
     state_before = {k: v.clone() for k, v in student_model.yolo.model.state_dict().items()}
 
     overrides = {
-        'model': "yolo11n.pt",
+        'model': "yolo12n.pt",
         'data': auv_yaml,
         'cache': getattr(fed_cfg, 'CACHE_DATASET', True),
         'epochs': epochs,

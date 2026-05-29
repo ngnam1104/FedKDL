@@ -21,7 +21,7 @@ app.add_middleware(
 )
 
 # Load the trained model (fallback to base model if pretrained doesn't exist)
-model_path = "yolo11n_warmup.pt"
+model_path = "yolo12n_warmup.pt"
 print(f"[FastAPI] Loading model: {model_path}")
 model = YOLO(model_path)
 

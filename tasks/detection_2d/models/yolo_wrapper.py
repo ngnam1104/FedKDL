@@ -14,7 +14,7 @@ class StudentModel:
     Chỉ {lora_A, lora_B, detect head} là trainable và được truyền qua mạng.
     """
 
-    def __init__(self, ckpt: str = "yolo11n.pt", rank: int = 4,
+    def __init__(self, ckpt: str = "yolo12n.pt", rank: int = 4,
                  lora_targets=None, nc: int = None,
                  full_param: bool = False, use_lora: bool = True):
         """
