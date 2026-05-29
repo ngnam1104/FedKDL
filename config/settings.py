@@ -36,7 +36,7 @@ class AcousticChannelConfig:
 @dataclass
 class EnergyConfig:
     """Ngân sách Sinh tồn và Tiêu hao Năng lượng"""
-    E_INIT: float = 2000.0            # Tăng lên 2000 Joules vì YOLOv12n (640x640) tốn nhiều tính toán hơn
+    E_INIT: float = 1000.0            # Trả lại 1000 Joules vì YOLO11n tiết kiệm năng lượng
     E_MIN: float = 50.0               # Ngưỡng pin dự trữ khẩn cấp để ngoi lên mặt nước (Joules)
     EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-11, "2D": 2.0e-12}) # Tiêu hao năng lượng trên mỗi FLOP (1D: FP32, 2D: INT8)
     F_CPU: float = 2.0e9              # Tần số CPU của AUV (Cycles/s hoặc FLOPs/s), ví dụ 2 GHz
@@ -50,7 +50,7 @@ class FedKDLConfig:
     """Tham số Thuật toán Học liên kết & Đề xuất FedKDL"""
     # Baseline Parameters
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60}) # Chu kỳ sống dự kiến cho từng tác vụ
-    MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 108000.0, "2D": 3.4e9}) # 1D: Autoencoder ~54k params | 2D: YOLOv12n @ 640x640 (3.4 GFLOPs)
+    MODEL_FLOPS_PER_SAMPLE: dict = field(default_factory=lambda: {"1D": 108000.0, "2D": 2.175e9}) # 1D: Autoencoder ~54k params | 2D: YOLO11n @ 640x640 (2.175 GFLOPs)
     FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2}) # Hệ số nhân: 1D (Full fine-tuning), 2D (LoRA)
     LOCAL_EPOCHS: int = 2             # Giảm xuống 2 để giảm AUV Drift
     LOCAL_BATCH_SIZE: int = 16        # Trả về 16 vì batch 64 làm training bị nghẽn (2.9s/it)
@@ -97,7 +97,7 @@ class FedKDLConfig:
     LAMBDA_TAU: float = 1e-3 # Trọng số độ trễ     (số ảo "per second cost")
     
     # System Constraints (từ bài báo gốc Omeke 2026)
-    TAU_MAX: float = 2500.0   # Tăng từ 1800 lên 2500s vì YOLOv12n tính toán chậm hơn (tau_round ~ 2036s)
+    TAU_MAX: float = 1800.0   # Hạ về lại 1800s vì YOLO11n tính toán nhanh hơn
 
     def __post_init__(self):
         self.DATASETS_1D = ["SMD", "SMAP", "MSL"]
