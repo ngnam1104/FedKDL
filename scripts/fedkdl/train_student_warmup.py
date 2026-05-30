@@ -90,8 +90,8 @@ def main():
     print(f"\n-> Bắt đầu warm-up 2 epochs trên: {proxy_yaml.name}")
     trainer.train()
 
-    # 4. ROLLBACK frozen weights (Ultralytics sẽ train full, ta rollback sau)
-    print("\n[Rollback] Khôi phục frozen weights về giá trị gốc...")
+    # 4. ROLLBACK frozen weights (lớp bảo vệ dự phòng 2 lớp)
+    print("\n[Rollback] Khôi phục frozen weights về giá trị gốc (nếu có sai lệch ngầm)...")
     with torch.no_grad():
         state_dict = student.yolo.model.state_dict()
         for k, v_before in frozen_weights_before.items():
