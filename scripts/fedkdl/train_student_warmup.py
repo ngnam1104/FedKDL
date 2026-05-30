@@ -57,7 +57,7 @@ def main():
         optimizer="AdamW",
         lr0=1e-3,
         device="cuda" if torch.cuda.is_available() else "cpu",
-        project="runs/student_warmup_lora",
+        project=str(REPO_ROOT / "runs/student_warmup_lora"),
         name="yolo11n_lora_warmup",
         exist_ok=True,
         close_mosaic=0,

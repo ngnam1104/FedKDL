@@ -53,7 +53,7 @@ def main():
         optimizer="AdamW",  # Bắt buộc dùng AdamW cho LoRA để tránh sốc LR
         lr0=1e-3,           # LR nhỏ vừa đủ cho LoRA
         device="cuda" if torch.cuda.is_available() else "cpu",
-        project="runs/teacher_lora",
+        project=str(REPO_ROOT / "runs/teacher_lora"),
         name="yolo12l_lora_urpc",
         exist_ok=True,
         resume=True,  # Tự động resume nếu bị sập giữa chừng
