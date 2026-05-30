@@ -117,18 +117,33 @@ class CustomDetectionTrainer(DetectionTrainer):
         return named_state
 
     def validate(self):
-        """Bỏ qua validate giữa các epoch để tiết kiệm thời gian (Lần 1)."""
-        return {}, 0.0
+        """
+        Bỏ qua validate nếu args.val = False (khi chạy FL Local SGD).
+        Nếu args.val = True (khi train Teacher), kiểm tra val_period để chạy định kỳ.
+        """
+        if not self.args.val:
+            return {}, 0.0
+            
+        val_period = getattr(self, 'val_period', 1)
+        # Chỉ evaluate nếu epoch hiện tại chia hết cho val_period, HOẶC là epoch cuối cùng
+        # Chú ý: self.epoch bắt đầu từ 0
+        if (self.epoch + 1) % val_period != 0 and self.epoch != self.epochs - 1:
+            return {}, 0.0
+            
+        return super().validate()
 
     def final_eval(self):
-        """Bỏ qua bước Validate dư thừa ở cuối quá trình Local SGD để tiết kiệm thời gian (Lần 2)."""
-        from ultralytics.utils.torch_utils import strip_optimizer
-        model = self.best if self.best.exists() else None
-        if self.last.exists():
-            strip_optimizer(self.last)
-        if model:
-            strip_optimizer(self.best)
-            self.run_callbacks("on_fit_epoch_end")
+        """Bỏ qua bước Validate dư thừa ở cuối quá trình Local SGD để tiết kiệm thời gian."""
+        if not self.args.val:
+            from ultralytics.utils.torch_utils import strip_optimizer
+            model = self.best if self.best.exists() else None
+            if self.last.exists():
+                strip_optimizer(self.last)
+            if model:
+                strip_optimizer(self.best)
+                self.run_callbacks("on_fit_epoch_end")
+        else:
+            super().final_eval()
 
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
@@ -141,16 +156,45 @@ class CustomDetectionTrainer(DetectionTrainer):
                 else:
                     v.requires_grad = False
 
+        # ---------------------------------------------------------------
+        # Differential LR: Head params học nhanh hơn LoRA (head_lr_multiplier lần).
+        # Mặc định = 1.0 → không ảnh hưởng gì (giữ nguyên hành vi FL cũ).
+        # Set trainer.head_lr_multiplier = 5.0 để Head học với lr * 5.
+        # ---------------------------------------------------------------
+        head_lr_multiplier = getattr(self, 'head_lr_multiplier', 1.0)
+        if head_lr_multiplier != 1.0:
+            id_to_name = {id(p): n for n, p in model.named_parameters()}
+            # Detect head nằm ở layer cuối (YOLO11n: model.22, YOLO12l: model.21)
+            head_patterns = ('model.21.', 'model.22.', 'model.23.')
+            new_groups = []
+            for group in optimizer.param_groups:
+                head_p  = [p for p in group['params']
+                           if any(h in id_to_name.get(id(p), '') for h in head_patterns)
+                           and 'lora_' not in id_to_name.get(id(p), '')]
+                other_p = [p for p in group['params'] if p not in set(id(x) for x in head_p)]
+                if other_p:
+                    g = {k: v for k, v in group.items() if k != 'params'}
+                    g['params'] = other_p
+                    new_groups.append(g)
+                if head_p:
+                    g = {k: v for k, v in group.items() if k != 'params'}
+                    g['params'] = head_p
+                    g['lr'] = group.get('lr', lr) * head_lr_multiplier
+                    new_groups.append(g)
+            optimizer.param_groups = new_groups
+            print(f"[DiffLR] Head LR boosted ×{head_lr_multiplier} → "
+                  f"LoRA lr={lr:.2e} | Head lr={lr * head_lr_multiplier:.2e}")
+
         # Loại bỏ các parameter đã bị đóng băng (requires_grad=False) khỏi optimizer param_groups
-        # Điều này đảm bảo PyTorch hoàn toàn bỏ qua chúng trong quá trình step()
         real_trained_count = 0
         for group in optimizer.param_groups:
             group['params'] = [p for p in group['params'] if p.requires_grad]
             real_trained_count += len(group['params'])
-        
+
         print(f"\n[CustomDetectionTrainer] Đã lọc optimizer! Cố định Backbone, CHỈ CÒN {real_trained_count} tensors được học.")
 
         return optimizer
+
 
     def optimizer_step(self):
         # Apply Proximal term to gradients before step (FedProx)

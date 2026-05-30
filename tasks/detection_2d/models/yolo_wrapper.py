@@ -70,8 +70,8 @@ class StudentModel:
 
         if not self.full_param and self.use_lora:
             # FlexLoRA: Không khóa seed, cho phép A khởi tạo ngẫu nhiên và được train độc lập ở mỗi AUV
-            injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank)
-            print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers.")
+            injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank, strategy="adaptive")
+            print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers (Strategy: adaptive).")
 
         if self.full_param:
             for param in self.yolo.model.parameters():

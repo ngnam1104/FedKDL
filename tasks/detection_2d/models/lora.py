@@ -65,34 +65,59 @@ class LoRAConv2d(nn.Module):
 
 def inject_lora(module: nn.Module,
                 target_layer_names=None,
-                rank: int = 4,
-                alpha: float = None) -> int:
+                rank: int = 8,
+                alpha: float = 8.0,
+                strategy: str = "adaptive") -> int:
     """
     Tiêm LoRA vào các Conv2d bên trong các block được chỉ định.
-
-    target_layer_names: List tên class module mục tiêu.
-        - None → mặc định ['C2f', 'C3k2', 'C2fAttn'] (YOLO26 / YOLOv8/11)
-        - Truyền ['Conv'] để inject toàn bộ backbone (cho domain shift nặng)
-
-    Returns: số lượng Conv2d đã được wrap bằng LoRAConv2d.
+    - strategy = "all": Chèn mọi layer (rank = base_rank)
+    - strategy = "neck_head_only": Đóng băng hoàn toàn Backbone (chỉ chèn layer >= 10)
+    - strategy = "adaptive": Rank siêu nhỏ ở Backbone, Rank chuẩn ở Neck+Head
     """
     if target_layer_names is None:
         # C2f = YOLOv8/11, C3k2 = YOLO26, C2fAttn = YOLOv11 phiên bản Attention
         target_layer_names = ['C2f', 'C3k2', 'C2fAttn']
 
     count = 0
-    for _name, child in module.named_children():
-        class_name = child.__class__.__name__
-        if any(t in class_name for t in target_layer_names):
-            # Inject LoRA vào tất cả Conv2d con
-            for sub_name, sub_child in child.named_modules():
-                if isinstance(sub_child, nn.Conv2d):
-                    parent = _get_parent(child, sub_name)
-                    leaf = sub_name.split('.')[-1]
-                    setattr(parent, leaf, LoRAConv2d(sub_child, rank=rank, alpha=alpha))
-                    count += 1
-        else:
-            count += inject_lora(child, target_layer_names, rank, alpha)
+    # Lặp qua tất cả submodules (Iterative)
+    for name, sub_module in module.named_modules():
+        if isinstance(sub_module, nn.Conv2d):
+            # Lấy list các class name trên đường dẫn từ root tới sub_module
+            path_classes = []
+            current = module
+            for part in name.split('.')[:-1]:
+                if part == '': continue
+                current = getattr(current, part)
+                path_classes.append(current.__class__.__name__)
+            
+            # Kiểm tra xem module này có nằm trong block mục tiêu không
+            is_target = ('Conv' in target_layer_names) or any(any(t in cls_name for t in target_layer_names) for cls_name in path_classes)
+            
+            if is_target:
+                layer_idx = -1
+                parts = name.split('.')
+                if len(parts) >= 2 and parts[0] == 'model' and parts[1].isdigit():
+                    layer_idx = int(parts[1])
+                
+                # Quyết định rank
+                current_rank = rank
+                if strategy == "neck_head_only":
+                    if layer_idx != -1 and layer_idx < 10:
+                        continue  # Skip backbone
+                elif strategy == "adaptive":
+                    if layer_idx != -1:
+                        if layer_idx < 4:
+                            continue  # Skip shallow (0-3)
+                        elif 4 <= layer_idx < 10:
+                            current_rank = 2  # Mid backbone -> rank 2
+                
+                parent_name = '.'.join(parts[:-1])
+                leaf_name = parts[-1]
+                parent = _get_parent(module, parent_name)
+                
+                setattr(parent, leaf_name, LoRAConv2d(sub_module, rank=current_rank, alpha=alpha))
+                count += 1
+                
     return count
 
 

@@ -34,8 +34,11 @@ def main():
     # ==============================================================
     # ⭐ TÙY CHỈNH TẠI ĐÂY
     # ==============================================================
-    TOTAL_EPOCHS = 300        # Tổng số epochs muốn train
-    PATIENCE     = 60         # Early stopping: dừng nếu mAP50 không tăng sau 60 epoch
+    TOTAL_EPOCHS       = 300   # Tổng số epochs muốn train
+    PATIENCE           = 150   # Early stopping (patience=epoch, không nhân val_period)
+    VAL_PERIOD         = 5     # Đánh giá (Evaluate) mỗi 5 epoch
+    HEAD_LR_MULTIPLIER = 5.0   # ⭐ Head mới cần LR cao hơn LoRA: head_lr = lr0 × multiplier
+                                #   LoRA lr = 2e-4,  Head lr = 2e-4 × 5 = 1e-3
     # ==============================================================
 
     if save_path.exists():
@@ -107,10 +110,13 @@ def main():
         cached_optimizer_state=None,
     )
     trainer.model = teacher.yolo.model
+    trainer.head_lr_multiplier = HEAD_LR_MULTIPLIER  # ⭐ Differential LR: Head học nhanh hơn LoRA
+    trainer.val_period = VAL_PERIOD                  # Cấu hình evaluate định kỳ
 
     epochs_str = f"{TOTAL_EPOCHS} epochs (patience={PATIENCE})"
-    print(f"\n-μ Bắt đầu train Teacher LoRA ({epochs_str})...")
-    print("   Mô hình ĐÃ ĐƯỢC ĐÓNG BĂNG, Optimizer sẽ CHỈ cập nhật LoRA.")
+    print(f"\n-> Bắt đầu train Teacher LoRA ({epochs_str})...")
+    print(f"   LoRA lr = {2e-4:.1e} | Head lr = {2e-4 * HEAD_LR_MULTIPLIER:.1e} (Differential LR ×{HEAD_LR_MULTIPLIER})")
+    print(f"   Evaluation period = {VAL_PERIOD} epochs")
     trainer.train()
 
     # 4. Sau khi train: VERIFY không có frozen weight nào bị thay đổi

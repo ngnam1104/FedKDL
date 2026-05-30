@@ -49,9 +49,9 @@ echo "[KDL] Generating topologies and data partitions..."
 "$PYTHON" utils/generate_all_envs.py --n 50 --dataset "$DS" "${GEN_ENV_ARGS[@]}"
 
 # =========================================================
-# BƯỚC 1: Pre-train Teacher LoRA (200 epochs, có resume nếu sập)
+# BƯỚC 1: Pre-train Teacher LoRA (300 epochs, có resume nếu sập)
 # =========================================================
-echo "[KDL] Bắt đầu huấn luyện Teacher LoRA (YOLO12l, 200 epochs)..."
+echo "[KDL] Bắt đầu huấn luyện Teacher LoRA (YOLO12l, 300 epochs)..."
 if [[ -f "yolo12l_lora_pretrained.pt" ]]; then
   echo "[KDL] yolo12l_lora_pretrained.pt đã tồn tại, BỎ QUA bước này."
 else
