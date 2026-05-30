@@ -143,8 +143,12 @@ class CustomDetectionTrainer(DetectionTrainer):
 
         # Loại bỏ các parameter đã bị đóng băng (requires_grad=False) khỏi optimizer param_groups
         # Điều này đảm bảo PyTorch hoàn toàn bỏ qua chúng trong quá trình step()
+        real_trained_count = 0
         for group in optimizer.param_groups:
             group['params'] = [p for p in group['params'] if p.requires_grad]
+            real_trained_count += len(group['params'])
+        
+        print(f"\n[CustomDetectionTrainer] Đã lọc optimizer! Cố định Backbone, CHỈ CÒN {real_trained_count} tensors được học.")
 
         return optimizer
 
