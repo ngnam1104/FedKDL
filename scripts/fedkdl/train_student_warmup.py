@@ -47,10 +47,10 @@ def main():
         use_lora=True,
     )
 
-    print(f"-> Bắt đầu warm-up 10 epochs trên: {proxy_yaml.name}")
+    print(f"-> Bắt đầu warm-up 2 epochs trên: {proxy_yaml.name}")
     student.yolo.train(
         data=str(proxy_yaml),
-        epochs=10,      # Warm-up nhẹ nhàng, không cần nhiều epoch
+        epochs=2,       # Warm-up siêu nhẹ (2 epochs) để tránh overfitting proxy data
         imgsz=640,
         batch=16,
         workers=2,
