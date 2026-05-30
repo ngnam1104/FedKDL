@@ -1,9 +1,13 @@
 """
 train_teacher_lora.py
 Script huấn luyện Teacher Model (YOLO12l) với LoRA để phục vụ cho Feature KD.
-Mục tiêu: Tạo ra yolo12l_lora_pretrained.pt có chứa các lớp LoRA.
+
+Cách tiếp cận ĐÚNG: Monkey-patch DetectionTrainer.setup_model()
+  - Ultralytics sẽ tự load yolo12l.pt lên (bình thường)
+  - Ngay sau đó, ta inject LoRA và đóng băng Backbone VÀO CHÍNH model đó
+  - Ultralytics build Optimizer SAU setup_model → chỉ thấy ~955K LoRA params
+  - Đảm bảo 100% chỉ LoRA được train, không cần file tạm.
 """
-import os
 import sys
 import torch
 from pathlib import Path
@@ -13,71 +17,85 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tasks.detection_2d.models.yolo_wrapper import StudentModel
+from tasks.detection_2d.models.lora import inject_lora
 from config.settings import fed_cfg
+
+
+def _make_lora_setup_hook(rank, lora_targets):
+    """Monkey-patch DetectionTrainer.setup_model để inject LoRA trước khi Optimizer được build."""
+    from ultralytics.models.yolo.detect.train import DetectionTrainer
+    original_setup_model = DetectionTrainer.setup_model
+
+    def patched_setup_model(self):
+        # 1. Để Ultralytics load model như bình thường (full YOLO12l)
+        original_setup_model(self)
+
+        # 2. Inject LoRA ngay sau khi model được load
+        print("\n[LoRA Hook] Injecting LoRA into Ultralytics model...")
+        n_injected = inject_lora(self.model, target_layer_names=lora_targets, rank=rank)
+        print(f"[LoRA Hook] Injected LoRA into {n_injected} Conv2d layers.")
+
+        # 3. Đóng băng tất cả tham số gốc, chỉ để lora_A, lora_B và Detection Head trainable
+        frozen = trainable = 0
+        for name, param in self.model.named_parameters():
+            is_lora = 'lora_A' in name or 'lora_B' in name
+            is_head = 'model.21' in name or 'model.22' in name or 'model.23' in name
+            if is_lora or is_head:
+                param.requires_grad_(True)
+                trainable += param.numel()
+            else:
+                param.requires_grad_(False)
+                frozen += param.numel()
+
+        total = trainable + frozen
+        print(f"[LoRA Hook] Trainable: {trainable:,} / {total:,} params ({trainable/total*100:.1f}%)")
+        print(f"[LoRA Hook] Frozen:    {frozen:,} / {total:,} params ({frozen/total*100:.1f}%)")
+
+    DetectionTrainer.setup_model = patched_setup_model
+
 
 def main():
     print("==================================================")
-    print("[Teacher LoRA] Tiêm LoRA vào YOLO12l và Huấn luyện")
+    print("[Teacher LoRA] Train YOLO12l với LoRA (Monkey-patch Ultralytics)")
     print("==================================================")
-    
-    # 1. Khởi tạo Teacher với LoRA (sử dụng logic của StudentModel nhưng nhét trọng số Teacher vào)
-    # Rank sẽ sử dụng mặc định LORA_RANK = 16 (giống Student)
+
     rank = fed_cfg.LORA_RANK
     teacher_ckpt = "yolo12l.pt"
-    
-    print(f"-> Loading {teacher_ckpt}...")
-    
-    # Thủ thuật: Dùng StudentModel wrapper nhưng truyền yolo12l.pt
-    # Điều này sẽ giúp ta tự động thay thế Head và inject_lora với rank tương ứng
-    teacher_lora = StudentModel(
-        ckpt=teacher_ckpt, 
-        rank=rank, 
-        nc=4, # URPC2020 có 4 classes (holothurian, echinus, scallop, starfish)
-        full_param=False, 
-        use_lora=True
-    )
-    
-    print("-> Sẵn sàng huấn luyện Teacher với LoRA...")
-    
-    # 2. Huấn luyện (Fine-tune) Teacher trên toàn bộ URPC2020
-    # Chú ý: Train trên toàn bộ dataset chứ không phải 20% proxy data
     yaml_path = REPO_ROOT / "datasets/URPC2020.yaml"
+    save_path = REPO_ROOT / "yolo12l_lora_pretrained.pt"
 
-    # LỖI CHÍNH NẰM Ở ĐÂY: Hàm .train() của Ultralytics sẽ lờ đi mô hình in-memory và tự load lại yolo12l.pt gốc từ ổ cứng.
-    # Do đó, ta phải lưu mô hình in-memory (đã tiêm LoRA và đóng băng) ra một file tạm trước.
-    temp_ckpt_path = REPO_ROOT / "yolo12l_lora_temp_init.pt"
-    ckpt = torch.load(teacher_ckpt, map_location='cpu', weights_only=False)
-    ckpt['model'] = teacher_lora.yolo.model.half()
-    for p in ckpt['model'].parameters():
-        p.requires_grad = getattr(p, 'requires_grad', True) # Đảm bảo cờ requires_grad được lưu
-    torch.save(ckpt, temp_ckpt_path)
+    best_weights = REPO_ROOT / "runs/teacher_lora/yolo12l_lora_urpc/weights/best.pt"
+    last_weights = REPO_ROOT / "runs/teacher_lora/yolo12l_lora_urpc/weights/last.pt"
 
-    # Khởi tạo lại YOLO từ file đã tiêm LoRA
-    from ultralytics import YOLO
-    real_lora_yolo = YOLO(str(temp_ckpt_path))
+    if save_path.exists():
+        print(f"[Skip] {save_path.name} đã tồn tại.")
+        return
 
-    # Chạy train trên mô hình LoRA
-    results = real_lora_yolo.train(
+    # Layer targets (C3k2 = YOLO12 block, A2C2f = YOLO12 attention block)
+    lora_targets = ['C2f', 'C3k2', 'A2C2f', 'C2fAttn']
+
+    # Patch Ultralytics Trainer — inject LoRA ngay sau setup_model, trước build_optimizer
+    print(f"-> Monkey-patching DetectionTrainer để inject LoRA (rank={rank})...")
+    _make_lora_setup_hook(rank=rank, lora_targets=lora_targets)
+
+    # Khởi tạo YOLO và train — setup_model đã bị patch → LoRA sẽ được inject đúng
+    lora_yolo = YOLO(teacher_ckpt)
+    lora_yolo.train(
         data=str(yaml_path),
-        epochs=100,  # 100 epochs là đủ cho LoRA hội tụ (có Early Stopping)
+        epochs=100,
         imgsz=640,
-        batch=8,     # Giảm batch size xuống 8 để tránh tràn VRAM trên A30
-        workers=2,   # Giảm workers để tránh tràn RAM hệ thống (Exit code 137)
-        optimizer="AdamW",  # Bắt buộc dùng AdamW cho LoRA để tránh sốc LR
-        lr0=1e-3,           # LR nhỏ vừa đủ cho LoRA
+        batch=8,
+        workers=2,
+        optimizer="AdamW",
+        lr0=1e-3,
         device="cuda" if torch.cuda.is_available() else "cpu",
         project=str(REPO_ROOT / "runs/teacher_lora"),
         name="yolo12l_lora_urpc",
         exist_ok=True,
-        resume=False,  # Bắt buộc False vì temp_ckpt là mới
+        resume=False,
     )
-    
-    # 3. Lưu mô hình lại
-    save_path = REPO_ROOT / "yolo12l_lora_pretrained.pt"
-    # Ưu tiên best.pt, fallback về last.pt nếu chưa có best
-    best_weights = REPO_ROOT / "runs/teacher_lora/yolo12l_lora_urpc/weights/best.pt"
-    last_weights = REPO_ROOT / "runs/teacher_lora/yolo12l_lora_urpc/weights/last.pt"
+
+    # Lưu model
     chosen = best_weights if best_weights.exists() else last_weights
     if chosen.exists():
         import shutil
@@ -85,6 +103,7 @@ def main():
         print(f"\n[Thành công] Đã lưu Teacher LoRA model tại: {save_path} (nguồn: {chosen.name})")
     else:
         print("\n[Lỗi] Không tìm thấy best.pt hoặc last.pt!")
+
 
 if __name__ == "__main__":
     main()
