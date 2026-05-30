@@ -48,7 +48,19 @@ def main():
     )
 
     print(f"-> Bắt đầu warm-up 2 epochs trên: {proxy_yaml.name}")
-    student.yolo.train(
+    
+    # FIX LỖI ULTRALYTICS BỎ QUA IN-MEMORY MODEL
+    temp_ckpt_path = REPO_ROOT / "yolo11n_lora_temp_init.pt"
+    ckpt = torch.load("yolo11n.pt", map_location='cpu')
+    ckpt['model'] = student.yolo.model.half()
+    for p in ckpt['model'].parameters():
+        p.requires_grad = getattr(p, 'requires_grad', True)
+    torch.save(ckpt, temp_ckpt_path)
+
+    from ultralytics import YOLO
+    real_student_yolo = YOLO(str(temp_ckpt_path))
+
+    real_student_yolo.train(
         data=str(proxy_yaml),
         epochs=2,       # Warm-up siêu nhẹ (2 epochs) để tránh overfitting proxy data
         imgsz=640,

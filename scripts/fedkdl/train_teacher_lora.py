@@ -43,8 +43,22 @@ def main():
     # 2. Huấn luyện (Fine-tune) Teacher trên toàn bộ URPC2020
     # Chú ý: Train trên toàn bộ dataset chứ không phải 20% proxy data
     yaml_path = REPO_ROOT / "datasets/URPC2020.yaml"
-    
-    results = teacher_lora.yolo.train(
+
+    # LỖI CHÍNH NẰM Ở ĐÂY: Hàm .train() của Ultralytics sẽ lờ đi mô hình in-memory và tự load lại yolo12l.pt gốc từ ổ cứng.
+    # Do đó, ta phải lưu mô hình in-memory (đã tiêm LoRA và đóng băng) ra một file tạm trước.
+    temp_ckpt_path = REPO_ROOT / "yolo12l_lora_temp_init.pt"
+    ckpt = torch.load(teacher_ckpt, map_location='cpu')
+    ckpt['model'] = teacher_lora.yolo.model.half()
+    for p in ckpt['model'].parameters():
+        p.requires_grad = getattr(p, 'requires_grad', True) # Đảm bảo cờ requires_grad được lưu
+    torch.save(ckpt, temp_ckpt_path)
+
+    # Khởi tạo lại YOLO từ file đã tiêm LoRA
+    from ultralytics import YOLO
+    real_lora_yolo = YOLO(str(temp_ckpt_path))
+
+    # Chạy train trên mô hình LoRA
+    results = real_lora_yolo.train(
         data=str(yaml_path),
         epochs=100,  # 100 epochs là đủ cho LoRA hội tụ (có Early Stopping)
         imgsz=640,
@@ -56,7 +70,7 @@ def main():
         project=str(REPO_ROOT / "runs/teacher_lora"),
         name="yolo12l_lora_urpc",
         exist_ok=True,
-        resume=True,  # Tự động resume nếu bị sập giữa chừng
+        resume=False,  # Bắt buộc False vì temp_ckpt là mới
     )
     
     # 3. Lưu mô hình lại
