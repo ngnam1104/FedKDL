@@ -79,45 +79,50 @@ def inject_lora(module: nn.Module,
         target_layer_names = ['C2f', 'C3k2', 'C2fAttn']
 
     count = 0
-    # Lặp qua tất cả submodules (Iterative)
+    # 1. Thu thập tất cả các submodules vào một list để tránh lỗi "dictionary changed size during iteration"
+    targets = []
     for name, sub_module in module.named_modules():
         if isinstance(sub_module, nn.Conv2d):
-            # Lấy list các class name trên đường dẫn từ root tới sub_module
-            path_classes = []
-            current = module
-            for part in name.split('.')[:-1]:
-                if part == '': continue
-                current = getattr(current, part)
-                path_classes.append(current.__class__.__name__)
+            targets.append((name, sub_module))
             
-            # Kiểm tra xem module này có nằm trong block mục tiêu không
-            is_target = ('Conv' in target_layer_names) or any(any(t in cls_name for t in target_layer_names) for cls_name in path_classes)
+    # 2. Thực hiện inject
+    for name, sub_module in targets:
+        # Lấy list các class name trên đường dẫn từ root tới sub_module
+        path_classes = []
+        current = module
+        for part in name.split('.')[:-1]:
+            if part == '': continue
+            current = getattr(current, part)
+            path_classes.append(current.__class__.__name__)
+        
+        # Kiểm tra xem module này có nằm trong block mục tiêu không
+        is_target = ('Conv' in target_layer_names) or any(any(t in cls_name for t in target_layer_names) for cls_name in path_classes)
+        
+        if is_target:
+            layer_idx = -1
+            parts = name.split('.')
+            if len(parts) >= 2 and parts[0] == 'model' and parts[1].isdigit():
+                layer_idx = int(parts[1])
             
-            if is_target:
-                layer_idx = -1
-                parts = name.split('.')
-                if len(parts) >= 2 and parts[0] == 'model' and parts[1].isdigit():
-                    layer_idx = int(parts[1])
-                
-                # Quyết định rank
-                current_rank = rank
-                if strategy == "neck_head_only":
-                    if layer_idx != -1 and layer_idx < 10:
-                        continue  # Skip backbone
-                elif strategy == "adaptive":
-                    if layer_idx != -1:
-                        if layer_idx < 4:
-                            continue  # Skip shallow (0-3)
-                        elif 4 <= layer_idx < 10:
-                            current_rank = 2  # Mid backbone -> rank 2
-                
-                parent_name = '.'.join(parts[:-1])
-                leaf_name = parts[-1]
-                parent = _get_parent(module, parent_name)
-                
-                setattr(parent, leaf_name, LoRAConv2d(sub_module, rank=current_rank, alpha=alpha))
-                count += 1
-                
+            # Quyết định rank
+            current_rank = rank
+            if strategy == "neck_head_only":
+                if layer_idx != -1 and layer_idx < 10:
+                    continue  # Skip backbone
+            elif strategy == "adaptive":
+                if layer_idx != -1:
+                    if layer_idx < 4:
+                        continue  # Skip shallow (0-3)
+                    elif 4 <= layer_idx < 10:
+                        current_rank = 2  # Mid backbone -> rank 2
+            
+            parent_name = '.'.join(parts[:-1])
+            leaf_name = parts[-1]
+            parent = _get_parent(module, parent_name)
+            
+            setattr(parent, leaf_name, LoRAConv2d(sub_module, rank=current_rank, alpha=alpha))
+            count += 1
+            
     return count
 
 
