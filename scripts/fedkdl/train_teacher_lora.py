@@ -70,7 +70,7 @@ def main():
         'lrf': 0.01,
         'cos_lr': False,
         'device': device,
-        'amp': True,  # Bật lại FP16 để tăng tốc (CustomDetectionTrainer đã bao bọc an toàn)
+        'amp': False,  # BẮT BUỘC False! FP16 gây tràn số (NaN) khi train LoRA, phải dùng FP32.
         'project': str(REPO_ROOT / "runs/teacher_lora"),
         'name': 'yolo12l_lora_urpc',
         'exist_ok': True,
