@@ -51,7 +51,7 @@ def main():
     
     # FIX LỖI ULTRALYTICS BỎ QUA IN-MEMORY MODEL
     temp_ckpt_path = REPO_ROOT / "yolo11n_lora_temp_init.pt"
-    ckpt = torch.load("yolo11n.pt", map_location='cpu')
+    ckpt = torch.load("yolo11n.pt", map_location='cpu', weights_only=False)
     ckpt['model'] = student.yolo.model.half()
     for p in ckpt['model'].parameters():
         p.requires_grad = getattr(p, 'requires_grad', True)

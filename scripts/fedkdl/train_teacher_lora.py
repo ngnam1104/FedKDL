@@ -47,7 +47,7 @@ def main():
     # LỖI CHÍNH NẰM Ở ĐÂY: Hàm .train() của Ultralytics sẽ lờ đi mô hình in-memory và tự load lại yolo12l.pt gốc từ ổ cứng.
     # Do đó, ta phải lưu mô hình in-memory (đã tiêm LoRA và đóng băng) ra một file tạm trước.
     temp_ckpt_path = REPO_ROOT / "yolo12l_lora_temp_init.pt"
-    ckpt = torch.load(teacher_ckpt, map_location='cpu')
+    ckpt = torch.load(teacher_ckpt, map_location='cpu', weights_only=False)
     ckpt['model'] = teacher_lora.yolo.model.half()
     for p in ckpt['model'].parameters():
         p.requires_grad = getattr(p, 'requires_grad', True) # Đảm bảo cờ requires_grad được lưu
