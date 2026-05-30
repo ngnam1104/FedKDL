@@ -68,7 +68,7 @@ def main():
         'optimizer': 'AdamW',
         'warmup_epochs': 1.0,
         'lrf': 0.01,
-        'cos_lr': False,
+        'cos_lr': True,   # Cosine annealing: LR giảm mượt từ 1e-4 → 1e-6
         'device': device,
         'amp': True,  # Bật lại FP16 để tăng tốc (CustomDetectionTrainer đã bao bọc an toàn)
         'project': str(REPO_ROOT / "runs/teacher_lora"),
