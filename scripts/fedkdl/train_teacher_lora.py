@@ -70,7 +70,7 @@ def main():
         'lrf': 0.01,
         'cos_lr': False,
         'device': device,
-        'amp': False,  # BẮT BUỘC False để tránh Ultralytics check_amp tự động unfreeze toàn bộ mô hình!
+        'amp': True,  # Bật lại FP16 để tăng tốc (CustomDetectionTrainer đã bao bọc an toàn)
         'project': str(REPO_ROOT / "runs/teacher_lora"),
         'name': 'yolo12l_lora_urpc',
         'exist_ok': True,
