@@ -88,7 +88,8 @@ def main():
     trainer.model = teacher.yolo.model
 
     print("\n-> Bắt đầu train Teacher LoRA (100 epochs)...")
-    print("   Ultralytics sẽ cố train toàn bộ, nhưng frozen_weights_before sẽ verify sau.")
+    print("   Mô hình ĐÃ ĐƯỢC ĐÓNG BĂNG, Optimizer sẽ CHỈ cập nhật LoRA.")
+    print("   (Cơ chế Rollback ở cuối chỉ là lớp bảo vệ dự phòng 2 lớp)")
     trainer.train()
 
     # 4. Sau khi train: VERIFY không có frozen weight nào bị thay đổi
