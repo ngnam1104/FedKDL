@@ -36,7 +36,7 @@ def main():
     # ==============================================================
     TOTAL_EPOCHS       = 300   # Tổng số epochs muốn train
     PATIENCE           = 150   # Early stopping (patience=epoch, không nhân val_period)
-    VAL_PERIOD         = 5     # Đánh giá (Evaluate) mỗi 5 epoch
+    VAL_PERIOD         = 1     # Đánh giá (Evaluate) mỗi epoch (1)
     HEAD_LR_MULTIPLIER = 5.0   # ⭐ Head mới cần LR cao hơn LoRA: head_lr = lr0 × multiplier
                                 #   LoRA lr = 2e-4,  Head lr = 2e-4 × 5 = 1e-3
     # ==============================================================
