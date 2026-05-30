@@ -75,8 +75,11 @@ def inject_lora(module: nn.Module,
     - strategy = "adaptive": Rank siêu nhỏ ở Backbone, Rank chuẩn ở Neck+Head
     """
     if target_layer_names is None:
-        # C2f = YOLOv8/11, C3k2 = YOLO26, C2fAttn = YOLOv11 phiên bản Attention
-        target_layer_names = ['C2f', 'C3k2', 'C2fAttn']
+        # C2f = YOLOv8/11, C3k2 = YOLO12
+        # ⚠️ C2fAttn bị loại khỏi target vì chứa các attention MLP layer có
+        #   hidden dim đặc biệt (307 channels). Inject LoRA vào đây gây shape mismatch.
+        #   Domain shift (color/contrast/texture) được xử lý hoàn toàn bởi C2f và C3k2.
+        target_layer_names = ['C2f', 'C3k2']
 
     count = 0
     # 1. Thu thập tất cả các submodules vào một list để tránh lỗi "dictionary changed size during iteration"
@@ -118,7 +121,7 @@ def inject_lora(module: nn.Module,
             
             parent_name = '.'.join(parts[:-1])
             leaf_name = parts[-1]
-            parent = _get_parent(module, parent_name)
+            parent = _get_module(module, parent_name)
             
             setattr(parent, leaf_name, LoRAConv2d(sub_module, rank=current_rank, alpha=alpha))
             count += 1
@@ -126,11 +129,11 @@ def inject_lora(module: nn.Module,
     return count
 
 
-def _get_parent(module: nn.Module, path: str) -> nn.Module:
-    """Trả về module cha của `path` (phân cách bởi '.')."""
-    parts = path.split('.')
-    if len(parts) == 1:
+def _get_module(module: nn.Module, path: str) -> nn.Module:
+    """Trả về chính xác module tại `path` (phân cách bởi '.')."""
+    if path == '':
         return module
-    for part in parts[:-1]:
+    parts = path.split('.')
+    for part in parts:
         module = getattr(module, part)
     return module
