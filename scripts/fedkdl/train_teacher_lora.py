@@ -35,7 +35,7 @@ def main():
     # ⭐ TÙY CHỈNH TẠI ĐÂY
     # ==============================================================
     TOTAL_EPOCHS = 300        # Tổng số epochs muốn train
-    PATIENCE     = 30         # Early stopping: 30 lần val × val_period=5 = 150 epoch thực tế chờ
+    PATIENCE     = 60         # Early stopping: dừng nếu mAP50 không tăng sau 60 epoch
     # ==============================================================
 
     if save_path.exists():
@@ -96,7 +96,6 @@ def main():
         'verbose':        True,
         'save':           True,
         'val':            True,
-        'val_period':     5,             # ⭐ Eval mỗi 5 epoch (tiết kiệm ~80% thời gian val)
         'save_period':    10,            # Lưu checkpoint mỗi 10 epoch (ngoài best/last)
         'plots':          True,
         'resume':         resuming,      # ⭐ Ultralytics tự load optimizer state từ last.pt
