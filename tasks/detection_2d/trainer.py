@@ -171,7 +171,8 @@ class CustomDetectionTrainer(DetectionTrainer):
                 head_p  = [p for p in group['params']
                            if any(h in id_to_name.get(id(p), '') for h in head_patterns)
                            and 'lora_' not in id_to_name.get(id(p), '')]
-                other_p = [p for p in group['params'] if p not in set(id(x) for x in head_p)]
+                head_p_ids = set(id(x) for x in head_p)
+                other_p = [p for p in group['params'] if id(p) not in head_p_ids]
                 if other_p:
                     g = {k: v for k, v in group.items() if k != 'params'}
                     g['params'] = other_p
