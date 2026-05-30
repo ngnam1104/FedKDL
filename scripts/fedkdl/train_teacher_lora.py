@@ -27,9 +27,16 @@ def main():
     rank = fed_cfg.LORA_RANK
     teacher_ckpt = "yolo12l.pt"
     yaml_path = str(REPO_ROOT / "datasets/URPC2020.yaml")
-    save_path = REPO_ROOT / "yolo12l_lora_pretrained.pt"
+    save_path   = REPO_ROOT / "yolo12l_lora_pretrained.pt"
     best_weights = REPO_ROOT / "runs/teacher_lora/yolo12l_lora_urpc/weights/best.pt"
     last_weights = REPO_ROOT / "runs/teacher_lora/yolo12l_lora_urpc/weights/last.pt"
+
+    # ==============================================================
+    # ⭐ TÙY CHỈNH TẠI ĐÂY
+    # ==============================================================
+    TOTAL_EPOCHS = 300        # Tổng số epochs muốn train
+    PATIENCE     = 30         # Early stopping: 30 lần val × val_period=5 = 150 epoch thực tế chờ
+    # ==============================================================
 
     if save_path.exists():
         print(f"[Skip] {save_path.name} đã tồn tại.")
@@ -56,28 +63,43 @@ def main():
     print(f"-> Frozen keys: {len(frozen_weights_before)}")
     print(f"-> Tổng: {len(payload_keys) + len(frozen_weights_before)} keys")
 
-    # 3. Cấu hình trainer giống hệt local_sgd_od
+    # 3. Cấu hình trainer
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Kiểm tra có thể resume từ last.pt không
+    resuming = last_weights.exists()
+    if resuming:
+        print(f"\n[↻ Resume] Phát hiện {last_weights.name} — sẽ resume từ đó.")
+        print(f"   (Nếu muốn bắt đầu lại từ đầu, xóa thư mục runs/teacher_lora/ rồi chạy lại)")
+        ckpt_for_trainer = str(last_weights)
+    else:
+        print(f"\n[Fresh] Bắt đầu train mới từ {teacher_ckpt}.")
+        ckpt_for_trainer = teacher_ckpt
+
     overrides = {
-        'model': teacher_ckpt,
-        'data': yaml_path,
-        'epochs': 100,
-        'batch': 8,
-        'workers': 2,
-        'lr0': 1e-4,
-        'optimizer': 'AdamW',
-        'warmup_epochs': 1.0,
-        'lrf': 0.01,
-        'cos_lr': True,   # Cosine annealing: LR giảm mượt từ 1e-4 → 1e-6
-        'device': device,
-        'amp': True,  # Bật lại FP16 để tăng tốc (CustomDetectionTrainer đã bao bọc an toàn)
-        'project': str(REPO_ROOT / "runs/teacher_lora"),
-        'name': 'yolo12l_lora_urpc',
-        'exist_ok': True,
-        'verbose': True,
-        'save': True,
-        'val': True,
-        'plots': True,
+        'model':          ckpt_for_trainer,
+        'data':           yaml_path,
+        'epochs':         TOTAL_EPOCHS,
+        'patience':       PATIENCE,      # Early stopping
+        'batch':          8,
+        'workers':        2,
+        'lr0':            2e-4,
+        'optimizer':      'AdamW',
+        'warmup_epochs':  1.0,
+        'lrf':            0.01,          # lr_final = lr0 * lrf = 1e-6
+        'cos_lr':         True,          # Cosine annealing
+        'device':         device,
+        'amp':            True,
+        'project':        str(REPO_ROOT / "runs/teacher_lora"),
+        'name':           'yolo12l_lora_urpc',
+        'exist_ok':       True,
+        'verbose':        True,
+        'save':           True,
+        'val':            True,
+        'val_period':     5,             # ⭐ Eval mỗi 5 epoch (tiết kiệm ~80% thời gian val)
+        'save_period':    10,            # Lưu checkpoint mỗi 10 epoch (ngoài best/last)
+        'plots':          True,
+        'resume':         resuming,      # ⭐ Ultralytics tự load optimizer state từ last.pt
     }
 
     trainer = CustomDetectionTrainer(
@@ -87,9 +109,9 @@ def main():
     )
     trainer.model = teacher.yolo.model
 
-    print("\n-> Bắt đầu train Teacher LoRA (100 epochs)...")
+    epochs_str = f"{TOTAL_EPOCHS} epochs (patience={PATIENCE})"
+    print(f"\n-μ Bắt đầu train Teacher LoRA ({epochs_str})...")
     print("   Mô hình ĐÃ ĐƯỢC ĐÓNG BĂNG, Optimizer sẽ CHỈ cập nhật LoRA.")
-    print("   (Cơ chế Rollback ở cuối chỉ là lớp bảo vệ dự phòng 2 lớp)")
     trainer.train()
 
     # 4. Sau khi train: VERIFY không có frozen weight nào bị thay đổi
