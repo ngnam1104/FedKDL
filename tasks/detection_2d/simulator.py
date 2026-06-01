@@ -755,14 +755,14 @@ class Simulator2D(BaseSimulator):
             'warmup_bias_lr': 0.0, # [CRITICAL FIX] Đảm bảo bias params không bị warmup với lr cao
         }
         trainer = KDDetectionTrainer(overrides=overrides)
-        trainer.head_lr_multiplier = 5.0  # Diff LR: LoRA 2e-4, Head 1e-3
+        trainer.head_lr_multiplier = 10.0  # Diff LR: LoRA 5e-4, Head 5e-3
         trainer.student_wrapper = self.global_student
         
-        # [FIX v4] Masked KD: lambda=0.5. Vì chỉ Foreground anchors đóng góp loss,
-        # magnitude tổng nhỏ hơn nhiều → cần lambda lớn hơn để signal đủ mạnh.
+        # [FIX v4] Masked KD: lambda=0.25 (GIẢM 50%). Vì chỉ Foreground anchors đóng góp loss,
+        # magnitude tổng nhỏ hơn nhiều → cần lambda lớn hơn để signal đủ mạnh (nhưng hiện tại giảm để bớt over-regularize).
         current_r = getattr(self, 'current_round', 1)
         total_r = getattr(self.fed_cfg, 'T_ROUNDS', self.fed_cfg.GLOBAL_ROUNDS.get("2D", 100))
-        trainer.kd_lambda = max(0.1, 0.5 * (1.0 - (current_r - 1) / total_r))
+        trainer.kd_lambda = max(0.05, 0.25 * (1.0 - (current_r - 1) / total_r))
         
         trainer.set_teacher(self.teacher.yolo.model)
         
