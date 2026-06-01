@@ -18,7 +18,7 @@ def parse_log_file(input_file, output_file):
     ]
     
     kd_keys = [
-        "kd_active", "kd_epochs", "kd_box", "kd_kl", "kd_hidden", "kd_attn", "kd_weighted"
+        "kd_active", "kd_epochs", "kd_box", "kd_kl", "kd_lora", "kd_weighted"
     ]
     
     post_kd_keys = [

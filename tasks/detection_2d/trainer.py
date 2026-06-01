@@ -346,6 +346,7 @@ def local_sgd_od(
         trainer.set_teacher(local_teacher.yolo.model)
         trainer.kd_lambda = 1.0  # Hoặc trọng số tuỳ chỉnh
         trainer._fl_injected_model = student_model.yolo.model
+        trainer.head_lr_multiplier = 10.0
         # KDDetectionTrainer không hỗ trợ cached_optimizer_state (không cần thiết cho FedKD)
     else:
         trainer = CustomDetectionTrainer(
@@ -358,8 +359,8 @@ def local_sgd_od(
     trainer.model = student_model.yolo.model
     trainer.fedprox_mu = fedprox_mu
     trainer.global_weights = global_weights
-    # Diff LR: LoRA/Backbone dùng lr0=2e-4, Head học nhanh hơn 5× → 1e-3
-    trainer.head_lr_multiplier = 5.0
+    # Diff LR: LoRA/Backbone dùng lr0=2e-4, Head học nhanh hơn 10× → 2e-3 (hoặc 1e-2 tùy lr đầu vào)
+    trainer.head_lr_multiplier = 10.0
 
     # HẠN ĐỊNH: Xác định các keys sẽ được truyền qua mạng (LoRA + Head) và coi
     # toàn bộ phần còn lại là "đóng băng"; sử dụng `trainable_state_dict()`
