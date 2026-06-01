@@ -18,7 +18,7 @@ else
   PYTHON="${PYTHON:-python}"
 fi
 
-N_LIST=(50 100 150 200)
+N_LIST=(30 50 100 150 200)
 DATASETS=(SMD SMAP MSL)
 ALPHAS=(1.0 10000.0)
 SEEDS=(42 123 2024)
@@ -36,7 +36,7 @@ export PYTHONIOENCODING=utf-8
 total=$(( ${#N_LIST[@]} * ${#DATASETS[@]} * ${#ALPHAS[@]} * ${#SEEDS[@]} * ${#BASELINES[@]} ))
 count=0
 
-M_RELAYS_1D=10
+M_RELAYS_1D=5
 GEN_ENV_ARGS=()
 if [[ -n "$M_RELAYS_1D" ]]; then
   echo "[HFL] Overriding relay count for 1D topologies: M_RELAYS_1D=$M_RELAYS_1D"

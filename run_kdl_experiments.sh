@@ -30,9 +30,9 @@ export PYTHONIOENCODING=utf-8
 ROUNDS=100
 SEED=1104
 DS="URPC"
-M_RELAYS_2D=10
-N_AUVS=50
-ALPHA="0.5"
+M_RELAYS_2D=5
+N_AUVS=30
+ALPHA="1.0"
 # =========================================================
 
 echo "[KDL] Generating topologies and data partitions..."

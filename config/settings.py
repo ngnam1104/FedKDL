@@ -14,10 +14,10 @@ from typing import Tuple
 @dataclass
 class NetworkConfig:
     """Topology — dùng bởi physics_models/topology.py, env_manager, generate_all_envs."""
-    N_AUVS: int = 50
-    M_RELAYS: int = 10           # Ghi đè runtime từ topo .pkl (base_simulator)
-    M_RELAYS_1D: int = 10        # generate_all_envs (1D)
-    M_RELAYS_2D: int = 10        # generate_all_envs (2D URPC, run_kdl_experiments.sh)
+    N_AUVS: int = 30
+    M_RELAYS: int = 5           # Ghi đè runtime từ topo .pkl (base_simulator)
+    M_RELAYS_1D: int = 5        # generate_all_envs (1D)
+    M_RELAYS_2D: int = 5        # generate_all_envs (2D URPC, run_kdl_experiments.sh)
     AREA_X: float = 2000.0
     AREA_Y: float = 2000.0
     AUV_DEPTH: Tuple[float, float] = (500.0, 1000.0)
