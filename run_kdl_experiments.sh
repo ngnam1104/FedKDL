@@ -36,7 +36,7 @@ ALPHA="1.0"
 # =========================================================
 
 echo "[KDL] Generating topologies and data partitions..."
-"$PYTHON" utils/generate_all_envs.py --n "$N_AUVS" --dataset "$DS" --m-relays "$M_RELAYS_2D"
+"$PYTHON" utils/generate_all_envs.py --n "$N_AUVS" --dataset "$DS" --m-relays "$M_RELAYS_2D" --alphas "$ALPHA"
 
 # =========================================================
 # BƯỚC 1: Pre-train Teacher LoRA
