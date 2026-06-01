@@ -46,7 +46,7 @@ def quantize_tensor(x: torch.Tensor, bits: int | None = None) -> QuantizedTensor
     Returns:
         QuantizedTensor với data_int8, scale, zero_point.
     """
-    x_flat = x.view(-1).float()
+    x_flat = x.reshape(-1).float()
     if bits is None:
         from config.settings import fed_cfg
         bits = fed_cfg.QUANTIZATION_BITS
@@ -95,7 +95,7 @@ def dequantize_tensor(qt: QuantizedTensor) -> torch.Tensor:
         Float tensor có shape gốc.
     """
     data_float = (qt.data_int8.float() - qt.zero_point) * qt.scale
-    return data_float.view(qt.original_shape)
+    return data_float.reshape(qt.original_shape)
 
 
 def compute_payload_bits(
