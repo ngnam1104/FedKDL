@@ -344,7 +344,7 @@ def local_sgd_od(
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.student_wrapper = student_model
         trainer.set_teacher(local_teacher.yolo.model)
-        trainer.kd_lambda = 1.0  # Hoặc trọng số tuỳ chỉnh
+        trainer.kd_lambda = 0.5  # [GIẢM KD] Giảm bớt sức kéo của Teacher để mạng học GT tốt hơn
         trainer._fl_injected_model = student_model.yolo.model
         trainer.head_lr_multiplier = 10.0
         # KDDetectionTrainer không hỗ trợ cached_optimizer_state (không cần thiết cho FedKD)
