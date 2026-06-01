@@ -171,6 +171,49 @@ class StudentModel:
             if name in state_dict:
                 buf.data = state_dict[name].clone().detach().to(device=device, dtype=buf.dtype)
 
+    def bake_lora(self):
+        """
+        Gộp LoRA vào Conv weight gốc và THAY THẾ LoRAConv2d → Conv2d thường.
+        Hàm này bắt buộc phải gọi trước khi chạy student.yolo.val() để tránh việc 
+        thuật toán fuse() của Ultralytics vứt bỏ LoRAConv2d.
+        """
+        from tasks.detection_2d.models.lora import LoRAConv2d
+        import torch.nn as nn
+        
+        merged_count = 0
+        for parent_name, parent_module in list(self.yolo.model.named_modules()):
+            for child_name, child_module in list(parent_module.named_children()):
+                if not isinstance(child_module, LoRAConv2d):
+                    continue
+
+                with torch.no_grad():
+                    lora_weight = (child_module.lora_B @ child_module.lora_A).view(
+                        child_module.weight.shape
+                    ) * child_module.scaling
+                    baked_weight = child_module.weight.data + lora_weight
+
+                    new_conv = nn.Conv2d(
+                        in_channels=child_module.in_channels,
+                        out_channels=child_module.out_channels,
+                        kernel_size=child_module.kernel_size,
+                        stride=child_module.stride,
+                        padding=child_module.padding,
+                        dilation=child_module.dilation,
+                        groups=child_module.groups,
+                        bias=child_module.bias is not None,
+                        padding_mode=child_module.padding_mode,
+                    )
+                    new_conv.weight.data = baked_weight
+                    if child_module.bias is not None:
+                        new_conv.bias.data = child_module.bias.data.clone()
+
+                setattr(parent_module, child_name, new_conv)
+                merged_count += 1
+        
+        if merged_count > 0:
+            print(f"[StudentModel] Baked {merged_count} LoRA layers into base weights.")
+        return merged_count
+
 
 class TeacherModel:
     """

@@ -427,8 +427,12 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
     Returns: dict chứa các metrics
     """
     import copy
-    # [CRITICAL FIX] Lưu lại kiến trúc mạng gốc chưa bị Fuse (gộp BatchNorm)
+    # [CRITICAL FIX] Lưu lại kiến trúc mạng gốc chưa bị Fuse (gộp BatchNorm) và chưa bị Bake
     unfused_model = copy.deepcopy(student_model.yolo.model)
+    
+    # [CRITICAL FIX 2] Phải BAKE LoRA vào Conv gốc trước khi chạy val()!
+    # Nếu không bake, hàm model.fuse() bên trong val() sẽ xóa sổ class LoRAConv2d, vứt bỏ toàn bộ trọng số LoRA!
+    student_model.bake_lora()
     
     import gc
     torch.cuda.empty_cache()
@@ -472,6 +476,8 @@ def evaluate_od_on_auv_train(student_model, auv_yaml: str, device: str = "cpu") 
     try:
         import copy
         unfused_model = copy.deepcopy(student_model.yolo.model)
+        
+        student_model.bake_lora()
         
         import gc
         torch.cuda.empty_cache()
