@@ -27,7 +27,7 @@ export PYTHONIOENCODING=utf-8
 # =========================================================
 # Cấu hình thử nghiệm cố định (Phase 5)
 # =========================================================
-ROUNDS=100
+ROUNDS=50
 SEED=1104
 DS="URPC"
 M_RELAYS_2D=5
