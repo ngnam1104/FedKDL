@@ -209,6 +209,8 @@ class KDDetectionTrainer(DetectionTrainer):
         self.epoch_kl_loss = 0.0
         self.epoch_lora_loss = 0.0
         self.epoch_kd_loss = 0.0
+        self.epoch_stu_loss = 0.0
+        self.epoch_kd_only_loss = 0.0
         self.batch_count = 0
         self.kd_epoch_history = []
 
@@ -260,14 +262,18 @@ class KDDetectionTrainer(DetectionTrainer):
                 mean_box = trainer.epoch_box_loss / trainer.batch_count
                 mean_kl = trainer.epoch_kl_loss / trainer.batch_count
                 mean_lora = trainer.epoch_lora_loss / trainer.batch_count
+                mean_stu = trainer.epoch_stu_loss / trainer.batch_count
+                mean_kd_only = trainer.epoch_kd_only_loss / trainer.batch_count
                 mean_weighted = trainer.epoch_kd_loss / trainer.batch_count
 
                 print(
                     f"[KD Epoch {trainer.epoch + 1}] "
+                    f"Supervised: {mean_stu:.4f} | "
+                    f"KD Only: {mean_kd_only:.4f} | "
                     f"Box: {mean_box:.4f} | "
                     f"KL: {mean_kl:.4f} | "
                     f"LoRA_Proj: {mean_lora:.4f} | "
-                    f"Weighted KD: {mean_weighted:.4f}"
+                    f"Total: {mean_weighted:.4f}"
                 )
 
                 trainer.kd_epoch_history.append({
@@ -282,6 +288,8 @@ class KDDetectionTrainer(DetectionTrainer):
                 trainer.epoch_kl_loss = 0.0
                 trainer.epoch_lora_loss = 0.0
                 trainer.epoch_kd_loss = 0.0
+                trainer.epoch_stu_loss = 0.0
+                trainer.epoch_kd_only_loss = 0.0
                 trainer.batch_count = 0
                 
         self.add_callback("on_train_epoch_end", log_kd_loss)
@@ -565,7 +573,8 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_dist_adaptive = loss_kl + loss_box_kd + loss_lora_proj
         
         # Mở lại Supervised Loss để giữ mỏ neo Ground Truth
-        total_loss = loss_stu.clone() * 1.0
+        stu_weight = getattr(self, 'stu_lambda', 1.0)
+        total_loss = loss_stu.clone() * stu_weight
         
         if total_loss.ndim == 0:
             total_loss = total_loss + self.kd_lambda * loss_dist_adaptive
@@ -575,6 +584,9 @@ class KDDetectionTrainer(DetectionTrainer):
         self.epoch_box_loss += loss_box_kd.item()
         self.epoch_kl_loss += loss_kl.item()
         self.epoch_lora_loss += loss_lora_proj.item()
+        stu_loss_val = (loss_stu.item() if loss_stu.ndim == 0 else loss_stu[0].item())
+        self.epoch_stu_loss += (stu_loss_val * stu_weight)
+        self.epoch_kd_only_loss += (self.kd_lambda * loss_dist_adaptive.item())
         self.epoch_kd_loss += total_loss.item() if total_loss.ndim == 0 else total_loss[0].item()
         self.batch_count += 1
 
