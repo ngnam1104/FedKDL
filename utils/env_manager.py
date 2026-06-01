@@ -327,8 +327,7 @@ class EnvironmentManager:
         print(log_str)
         logs.append(log_str)
 
-        # 3. Trích 20% làm Public Dataset (Proxy KD) rải đều 4 habitat và CÔ LẬP hoàn toàn
-        proxy_per_habitat = max(1, int(num_samples * 0.2) // 4)
+        # 3. Trích 20% làm Public Dataset (Proxy KD) theo tỷ lệ thực tế của từng habitat
         public_indices = []
         
         log_str = "\n  [Data Partitioning] Tách 20% Public Data và 80% AUV Data:"
@@ -337,15 +336,19 @@ class EnvironmentManager:
         for h in range(4):
             pool = imgs_by_habitat[h] # Trỏ trực tiếp vào kho
             old_size = len(pool)
+            
+            # Lấy đúng 20% của habitat này thay vì chia đều
+            proxy_for_h = int(old_size * 0.2)
+            
             random.shuffle(pool)
             
             # Đưa vào tập Public (Proxy KD)
-            public_indices.extend(pool[:proxy_per_habitat])
+            public_indices.extend(pool[:proxy_for_h])
             
             # XÓA TRIỆT ĐỂ 20% này khỏi kho, 80% còn lại mới để cho AUV chia nhau
-            imgs_by_habitat[h] = pool[proxy_per_habitat:]
+            imgs_by_habitat[h] = pool[proxy_for_h:]
             new_size = len(imgs_by_habitat[h])
-            log_str = f"    - Habitat {h}: Tổng {old_size} ảnh -> Lấy {proxy_per_habitat} ảnh cho KD -> Còn lại {new_size} ảnh cho AUV"
+            log_str = f"    - Habitat {h}: Tổng {old_size} ảnh -> Lấy {proxy_for_h} ảnh cho KD -> Còn lại {new_size} ảnh cho AUV"
             print(log_str)
             logs.append(log_str)
         log_str = f"  => Tổng Public (Proxy) Data: {len(public_indices)} ảnh.\n"
