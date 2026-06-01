@@ -65,7 +65,7 @@ if [[ -f "yolo12n_warmup.pt" ]]; then
   echo "[KDL] yolo12n_warmup.pt đã tồn tại, BỎ QUA bước Warm-up."
 else
   set +e
-  "$PYTHON" scripts/fedkdl/train_student_warmup.py
+  "$PYTHON" scripts/fedkdl/train_student_warmup.py --mode warmup --epochs-warmup 3
   STUDENT_RC=$?
   set -e
   if [[ $STUDENT_RC -ne 0 ]]; then
