@@ -83,26 +83,9 @@ def fedavg_global(
     else:
         weights = [n / N for n in cluster_total_samples]
 
-    # Lấy UNION tất cả keys từ mọi relay để tránh KeyError khi relay empty fallback về partial dict
-    all_keys = set()
-    for relay_sd in relay_state_dicts:
-        all_keys.update(relay_sd.keys())
-
-    # Tìm tensor shape từ relay đầu tiên có key đó
-    global_sd = {}
-    for key in all_keys:
-        for relay_sd in relay_state_dicts:
-            if key in relay_sd:
-                global_sd[key] = torch.zeros_like(relay_sd[key], dtype=torch.float32)
-                break
-
-    # Weighted average — bỏ qua relay nào không có key đó (relay empty cluster)
-    for relay_sd, w in zip(relay_state_dicts, weights):
-        for key in global_sd:
-            if key in relay_sd:
-                global_sd[key] += w * relay_sd[key].float()
-
-    return global_sd
+    # Nếu là mô hình có LoRA, bắt buộc dùng SVD để tránh cross-terms phá hủy kiến thức
+    # Hàm svd_lora_aggregate tự động áp dụng FedAvg chuẩn cho các layer không phải LoRA (ví dụ Detection Head)
+    return svd_lora_aggregate(relay_state_dicts, weights)
 
 
 def svd_lora_aggregate(
