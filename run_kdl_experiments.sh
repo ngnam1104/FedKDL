@@ -112,7 +112,7 @@ run_baseline() {
   set +eo pipefail
 
   local TS=$(date +"%Y%m%d_%H%M%S")
-  local log_file="$STDOUT_DIR/raw_bash_output_${N_AUVS}_${alpha_str}_${TS}.log"
+  local log_file="$STDOUT_DIR/raw_bash_output_${baseline}_${N_AUVS}_${alpha_str}_${TS}.log"
 
   "$PYTHON" main_trainer_od.py \
     --topo "$topo" --data "$data" \
