@@ -22,7 +22,7 @@ N_LIST=(30 50 100 150 200)
 DATASETS=(SMD SMAP MSL)
 ALPHAS=(1.0 10000.0)
 SEEDS=(42 123 2024)
-BASELINES=(hfl_selective hfl_nearest hfl_nocoop fedprox fedavg centralized)
+BASELINES=(hfl_selective hfl_nearest hfl_nocoop fedprox fedavg)
 
 ROUNDS=30
 RHO_S=0.05

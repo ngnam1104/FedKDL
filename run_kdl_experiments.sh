@@ -79,7 +79,7 @@ fi
 # =========================================================
 # Định nghĩa các mảng Task (Mô-đun hóa dễ mở rộng)
 # =========================================================
-MAIN_BASELINES=("fedkdl" "fedkdl_selective" "fedprox_kdl" "fedkd" "centralized")
+MAIN_BASELINES=("fedkdl" "fedkdl_selective" "fedprox_kdl" "fedkd")
 SOTA_LORA_BASELINES=("fedkdl_nolora") # Thêm các phương pháp LoRA mới vào đây sau này
 SOTA_KD_BASELINES=("fedkdl_nokd" "fedkdl_proxy_ft")     # Thêm các phương pháp KD mới vào đây sau này
 
