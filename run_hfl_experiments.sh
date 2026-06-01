@@ -44,7 +44,7 @@ if [[ -n "$M_RELAYS_1D" ]]; then
 fi
 
 echo "[HFL] Generating topologies and data partitions for 1D..."
-"$PYTHON" utils/generate_all_envs.py "${GEN_ENV_ARGS[@]}"
+"$PYTHON" utils/generate_all_envs.py "${GEN_ENV_ARGS[@]}" --alphas "1.0" "10000.0"
 
 for n in "${N_LIST[@]}"; do
   for alpha in "${ALPHAS[@]}"; do
