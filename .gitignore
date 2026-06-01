@@ -1,0 +1,78 @@
+# === Secrets (Kaggle, etc.) ===
+.env
+.kaggle/
+
+# === Moi truong Python ===
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# === Jupyter ===
+.ipynb_checkpoints/
+*.ipynb
+
+# === Datasets lon (tai thu cong) ===
+datasets/SMD/
+datasets/SMAP_MSL/
+datasets/URPC2020/
+*.zip
+*.tar.gz
+*.gz
+*.h5
+*.hdf5
+*.npy
+*.npz
+
+# === Ket qua thi nghiem & Moi truong ===
+results/
+!results/.gitkeep
+environments/
+
+
+# === Tai lieu & Bai bao noi bo ===
+.docs/
+.papers/
+
+# === Model Checkpoints ===
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+checkpoints/
+
+# === Logs ===
+*.log
+logs/
+runs/
+
+# === IDE & Editor ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === OS ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === File tam ===
+temp_*.py
+*.tmp
+*.bak
+
+# === YOLO / Ultralytics cache ===
+runs/detect/
+*.cache
+datasets/*.cache
+
+# === Presentation & Binary ===
+*.pptx
+*.pdf
