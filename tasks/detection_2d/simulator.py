@@ -133,8 +133,12 @@ class AUVWorker2D(BaseWorker):
             payload_bytes = None
             payload_kb = 0.0
         elif use_int8:
-            payload_bytes, payload_kb = pack_payload(new_state)
-            print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB INT8 "
+            # Tính toán delta (sự thay đổi) để lượng tử hóa nhằm giữ độ chính xác
+            delta_state = {}
+            for k in new_state:
+                delta_state[k] = new_state[k] - global_state[k].to(new_state[k].device)
+            payload_bytes, payload_kb = pack_payload(delta_state)
+            print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB INT8 (Delta) "
                   f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
         else:
             # Fake packing for simulation (Float32 payload)
@@ -163,7 +167,11 @@ class RelayNode2D(BaseRelayNode):
         for sid in self.cluster_members:
             if sid in payloads:
                 if use_kd_lora_int8:
-                    state = unpack_payload(payloads[sid], global_state_dict)
+                    delta_state = unpack_payload(payloads[sid], global_state_dict)
+                    # Khôi phục absolute state từ Delta
+                    state = {}
+                    for k in delta_state:
+                        state[k] = global_state_dict[k].to(delta_state[k].device) + delta_state[k]
                 else:
                     state = payloads[sid]
                 c_updates.append(state)
