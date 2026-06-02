@@ -114,7 +114,7 @@ def run_warmup(epochs: int):
     )
 
 
-def run_centralized_lora(epochs: int, resume: bool = False):
+def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     print("\n" + "="*50)
     print(f"[Centralized LoRA] Train LoRA + Head trong {epochs} epochs (Upper Bound)")
     if resume: print("[Resume] Tiếp tục train từ last.pt...")
@@ -164,6 +164,7 @@ def run_centralized_lora(epochs: int, resume: bool = False):
         'plots': True,
         'close_mosaic': 0,
         'resume': resume,
+        'patience': patience,
     }
 
     trainer = CustomDetectionTrainer(
@@ -183,7 +184,7 @@ def run_centralized_lora(epochs: int, resume: bool = False):
     print(f"[Thành công] Đã lưu mô hình LoRA Centralized tại: {save_path}")
 
 
-def run_centralized_full(epochs: int, resume: bool = False):
+def run_centralized_full(epochs: int, patience: int = 30, resume: bool = False):
     print("\n" + "="*50)
     print(f"[Centralized Full] Train 100% Parameter (No LoRA) trong {epochs} epochs")
     if resume: print("[Resume] Tiếp tục train từ last.pt...")
@@ -216,7 +217,8 @@ def run_centralized_full(epochs: int, resume: bool = False):
         save=True,
         val=True,
         plots=True,
-        resume=resume
+        resume=resume,
+        patience=patience
     )
     
     print(f"[Thành công] Đã lưu mô hình Full Finetune tại: runs/centralized/full_finetune/weights/best.pt")
@@ -227,7 +229,8 @@ def main():
     parser.add_argument("--mode", type=str, default="all", choices=["warmup", "centralized_lora", "centralized_full", "all"],
                         help="Chế độ chạy (mặc định: all)")
     parser.add_argument("--epochs-warmup", type=int, default=3, help="Số epoch cho warmup")
-    parser.add_argument("--epochs-centralized", type=int, default=200, help="Số epoch cho centralized tests")
+    parser.add_argument("--epochs-centralized", type=int, default=150, help="Số epoch cho centralized tests")
+    parser.add_argument("--patience", type=int, default=30, help="Early stopping patience")
     parser.add_argument("--resume", action="store_true", help="Resume training từ last.pt nếu server bị sập")
     args = parser.parse_args()
 
@@ -235,10 +238,10 @@ def main():
         run_warmup(epochs=args.epochs_warmup)
         
     if args.mode in ["centralized_lora", "all"]:
-        run_centralized_lora(epochs=args.epochs_centralized, resume=args.resume)
+        run_centralized_lora(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume)
         
     if args.mode in ["centralized_full", "all"]:
-        run_centralized_full(epochs=args.epochs_centralized, resume=args.resume)
+        run_centralized_full(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume)
 
 
 if __name__ == "__main__":
