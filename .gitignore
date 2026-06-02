@@ -44,6 +44,7 @@ environments/
 *.pt
 !yolo12l_lora_pretrained.pt
 !yolo12n_warmup.pt
+!yolo12l_pretrained.pt
 *.pth
 *.ckpt
 *.safetensors
