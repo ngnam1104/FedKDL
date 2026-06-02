@@ -42,6 +42,8 @@ environments/
 
 # === Model Checkpoints ===
 *.pt
+!yolo12l_lora_pretrained.pt
+!yolo12n_warmup.pt
 *.pth
 *.ckpt
 *.safetensors
