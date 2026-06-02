@@ -114,17 +114,27 @@ def run_warmup(epochs: int):
     )
 
 
-def run_centralized_lora(epochs: int):
+def run_centralized_lora(epochs: int, resume: bool = False):
     print("\n" + "="*50)
     print(f"[Centralized LoRA] Train LoRA + Head trong {epochs} epochs (Upper Bound)")
+    if resume: print("[Resume] Tiếp tục train từ last.pt...")
     print("="*50)
     
     full_yaml = REPO_ROOT / "datasets/URPC2020.yaml"
     rank = fed_cfg.LORA_RANK
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
+    ckpt_path = "yolo12n.pt"
+    if resume:
+        last_pt = REPO_ROOT / "runs" / "centralized" / "lora_finetune" / "weights" / "last.pt"
+        if last_pt.exists():
+            ckpt_path = str(last_pt)
+        else:
+            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ đầu!")
+            resume = False
+            
     student = StudentModel(
-        ckpt="yolo12n.pt",
+        ckpt=ckpt_path,
         rank=rank,
         nc=4,
         full_param=False,
@@ -132,7 +142,7 @@ def run_centralized_lora(epochs: int):
     )
     
     overrides = {
-        'model': "yolo12n.pt",
+        'model': ckpt_path,
         'data': str(full_yaml),
         'epochs': epochs,
         'batch': 16,
@@ -153,6 +163,7 @@ def run_centralized_lora(epochs: int):
         'val': True,
         'plots': True,
         'close_mosaic': 0,
+        'resume': resume,
     }
 
     trainer = CustomDetectionTrainer(
@@ -172,15 +183,25 @@ def run_centralized_lora(epochs: int):
     print(f"[Thành công] Đã lưu mô hình LoRA Centralized tại: {save_path}")
 
 
-def run_centralized_full(epochs: int):
+def run_centralized_full(epochs: int, resume: bool = False):
     print("\n" + "="*50)
     print(f"[Centralized Full] Train 100% Parameter (No LoRA) trong {epochs} epochs")
+    if resume: print("[Resume] Tiếp tục train từ last.pt...")
     print("="*50)
     
     full_yaml = REPO_ROOT / "datasets/URPC2020.yaml"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    model = YOLO("yolo12n.pt")
+    ckpt_path = "yolo12n.pt"
+    if resume:
+        last_pt = REPO_ROOT / "runs" / "centralized" / "full_finetune" / "weights" / "last.pt"
+        if last_pt.exists():
+            ckpt_path = str(last_pt)
+        else:
+            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ đầu!")
+            resume = False
+            
+    model = YOLO(ckpt_path)
     
     model.train(
         data=str(full_yaml),
@@ -194,7 +215,8 @@ def run_centralized_full(epochs: int):
         verbose=True,
         save=True,
         val=True,
-        plots=True
+        plots=True,
+        resume=resume
     )
     
     print(f"[Thành công] Đã lưu mô hình Full Finetune tại: runs/centralized/full_finetune/weights/best.pt")
@@ -206,16 +228,17 @@ def main():
                         help="Chế độ chạy (mặc định: all)")
     parser.add_argument("--epochs-warmup", type=int, default=3, help="Số epoch cho warmup")
     parser.add_argument("--epochs-centralized", type=int, default=200, help="Số epoch cho centralized tests")
+    parser.add_argument("--resume", action="store_true", help="Resume training từ last.pt nếu server bị sập")
     args = parser.parse_args()
 
     if args.mode in ["warmup", "all"]:
         run_warmup(epochs=args.epochs_warmup)
         
     if args.mode in ["centralized_lora", "all"]:
-        run_centralized_lora(epochs=args.epochs_centralized)
+        run_centralized_lora(epochs=args.epochs_centralized, resume=args.resume)
         
     if args.mode in ["centralized_full", "all"]:
-        run_centralized_full(epochs=args.epochs_centralized)
+        run_centralized_full(epochs=args.epochs_centralized, resume=args.resume)
 
 
 if __name__ == "__main__":

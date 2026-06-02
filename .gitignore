@@ -1,6 +1,7 @@
 # === Secrets (Kaggle, etc.) ===
 .env
 .kaggle/
+.images/
 
 # === Moi truong Python ===
 .venv/
