@@ -131,6 +131,8 @@ def svd_lora_aggregate(
         rank = None
         W_avg = None
         original_dtype = None
+        list_B = []
+        list_A = []
         
         for sd, w in zip(client_sds, weights):
             if b_key in sd and a_key in sd:
@@ -141,15 +143,19 @@ def svd_lora_aggregate(
                     rank = B_i.shape[1]
                     out_features = B_i.shape[0]
                     in_features = A_i.shape[1]
-                    W_avg = torch.zeros((out_features, in_features), dtype=torch.float32, device=B_i.device)
-                
-                # B_i: (out, rank), A_i: (rank, in) => W_i: (out, in)
-                W_i = torch.matmul(B_i, A_i)
-                W_avg += W_i * w
-
-        if W_avg is not None:
-            # SVD decomposition
-            # W_avg = U @ S @ Vh
+                list_B.append(B_i)
+                list_A.append(A_i)
+        
+        if list_B:
+            # --- SAFETY CHECK: Kiểm tra từng client xem ai gửi NaN ---
+            for idx, (B_client, A_client) in enumerate(zip(list_B, list_A)):
+                if torch.isnan(B_client).any() or torch.isnan(A_client).any():
+                    print(f"\n[CRITICAL ERROR] Client index {idx} in this cluster returned NaN/Inf for layer {b_key}!")
+                    print(f"B_client has_nan: {torch.isnan(B_client).any().item()}, has_inf: {torch.isinf(B_client).any().item()}")
+                    print(f"A_client has_nan: {torch.isnan(A_client).any().item()}, has_inf: {torch.isinf(A_client).any().item()}")
+            
+            W_avg = sum(w * torch.matmul(B_i, A_i) for w, B_i, A_i in zip(weights, list_B, list_A))
+            
             try:
                 # [CRITICAL FIX] Ép kiểu float64 (double) để tránh lỗi số học (tràn số, NaN) 
                 # khi phân rã các ma trận low-rank có singular value cực nhỏ.
