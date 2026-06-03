@@ -151,7 +151,10 @@ def svd_lora_aggregate(
             # SVD decomposition
             # W_avg = U @ S @ Vh
             try:
-                U, S, Vh = torch.linalg.svd(W_avg, full_matrices=False)
+                # [CRITICAL FIX] Ép kiểu float64 (double) để tránh lỗi số học (tràn số, NaN) 
+                # khi phân rã các ma trận low-rank có singular value cực nhỏ.
+                U, S, Vh = torch.linalg.svd(W_avg.double(), full_matrices=False)
+                U, S, Vh = U.float(), S.float(), Vh.float()
                 
                 # Xử lý trường hợp M < rank (ví dụ lớp Conv có số channel nhỏ)
                 M = S.shape[0]
