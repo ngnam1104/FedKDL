@@ -2,6 +2,9 @@
 
 Danh sách 7 Sơ đồ Kiến trúc (Conceptual Figures) mang tính quyết định để ăn điểm Reviewers:
 
+- [ ] **Sơ đồ 0: Mối liên hệ giữa FL và SSL ở phần Intro**
+  - *Tên:* The motivation of combining Federated Learning (FL) and Semi-Supervised Learning (SSL) in IoUT.
+  - *Mô tả:* Sơ đồ chứng minh sự cấp thiết của bài toán, so sánh luồng gửi dữ liệu thô tốn kém với việc tận dụng học máy tại chỗ (SSL) và kết hợp liên kết cục bộ (FL) dưới môi trường nước sâu.
 - [ ] **Sơ đồ 1: Kiến trúc Tổng quan IoUT**
   - *Tên:* The Overall Architecture of FedKDL in Internet of Underwater Things (IoUT).
   - *Mô tả:* Bức tranh toàn cảnh 3 tầng nước (Deep Layer: AUV đóng băng mạng + LoRA, Mid-water: Relay với SVD-LoRA, Surface: Gateway với bộ não Teacher/Student và LoRA-Projection KD).

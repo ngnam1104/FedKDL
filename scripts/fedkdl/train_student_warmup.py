@@ -147,12 +147,12 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
         'epochs': epochs,
         'batch': 16,
         'workers': 4,
-        'lr0': 2e-4,
-        'warmup_bias_lr': 2e-4,
+        'lr0': 1e-3,
+        'warmup_bias_lr': 1e-3,
         'optimizer': 'AdamW',
-        'warmup_epochs': 0.0,
-        'lrf': 1.0,
-        'cos_lr': False,
+        'warmup_epochs': 3.0,
+        'lrf': 0.01,
+        'cos_lr': True,
         'device': device,
         'amp': False,
         'project': str(REPO_ROOT / "runs" / "centralized"),
@@ -224,14 +224,78 @@ def run_centralized_full(epochs: int, patience: int = 30, resume: bool = False):
     print(f"[Thành công] Đã lưu mô hình Full Finetune tại: runs/centralized/full_finetune/weights/best.pt")
 
 
+def run_centralized_topk_grad(epochs: int, patience: int = 30, resume: bool = False, topk_ratio: float = 0.05):
+    print("\n" + "="*50)
+    print(f"[Centralized Top-K Grad] Train với Top-{topk_ratio*100}% Gradient trong {epochs} epochs")
+    if resume: print("[Resume] Tiếp tục train từ last.pt...")
+    print("="*50)
+    
+    full_yaml = REPO_ROOT / "datasets/URPC2020.yaml"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    ckpt_path = "yolo12n.pt"
+    if resume:
+        last_pt = REPO_ROOT / "runs" / "centralized" / "topk_grad_finetune" / "weights" / "last.pt"
+        if last_pt.exists():
+            ckpt_path = str(last_pt)
+        else:
+            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ đầu!")
+            resume = False
+
+    # Khởi tạo mô hình student KHÔNG dùng LoRA (full parameter mode)
+    print(f"-> Loading yolo12n.pt (Full Parameter, cắt Gradient {topk_ratio*100}%)...")
+    student = StudentModel(
+        ckpt=ckpt_path,
+        rank=0,
+        nc=4,
+        full_param=True,
+        use_lora=False,
+    )
+
+    overrides = {
+        'model': ckpt_path,
+        'data': str(full_yaml),
+        'epochs': epochs,
+        'batch': 16,
+        'workers': 4,
+        'device': device,
+        'project': str(REPO_ROOT / "runs" / "centralized"),
+        'name': 'topk_grad_finetune',
+        'exist_ok': True,
+        'verbose': True,
+        'save': True,
+        'val': True,
+        'plots': True,
+        'resume': resume,
+        'patience': patience,
+    }
+
+    trainer = CustomDetectionTrainer(
+        overrides=overrides,
+        student_wrapper=student,
+        cached_optimizer_state=None,
+    )
+    trainer._fl_injected_model = student.yolo.model
+    trainer.model = student.yolo.model
+    trainer.topk_grad_ratio = topk_ratio
+
+    trainer.train()
+    
+    save_path = REPO_ROOT / "yolo12n_topk_grad_centralized.pt"
+    ckpt = {"model": student.yolo.model.half(), "epoch": epochs}
+    torch.save(ckpt, save_path)
+    print(f"[Thành công] Đã lưu mô hình Top-K Grad Centralized tại: {save_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Chạy Warmup hoặc Centralized Baselines")
-    parser.add_argument("--mode", type=str, default="all", choices=["warmup", "centralized_lora", "centralized_full", "all"],
+    parser.add_argument("--mode", type=str, default="all", choices=["warmup", "centralized_lora", "centralized_full", "centralized_topk", "all"],
                         help="Chế độ chạy (mặc định: all)")
     parser.add_argument("--epochs-warmup", type=int, default=3, help="Số epoch cho warmup")
     parser.add_argument("--epochs-centralized", type=int, default=150, help="Số epoch cho centralized tests")
     parser.add_argument("--patience", type=int, default=30, help="Early stopping patience")
     parser.add_argument("--resume", action="store_true", help="Resume training từ last.pt nếu server bị sập")
+    parser.add_argument("--topk-ratio", type=float, default=0.05, help="Tỉ lệ gradient giữ lại cho chế độ topk (mặc định 0.05 = 5%)")
     args = parser.parse_args()
 
     if args.mode in ["warmup", "all"]:
@@ -242,6 +306,9 @@ def main():
         
     if args.mode in ["centralized_full", "all"]:
         run_centralized_full(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume)
+        
+    if args.mode in ["centralized_topk", "all"]:
+        run_centralized_topk_grad(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume, topk_ratio=args.topk_ratio)
 
 
 if __name__ == "__main__":
