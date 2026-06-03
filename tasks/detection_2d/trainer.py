@@ -354,16 +354,13 @@ def local_sgd_od(
 
     state_before = copy.deepcopy(student_model.trainable_state_dict())
 
-    # [CRITICAL FIX] Nếu là Full Parameter (fedkdl_nolora, topk_grad), 
-    # AdamW KHÔNG CÓ Warm-up sẽ tạo ra step size khổng lồ ở các batch đầu tiên
+    # [CRITICAL FIX] Dù là Full Parameter hay LoRA, việc dùng AdamW KHÔNG CÓ Warm-up 
+    # (do local epochs quá ngắn) sẽ tạo ra step size khổng lồ ở các batch đầu tiên
     # do mẫu số v_t tiến về 0, chắc chắn làm nổ mạng (Loss = NaN).
-    # Ta phải chuyển sang SGD để đảm bảo an toàn tuyến tính.
-    if getattr(student_model, 'full_param', False):
-        lr = 1e-3  # SGD cần LR to hơn một chút
-        opt_choice = 'SGD'
-        print(f"[DiffLR] Full Param mode detected! Chuyển sang Optimizer = SGD (lr=1e-3) để chống nổ Loss.")
-    else:
-        opt_choice = 'AdamW'
+    # Ta chuyển sang SGD để đảm bảo an toàn tuyến tính.
+    lr = 1e-3  # SGD cần LR to hơn Adam một chút để học hiệu quả
+    opt_choice = 'SGD'
+    print(f"[DiffLR] Chuyển Optimizer sang SGD (lr=1e-3) để chống nổ Loss do cold-start.")
 
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
     overrides = {
