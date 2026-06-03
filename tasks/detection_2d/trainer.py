@@ -334,6 +334,13 @@ def local_sgd_od(
 
     state_before = copy.deepcopy(student_model.trainable_state_dict())
 
+    # [CRITICAL FIX] Nếu là Full Parameter (fedkdl_nolora, topk_grad), 
+    # LR=1e-3 ban đầu là quá lớn cho Backbone pretrained -> Gây nổ Loss (NaN).
+    # Ta phải ép giảm LR xuống 1e-4 từ sớm.
+    if getattr(student_model, 'full_param', False):
+        lr = 1e-4
+        print(f"[DiffLR] Full Param mode detected! Cố định LR toàn mạng = 1e-4 để chống nổ Loss.")
+
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
     overrides = {
         'model': "yolo12n.pt", # Dummy, will be overwritten by _fl_injected_model
@@ -388,13 +395,8 @@ def local_sgd_od(
     trainer.fedprox_mu = fedprox_mu
     trainer.global_weights = global_weights
     
-    # [CRITICAL FIX] Nếu là Full Parameter (fedkdl_nolora, topk_grad), 
-    # LR=1e-3 là quá lớn cho Backbone pretrained -> Gây nổ Loss (NaN).
-    # Ta phải ép giảm LR xuống 1e-4 và tắt DiffLR.
     if getattr(student_model, 'full_param', False):
-        overrides['lr0'] = 1e-4
         trainer.head_lr_multiplier = 1.0
-        print(f"[DiffLR] Full Param mode detected! Cố định LR toàn mạng = 1e-4 để chống nổ Loss.")
     else:
         # Diff LR: Giảm multiplier để LoRA có LR tiệm cận hơn với Head
         trainer.head_lr_multiplier = 3.0
