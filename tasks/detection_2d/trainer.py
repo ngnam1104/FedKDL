@@ -70,7 +70,11 @@ class CustomDetectionTrainer(DetectionTrainer):
         """
         Ngăn chặn Ultralytics Validator gọi model.fuse() làm mất trọng số LoRA.
         Thay thế hàm fuse() bằng một hàm rỗng trả về chính model.
+        Đồng thời TẮT half() (FP16) để tránh tràn số khi nhân lora_B @ lora_A.
         """
+        if hasattr(self, 'args'):
+            self.args.half = False
+            
         if self.model and hasattr(self.model, 'fuse'):
             self.model.fuse = lambda: self.model
         if self.ema and self.ema.ema and hasattr(self.ema.ema, 'fuse'):
