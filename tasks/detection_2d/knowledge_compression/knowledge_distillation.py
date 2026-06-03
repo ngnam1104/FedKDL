@@ -573,7 +573,7 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_dist_adaptive = loss_kl + loss_box_kd + loss_lora_proj
         
         # Mở lại Supervised Loss để giữ mỏ neo Ground Truth
-        stu_weight = getattr(self, 'stu_lambda', 1.0)
+        stu_weight = getattr(self, 'stu_lambda', 0.20)
         total_loss = loss_stu.clone() * stu_weight
         
         if total_loss.ndim == 0:
