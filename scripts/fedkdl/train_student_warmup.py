@@ -54,8 +54,8 @@ def run_warmup(epochs: int):
         'epochs': epochs,
         'batch': 16,
         'workers': 2,
-        'lr0': 2e-4,
-        'warmup_bias_lr': 2e-4,
+        'lr0': 2e-3,
+        'warmup_bias_lr': 2e-3,
         'optimizer': 'AdamW',
         'warmup_epochs': 0.0,
         'lrf': 1.0,
@@ -79,9 +79,9 @@ def run_warmup(epochs: int):
     )
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
-    trainer.head_lr_multiplier = 5.0
+    trainer.head_lr_multiplier = 1.0
 
-    print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {full_yaml.name} (LoRA lr=2e-4 | Head lr=1e-3)")
+    print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {full_yaml.name} (LoRA lr=2e-3 | Head lr=2e-3)")
     trainer.train()
 
     print("\n[Rollback] Khôi phục frozen weights về giá trị gốc (nếu có sai lệch ngầm)...")
@@ -147,8 +147,10 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
         'epochs': epochs,
         'batch': 16,
         'workers': 4,
-        'lr0': 5e-4,  # LoRA Backbone LR = 0.0005
-        'warmup_bias_lr': 5e-4,
+        # [OPTIMIZATION] LoRA cần LR lớn hơn Full Finetune khoảng 5-10 lần để hội tụ cùng tốc độ.
+        # Ở Full FT ta dùng 1e-3, nên LoRA nên dùng 2e-3.
+        'lr0': 2e-3,  
+        'warmup_bias_lr': 2e-3,
         'optimizer': 'AdamW',
         'warmup_epochs': 3.0,
         'lrf': 0.01,
@@ -174,7 +176,7 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     )
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
-    trainer.head_lr_multiplier = 2.0  # Head LR = 5e-4 * 2.0 = 0.001
+    trainer.head_lr_multiplier = 1.0  # Head LR = 2e-3 * 1.0 = 2e-3 (Cân bằng với LoRA)
 
     trainer.train()
     
