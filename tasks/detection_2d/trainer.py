@@ -66,6 +66,18 @@ class CustomDetectionTrainer(DetectionTrainer):
         self._fl_injected_model = None
         self.topk_grad_ratio = None
 
+    def validate(self):
+        """
+        Ngăn chặn Ultralytics Validator gọi model.fuse() làm mất trọng số LoRA.
+        Thay thế hàm fuse() bằng một hàm rỗng trả về chính model.
+        """
+        if self.model and hasattr(self.model, 'fuse'):
+            self.model.fuse = lambda: self.model
+        if self.ema and self.ema.ema and hasattr(self.ema.ema, 'fuse'):
+            self.ema.ema.fuse = lambda: self.ema.ema
+            
+        return super().validate()
+
     def optimizer_step(self):
         topk_ratio = getattr(self, "topk_grad_ratio", None)
         if topk_ratio is not None and topk_ratio < 1.0:
