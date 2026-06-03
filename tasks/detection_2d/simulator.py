@@ -605,11 +605,17 @@ class Simulator2D(BaseSimulator):
     def _compute_payload_bits(self, payloads: Dict) -> float:
         if not payloads:
             return self.relay_model_bits
-        cfg = parse_baseline_config(self.baseline)
-        if not cfg['use_int8']:
-            # payloads là state_dicts Float32
-            return np.mean([sum(t.numel() for t in p.values()) * 32 for p in payloads.values()])
-        return np.mean([len(p) * 8 for p in payloads.values()])
+        
+        bits_list = []
+        for p in payloads.values():
+            if hasattr(p, 'payload_bits'):
+                bits_list.append(p.payload_bits)
+            elif isinstance(p, bytes):
+                bits_list.append(len(p) * 8)
+            elif isinstance(p, dict):
+                bits_list.append(sum(t.numel() for t in p.values()) * 32)
+        
+        return np.mean(bits_list) if bits_list else 0.0
 
     def _compute_relay_model_bits(self) -> float:
         return self.relay_model_bits
