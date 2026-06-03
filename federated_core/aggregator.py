@@ -170,7 +170,28 @@ def svd_lora_aggregate(
                 aggregated_sd[b_key] = B_new.to(original_dtype)
                 aggregated_sd[a_key] = A_new.to(original_dtype)
             except Exception as e:
-                print(f"[SVD Error] Lỗi phân rã SVD tại {b_key}: {e}. Fallback to standard FedAvg.")
+                import traceback
+                tb_str = traceback.format_exc()
+                has_nan = torch.isnan(W_avg).any().item()
+                has_inf = torch.isinf(W_avg).any().item()
+                max_val = W_avg.abs().max().item() if not has_nan else "NaN"
+                
+                print(f"\n{'='*60}")
+                print(f"[FATAL SVD ERROR] Lỗi phân rã SVD tại {b_key}")
+                print(f"Exception: {e}")
+                print(f"[SVD DEBUG] W_avg shape={W_avg.shape}, dtype={W_avg.dtype}")
+                print(f"[SVD DEBUG] has_nan={has_nan}, has_inf={has_inf}, max_abs={max_val}")
+                print(f"[SVD DEBUG] Traceback:\n{tb_str}")
+                
+                # Dump ma trận lỗi ra đĩa để phân tích
+                try:
+                    safe_key = b_key.replace('.', '_')
+                    torch.save(W_avg, f"error_W_avg_{safe_key}.pt")
+                    print(f"[SVD DEBUG] Đã lưu ma trận lỗi ra file: error_W_avg_{safe_key}.pt")
+                except Exception as save_e:
+                    pass
+                print(f"{'='*60}\n")
+                print(f"[SVD Warning] Fallback to standard FedAvg.")
                 B_sum = None
                 A_sum = None
                 for sd, w in zip(client_sds, weights):
