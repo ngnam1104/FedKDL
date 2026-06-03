@@ -69,9 +69,18 @@ class StudentModel:
             print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         if not self.full_param and self.use_lora:
+            # [CRITICAL FIX for NANO LORA]
+            # YOLO Nano quá nhỏ, nếu skip các shallow layers (0-3) thì nó không thể học lại 
+            # bộ lọc màu sắc (color shift) cho domain dưới nước, dẫn đến mAP cực kỳ thấp.
+            # Ta tự động chuyển sang tiêm LoRA toàn diện ('Conv', strategy='all') nếu là bản 'n'.
+            is_nano = '12n' in ckpt.lower() or '11n' in ckpt.lower() or '8n' in ckpt.lower()
+            
+            actual_strategy = "all" if is_nano else "adaptive"
+            actual_targets = ['Conv'] if is_nano else lora_targets
+            
             # FlexLoRA: Không khóa seed, cho phép A khởi tạo ngẫu nhiên và được train độc lập ở mỗi AUV
-            injected = inject_lora(self.yolo.model, target_layer_names=lora_targets, rank=rank, strategy="adaptive")
-            print(f"[StudentModel] Injected LoRA into {injected} Conv2d layers (Strategy: adaptive).")
+            injected = inject_lora(self.yolo.model, target_layer_names=actual_targets, rank=rank, strategy=actual_strategy)
+            print(f"[StudentModel] Injected LoRA into {injected} layers (Targets: {actual_targets}, Strategy: {actual_strategy}).")
 
         if self.full_param:
             for param in self.yolo.model.parameters():
