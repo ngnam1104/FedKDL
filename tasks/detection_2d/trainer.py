@@ -82,28 +82,7 @@ class CustomDetectionTrainer(DetectionTrainer):
             
         return super().validate()
 
-    def optimizer_step(self):
-        topk_ratio = getattr(self, "topk_grad_ratio", None)
-        if topk_ratio is not None and topk_ratio < 1.0:
-            self.scaler.unscale_(self.optimizer)
-            with torch.no_grad():
-                for p in self.model.parameters():
-                    if p.requires_grad and p.grad is not None:
-                        numel = p.grad.numel()
-                        k = max(1, int(numel * topk_ratio))
-                        if k < numel:
-                            # Use topk to find threshold for top K elements
-                            threshold = torch.topk(p.grad.abs().flatten(), k)[0][-1]
-                            p.grad[p.grad.abs() < threshold] = 0.0
-            
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            self.optimizer.zero_grad()
-            if self.ema:
-                self.ema.update(self.model)
-        else:
-            super().optimizer_step()
+    # (Moved to the merged optimizer_step method below)
 
     def _setup_train(self):
         from ultralytics.utils import LOGGER
@@ -279,7 +258,28 @@ class CustomDetectionTrainer(DetectionTrainer):
         import torch
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
 
-        super().optimizer_step()
+        topk_ratio = getattr(self, "topk_grad_ratio", None)
+        if topk_ratio is not None and topk_ratio < 1.0:
+            self.scaler.unscale_(self.optimizer)
+            with torch.no_grad():
+                for p in self.model.parameters():
+                    if p.requires_grad and p.grad is not None:
+                        numel = p.grad.numel()
+                        k = max(1, int(numel * topk_ratio))
+                        if k < numel:
+                            # Use topk to find threshold for top K elements
+                            threshold = torch.topk(p.grad.abs().flatten(), k)[0][-1]
+                            p.grad[p.grad.abs() < threshold] = 0.0
+            
+            # The clip_grad_norm_ was already called above, but if we modified gradients we might want to clip again,
+            # though usually it's fine since we only zeroed out some elements (norm decreases).
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.optimizer.zero_grad()
+            if self.ema:
+                self.ema.update(self.model)
+        else:
+            super().optimizer_step()
 
 
 def local_sgd_od(

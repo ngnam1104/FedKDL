@@ -109,9 +109,9 @@ class AUVWorker2D(BaseWorker):
                 self.local_teacher.yolo.to(device)
             local_teacher = self.local_teacher
 
-        # [TWEAK] Giảm LR Init từ 0.001 xuống 0.0005 để chống Client Drift cho AUV
-        # lr được truyền vào đã được tính Cosine Annealing dựa trên LOCAL_LR (0.001). Ta chia đôi nó.
-        lr = lr * 0.5
+        # [TWEAK] Giảm cực mạnh LR để chống Gradient Explosion khi AdamW bị cold-start
+        # Nếu dùng LoRA, ta giảm xuống còn 10% (0.0001) để đảm bảo an toàn. Nếu full-param thì giảm 50%.
+        lr = lr * (0.1 if use_lora else 0.5)
         
         new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
             student_model=local_student,

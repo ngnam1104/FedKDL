@@ -56,13 +56,20 @@ def quantize_tensor(x: torch.Tensor, bits: int | None = None) -> QuantizedTensor
     # NaN/Inf có thể xuất hiện khi training gradient explosion hoặc optimizer state bị stale
     nan_count = torch.isnan(x_flat).sum().item()
     inf_count = torch.isinf(x_flat).sum().item()
-    if nan_count > 0 or inf_count > 0:
+    
+    # Check for extremely large values that might overflow float32 during dequantization
+    # Float32 max is 3.4e38. We clamp to 1e30 to be safe.
+    max_val = x_flat.abs().max().item() if x_flat.numel() > 0 else 0
+    large_count = (x_flat.abs() > 1e30).sum().item()
+    
+    if nan_count > 0 or inf_count > 0 or large_count > 0:
         import warnings
         warnings.warn(
-            f"[quantize_tensor] Detected {nan_count} NaN and {inf_count} Inf values "
-            f"in tensor shape {tuple(x.shape)}. Replacing with 0.0 before quantization."
+            f"[quantize_tensor] Detected {nan_count} NaN, {inf_count} Inf, and {large_count} massive values (>1e30) "
+            f"in tensor shape {tuple(x.shape)}. Sanitizing before quantization."
         )
         x_flat = torch.nan_to_num(x_flat, nan=0.0, posinf=0.0, neginf=0.0)
+        x_flat = torch.clamp(x_flat, min=-1e30, max=1e30)
 
     x_min = x_flat.min().item()
     x_max = x_flat.max().item()
