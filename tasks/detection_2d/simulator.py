@@ -109,10 +109,9 @@ class AUVWorker2D(BaseWorker):
                 self.local_teacher.yolo.to(device)
             local_teacher = self.local_teacher
 
-        # [TWEAK] Giảm cực mạnh LR để chống Gradient Explosion khi AdamW bị cold-start
-        # Nếu dùng LoRA, ta giảm xuống còn 10% (0.0001) để đảm bảo an toàn. Nếu full-param thì giảm 50%.
-        lr = lr * (0.1 if use_lora else 0.5)
-        
+        # [TWEAK] ĐÃ GỠ BỎ: Trước đây giảm cực mạnh LR để chống Gradient Explosion khi AdamW bị cold-start
+        # Nhưng nay đã chuyển sang SGD, SGD cần giữ nguyên LR gốc (0.001) để hội tụ tốt.
+        # lr = lr * (0.1 if use_lora else 0.5)
         new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
             student_model=local_student,
             auv_yaml=self.auv_yaml,
