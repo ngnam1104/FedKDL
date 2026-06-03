@@ -44,7 +44,8 @@ def fedavg_intra_cluster(
     device = next(iter(global_state_dict.values())).device if global_state_dict else 'cpu'
     weighted_delta = torch.zeros(total_params, device=device)
     for delta_flat, n_i in auv_deltas:
-        weighted_delta += (n_i / total_samples) * delta_flat.to(device)
+        safe_delta = torch.nan_to_num(delta_flat.to(device), nan=0.0, posinf=0.0, neginf=0.0)
+        weighted_delta += (n_i / total_samples) * safe_delta
 
     # Cộng Δθ vào θ_global (flat → state_dict)
     relay_sd = copy.deepcopy(global_state_dict)
@@ -120,7 +121,8 @@ def svd_lora_aggregate(
                 if original_dtype is None:
                     original_dtype = sd[k].dtype
                     weighted_sum = torch.zeros_like(sd[k].float())
-                weighted_sum += sd[k].float() * w
+                val = torch.nan_to_num(sd[k].float(), nan=0.0, posinf=0.0, neginf=0.0)
+                weighted_sum += val * w
         if weighted_sum is not None:
             aggregated_sd[k] = weighted_sum.to(original_dtype)
 
@@ -136,8 +138,8 @@ def svd_lora_aggregate(
         
         for sd, w in zip(client_sds, weights):
             if b_key in sd and a_key in sd:
-                B_i = sd[b_key].float()
-                A_i = sd[a_key].float()
+                B_i = torch.nan_to_num(sd[b_key].float(), nan=0.0, posinf=0.0, neginf=0.0)
+                A_i = torch.nan_to_num(sd[a_key].float(), nan=0.0, posinf=0.0, neginf=0.0)
                 if original_dtype is None:
                     original_dtype = sd[b_key].dtype
                     rank = B_i.shape[1]
@@ -203,10 +205,12 @@ def svd_lora_aggregate(
                 for sd, w in zip(client_sds, weights):
                     if b_key in sd:
                         if B_sum is None: B_sum = torch.zeros_like(sd[b_key].float())
-                        B_sum += sd[b_key].float() * w
+                        val_b = torch.nan_to_num(sd[b_key].float(), nan=0.0, posinf=0.0, neginf=0.0)
+                        B_sum += val_b * w
                     if a_key in sd:
                         if A_sum is None: A_sum = torch.zeros_like(sd[a_key].float())
-                        A_sum += sd[a_key].float() * w
+                        val_a = torch.nan_to_num(sd[a_key].float(), nan=0.0, posinf=0.0, neginf=0.0)
+                        A_sum += val_a * w
                 if B_sum is not None: aggregated_sd[b_key] = B_sum.to(original_dtype)
                 if A_sum is not None: aggregated_sd[a_key] = A_sum.to(original_dtype)
 
