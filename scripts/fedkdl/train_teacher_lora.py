@@ -47,17 +47,30 @@ def main():
         dataset_yaml = "urpc.yaml" 
         
     try:
-        teacher_model.yolo.train(
-            data=dataset_yaml,
-            epochs=epochs,
-            imgsz=640,
-            batch=8, # Teacher model khá nặng, batch 8 là vừa phải
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            project="runs/fedkdl",
-            name="global_teacher_lora",
-            exist_ok=True,
-            val=True
+        from tasks.detection_2d.trainer import CustomDetectionTrainer
+        
+        overrides = {
+            'model': "yolo12l.pt",
+            'data': dataset_yaml,
+            'epochs': epochs,
+            'imgsz': 640,
+            'batch': 8,
+            'device': "cuda" if torch.cuda.is_available() else "cpu",
+            'project': "runs/fedkdl",
+            'name': "global_teacher_lora",
+            'exist_ok': True,
+            'val': True
+        }
+        
+        trainer = CustomDetectionTrainer(
+            overrides=overrides,
+            student_wrapper=teacher_model,
+            cached_optimizer_state=None
         )
+        trainer._fl_injected_model = teacher_model.yolo.model
+        trainer.model = teacher_model.yolo.model
+        
+        trainer.train()
         print("\n✅ Huấn luyện Teacher hoàn tất.")
         
         # 3. Lưu lại kết quả
