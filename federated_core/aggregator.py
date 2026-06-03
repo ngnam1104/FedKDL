@@ -208,19 +208,7 @@ def svd_lora_aggregate(
                 except Exception as save_e:
                     pass
                 print(f"{'='*60}\n")
-                print(f"[SVD Warning] Fallback to standard FedAvg.")
-                B_sum = None
-                A_sum = None
-                for sd, w in zip(client_sds, weights):
-                    if b_key in sd:
-                        if B_sum is None: B_sum = torch.zeros_like(sd[b_key].float())
-                        val_b = torch.nan_to_num(sd[b_key].float(), nan=0.0, posinf=0.0, neginf=0.0)
-                        B_sum += val_b * w
-                    if a_key in sd:
-                        if A_sum is None: A_sum = torch.zeros_like(sd[a_key].float())
-                        val_a = torch.nan_to_num(sd[a_key].float(), nan=0.0, posinf=0.0, neginf=0.0)
-                        A_sum += val_a * w
-                if B_sum is not None: aggregated_sd[b_key] = B_sum.to(original_dtype)
-                if A_sum is not None: aggregated_sd[a_key] = A_sum.to(original_dtype)
+                print(f"[FATAL SVD ERROR] Quá trình FL bị buộc dừng để tránh lan truyền trọng số hỏng (NaN/Inf) sang vòng sau!")
+                raise RuntimeError(f"SVD phân rã thất bại tại layer {b_key}. Vui lòng kiểm tra file dump W_avg để debug.")
 
     return aggregated_sd
