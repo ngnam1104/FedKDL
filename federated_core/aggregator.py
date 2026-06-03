@@ -156,24 +156,33 @@ def svd_lora_aggregate(
                     print(f"B_client has_nan: {torch.isnan(B_client).any().item()}, has_inf: {torch.isinf(B_client).any().item()}")
                     print(f"A_client has_nan: {torch.isnan(A_client).any().item()}, has_inf: {torch.isinf(A_client).any().item()}")
             
-            W_avg = sum(w * torch.matmul(B_i, A_i) for w, B_i, A_i in zip(weights, list_B, list_A))
+            # [CRITICAL FIX] Chuyển B_i, A_i sang double trước khi nhân ma trận để triệt tiêu lỗi tràn số float32 
+            # (float32 chỉ chứa tối đa 3.4e38, nếu tích vượt quá sẽ sinh ra Inf).
+            W_avg = sum(w * torch.matmul(B_i.double(), A_i.double()) for w, B_i, A_i in zip(weights, list_B, list_A))
+            W_avg = torch.nan_to_num(W_avg, nan=0.0, posinf=0.0, neginf=0.0)
             
             try:
-                # [CRITICAL FIX] Ép kiểu float64 (double) để tránh lỗi số học (tràn số, NaN) 
-                # khi phân rã các ma trận low-rank có singular value cực nhỏ.
-                U, S, Vh = torch.linalg.svd(W_avg.double(), full_matrices=False)
+                U, S, Vh = torch.linalg.svd(W_avg, full_matrices=False)
                 U, S, Vh = U.float(), S.float(), Vh.float()
+                
+                # [CRITICAL FIX - SVD Scale Imbalance] 
+                # Phân rã SVD trả về ma trận trực giao U, Vh (norm=1) và vector đường chéo S.
+                # Nếu gán toàn bộ S cho B, B sẽ phình to khổng lồ qua từng vòng, còn A luôn bị reset về norm 1.
+                # Do gradient của A phụ thuộc vào B (grad_A = B.T @ grad_W), B khổng lồ khiến grad_A bùng nổ,
+                # tạo ra vòng lặp đẩy trọng số tiến tới Vô Cực (Inf) chỉ sau 2-3 vòng FL.
+                # CÁCH SỬA: Cân bằng biên độ bằng cách chia đều sqrt(S) cho cả B và A.
+                sqrt_S = torch.sqrt(S)
                 
                 # Xử lý trường hợp M < rank (ví dụ lớp Conv có số channel nhỏ)
                 M = S.shape[0]
                 if M < rank:
                     B_new = torch.zeros((out_features, rank), dtype=torch.float32, device=B_i.device)
                     A_new = torch.zeros((rank, in_features), dtype=torch.float32, device=A_i.device)
-                    B_new[:, :M] = U * S.unsqueeze(0)
-                    A_new[:M, :] = Vh
+                    B_new[:, :M] = U * sqrt_S.unsqueeze(0)
+                    A_new[:M, :] = sqrt_S.unsqueeze(1) * Vh
                 else:
-                    B_new = U[:, :rank] * S[:rank].unsqueeze(0)
-                    A_new = Vh[:rank, :]
+                    B_new = U[:, :rank] * sqrt_S[:rank].unsqueeze(0)
+                    A_new = sqrt_S[:rank].unsqueeze(1) * Vh[:rank, :]
                 
                 aggregated_sd[b_key] = B_new.to(original_dtype)
                 aggregated_sd[a_key] = A_new.to(original_dtype)
