@@ -124,11 +124,10 @@ class AUVWorker2D(BaseWorker):
             fedprox_mu=fedprox_mu,
             global_weights=global_weights,
             local_teacher=local_teacher,
-            cached_optimizer_state=self._optimizer_state,  # None = lạnh, round sau sẽ warm
+            cached_optimizer_state=None,  # Bỏ cache optimizer giữa các vòng để tránh AdamW nổ gradient do sai lệch trọng số
         )
-        # Cập nhật optimizer state để dùng lại round tiếp theo
-        if new_opt_state is not None:
-            self._optimizer_state = new_opt_state
+        # Bỏ qua lưu optimizer state để đảm bảo local training ổn định
+        self._optimizer_state = None
 
         # [TỐI ƯU HÓA] Bỏ qua đánh giá local model trên tập train của auv
         # Việc này tiết kiệm 30% tổng thời gian huấn luyện mà không ảnh hưởng kết quả Global
