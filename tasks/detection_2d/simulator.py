@@ -110,9 +110,8 @@ class AUVWorker2D(BaseWorker):
             local_teacher = self.local_teacher
 
         # [TWEAK] Giảm LR Init từ 0.001 xuống 0.0005 để chống Client Drift cho AUV
-        lr_init = getattr(fed_cfg, 'LR', 0.0005)
-        import math
-        lr = lr_init * (0.5 * (1 + math.cos(math.pi * (round_idx - 1) / total_rounds)))
+        # lr được truyền vào đã được tính Cosine Annealing dựa trên LOCAL_LR (0.001). Ta chia đôi nó.
+        lr = lr * 0.5
         
         new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
             student_model=local_student,
@@ -819,11 +818,15 @@ class Simulator2D(BaseSimulator):
         trainer.head_lr_multiplier = 5.0  # Diff LR: LoRA 2e-4, Head 1e-3 (Giảm từ 10.0 xuống 5.0)
         trainer.student_wrapper = self.global_student
         
-        # [FIX v4] Masked KD: lambda=0.25 (GIẢM 50%). Vì chỉ Foreground anchors đóng góp loss,
-        # magnitude tổng nhỏ hơn nhiều → cần lambda lớn hơn để signal đủ mạnh (nhưng hiện tại giảm để bớt over-regularize).
+        # [CÂN BẰNG LOSS] Áp dụng chuẩn GT 60% - KD 40%
+        # Supervised Loss thô ~7.17 -> x 0.2 = ~1.43 (60%)
+        # KD Loss thô ~3.13 -> x 0.3 = ~0.94 (40%)
+        trainer.stu_lambda = 0.20 
+        
         current_r = getattr(self, 'current_round', 1)
         total_r = getattr(self.fed_cfg, 'T_ROUNDS', self.fed_cfg.GLOBAL_ROUNDS.get("2D", 100))
-        trainer.kd_lambda = max(0.05, 0.25 * (1.0 - (current_r - 1) / total_r))
+        # Hệ số KD sẽ khởi điểm ở 0.3 (chiếm 40%) và giảm dần về 0.05 khi tới các vòng cuối.
+        trainer.kd_lambda = max(0.05, 0.3 * (1.0 - (current_r - 1) / total_r))
         
         trainer.set_teacher(self.teacher.yolo.model)
         
