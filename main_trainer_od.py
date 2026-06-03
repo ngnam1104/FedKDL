@@ -1,5 +1,7 @@
 import os
 import sys
+if not hasattr(sys.stdout, 'encoding'):
+    sys.stdout.encoding = 'utf-8'
 import json
 import argparse
 from pathlib import Path
