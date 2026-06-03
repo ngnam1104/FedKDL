@@ -56,7 +56,7 @@ class FedKDLConfig:
     """Thuật toán FL / FedKDL — dùng bởi trainer, simulator, verify scripts."""
 
     # ── Vòng FL & local training ────────────────────────────────────────────
-    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 100})
+    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60})
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 16
     LOCAL_LR: float = 1e-3
