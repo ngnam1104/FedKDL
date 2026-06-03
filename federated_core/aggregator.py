@@ -115,16 +115,19 @@ def svd_lora_aggregate(
         
         # Standard FedAvg cho các keys khác (Detection Head)
         original_dtype = None
-        weighted_sum = None
+        list_tensor = []
         for sd, w in zip(client_sds, weights):
             if k in sd:
                 if original_dtype is None:
                     original_dtype = sd[k].dtype
-                    weighted_sum = torch.zeros_like(sd[k].float())
-                val = torch.nan_to_num(sd[k].float(), nan=0.0, posinf=0.0, neginf=0.0)
-                weighted_sum += val * w
-        if weighted_sum is not None:
-            aggregated_sd[k] = weighted_sum.to(original_dtype)
+                list_tensor.append(sd[k])
+        
+        if list_tensor:
+            stacked = torch.stack([t.float() for t in list_tensor], dim=0)
+            avg = torch.sum(stacked * torch.tensor(weights, device=stacked.device).view(-1, *([1]*(stacked.dim()-1))), dim=0)
+            avg = torch.nan_to_num(avg, nan=0.0, posinf=0.0, neginf=0.0)
+            avg = torch.clamp(avg, min=-1000.0, max=1000.0)  # Cốt thép cho các params không phải LoRA (BN, head bias)
+            aggregated_sd[k] = avg.to(original_dtype)
 
     # SVD cho LoRA keys
     for b_key in lora_B_keys:
@@ -161,16 +164,16 @@ def svd_lora_aggregate(
             W_avg = sum(w * torch.matmul(B_i.double(), A_i.double()) for w, B_i, A_i in zip(weights, list_B, list_A))
             W_avg = torch.nan_to_num(W_avg, nan=0.0, posinf=0.0, neginf=0.0)
             
+            # [CRITICAL FIX 2] Kể cả khi W_avg không bị Inf ở float64, nó có thể lớn tới 1e60.
+            # Khi phân rã SVD xong, cast S về float32 sẽ lập tức tạo ra Inf -> sinh ra NaN ở B_new.
+            # Hơn nữa, weights trong YOLO không bao giờ vượt quá [-10, 10]. Clamping giúp loại bỏ rác.
+            W_avg = torch.clamp(W_avg, min=-10.0, max=10.0)
+            
             try:
                 U, S, Vh = torch.linalg.svd(W_avg, full_matrices=False)
                 U, S, Vh = U.float(), S.float(), Vh.float()
                 
                 # [CRITICAL FIX - SVD Scale Imbalance] 
-                # Phân rã SVD trả về ma trận trực giao U, Vh (norm=1) và vector đường chéo S.
-                # Nếu gán toàn bộ S cho B, B sẽ phình to khổng lồ qua từng vòng, còn A luôn bị reset về norm 1.
-                # Do gradient của A phụ thuộc vào B (grad_A = B.T @ grad_W), B khổng lồ khiến grad_A bùng nổ,
-                # tạo ra vòng lặp đẩy trọng số tiến tới Vô Cực (Inf) chỉ sau 2-3 vòng FL.
-                # CÁCH SỬA: Cân bằng biên độ bằng cách chia đều sqrt(S) cho cả B và A.
                 sqrt_S = torch.sqrt(S)
                 
                 # Xử lý trường hợp M < rank (ví dụ lớp Conv có số channel nhỏ)
@@ -183,6 +186,10 @@ def svd_lora_aggregate(
                 else:
                     B_new = U[:, :rank] * sqrt_S[:rank].unsqueeze(0)
                     A_new = sqrt_S[:rank].unsqueeze(1) * Vh[:rank, :]
+                
+                # Cốt thép bảo vệ cuối cùng: Đảm bảo không có bất kỳ rác nào lọt vào Global Model
+                B_new = torch.nan_to_num(B_new, nan=0.0, posinf=1.0, neginf=-1.0)
+                A_new = torch.nan_to_num(A_new, nan=0.0, posinf=1.0, neginf=-1.0)
                 
                 aggregated_sd[b_key] = B_new.to(original_dtype)
                 aggregated_sd[a_key] = A_new.to(original_dtype)
