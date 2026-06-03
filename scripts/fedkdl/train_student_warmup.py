@@ -147,8 +147,8 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
         'epochs': epochs,
         'batch': 16,
         'workers': 4,
-        'lr0': 1e-3,
-        'warmup_bias_lr': 1e-3,
+        'lr0': 5e-4,  # LoRA Backbone LR = 0.0005
+        'warmup_bias_lr': 5e-4,
         'optimizer': 'AdamW',
         'warmup_epochs': 3.0,
         'lrf': 0.01,
@@ -174,7 +174,7 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     )
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
-    trainer.head_lr_multiplier = 5.0
+    trainer.head_lr_multiplier = 2.0  # Head LR = 5e-4 * 2.0 = 0.001
 
     trainer.train()
     
@@ -212,6 +212,7 @@ def run_centralized_full(epochs: int, patience: int = 30, resume: bool = False):
         device=device,
         project=str(REPO_ROOT / "runs" / "centralized"),
         name="full_finetune",
+        lr0=0.001,  # Set lr0 to 0.001 (giống Top-K)
         exist_ok=True,
         verbose=True,
         save=True,
