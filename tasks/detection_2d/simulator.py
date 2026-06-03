@@ -47,6 +47,8 @@ class AUVWorker2D(BaseWorker):
         # Cache optimizer state (exp_avg / exp_avg_sq) giữa các FL round.
         # None = chưa có (round đầu tiên, optimizer khởi đầu lạnh).
         self._optimizer_state: dict = None
+        # TopK Compressor - lazy init khi biết số params (sau lần train đầu tiên)
+        self._topk_compressor = None
 
         with open(self.auv_yaml, 'r') as f:
             c_cfg = yaml.safe_load(f)
@@ -133,8 +135,37 @@ class AUVWorker2D(BaseWorker):
             print(f"[AUV {self.auv_id}] 💤 Lazy Filter Activated (delta={delta_norm:.4f} < {fed_cfg.DELTA_SKIP}). Node is resting (No TX).")
             payload_bytes = None
             payload_kb = 0.0
+        elif baseline == 'topk_grad':
+            # === TOP-K SPARSE GRADIENT COMPRESSION + ERROR FEEDBACK ===
+            from tasks.detection_2d.knowledge_compression.topk_sparsification import (
+                TopKCompressor, SparseFloatPayload, flatten_state_dict, unflatten_state_dict
+            )
+            # Compute delta
+            delta_state = {}
+            for k in new_state:
+                delta_state[k] = new_state[k].cpu() - global_state[k].cpu()
+            
+            # Flatten delta to 1D
+            delta_flat, shapes = flatten_state_dict(delta_state)
+            total_params = len(delta_flat)
+            
+            # Lazy-init compressor per AUV (giữ Error Buffer giữa các round)
+            if self._topk_compressor is None or self._topk_compressor.total_params != total_params:
+                rho_s = getattr(fed_cfg, 'RHO_S', 0.05)
+                self._topk_compressor = TopKCompressor(total_params=total_params, rho_s=rho_s)
+                print(f"[AUV {self.auv_id}] [Top-K] Init compressor: total_params={total_params}, K={self._topk_compressor.K} (rho={rho_s:.2f})")
+            
+            topk_indices, topk_values = self._topk_compressor.compress(delta_flat)
+            payload_bytes = SparseFloatPayload(
+                topk_indices=topk_indices,
+                topk_values=topk_values,
+                total_params=total_params,
+                shapes=shapes,
+            )
+            payload_kb = payload_bytes.payload_bytes / 1024.0
+            print(f"[AUV {self.auv_id}] [Top-K] Sparse Payload: {payload_kb:.1f} KB (K={self._topk_compressor.K}/{total_params} params)")
         elif use_int8:
-            # Tính toán delta (sự thay đổi) để lượng tử hóa nhằm giữ độ chính xác
+            # Tính toán delta (để lượng tử hóa nhằm giữ độ chính xác)
             delta_state = {}
             for k in new_state:
                 delta_state[k] = new_state[k] - global_state[k].to(new_state[k].device)
@@ -160,26 +191,45 @@ class AUVWorker2D(BaseWorker):
 class RelayNode2D(BaseRelayNode):
     def aggregate_intra_cluster(self, global_state_dict, payloads, auv_n_samples, use_kd_lora_int8=True):
         import torch
+        import copy
         from tasks.detection_2d.knowledge_compression.int8_quantization import unpack_payload
         from federated_core.aggregator import svd_lora_aggregate
         
         c_updates = []
         valid_sids = []
         for sid in self.cluster_members:
-            if sid in payloads:
-                if use_kd_lora_int8:
-                    delta_state = unpack_payload(payloads[sid], global_state_dict)
-                    # Khôi phục absolute state từ Delta
-                    state = {}
-                    for k in delta_state:
-                        state[k] = global_state_dict[k].to(delta_state[k].device) + delta_state[k]
-                else:
-                    state = payloads[sid]
-                c_updates.append(state)
-                valid_sids.append(sid)
+            if sid not in payloads:
+                continue
+            payload = payloads[sid]
+            
+            # --- Phân biệt loại payload ---
+            from tasks.detection_2d.knowledge_compression.topk_sparsification import (
+                SparseFloatPayload, unflatten_state_dict
+            )
+            if isinstance(payload, SparseFloatPayload):
+                # Top-K Sparse Payload: giải nén dense delta rồi cộng vào global state
+                dense_delta = payload.decompress()  # (total_params,) float
+                delta_state = unflatten_state_dict(dense_delta, payload.shapes)
+                state = {}
+                for k, v in delta_state.items():
+                    if k in global_state_dict:
+                        state[k] = global_state_dict[k].cpu() + v
+                    else:
+                        state[k] = v
+            elif use_kd_lora_int8 and isinstance(payload, (bytes, bytearray)):
+                # INT8 LoRA payload
+                delta_state = unpack_payload(payload, global_state_dict)
+                state = {}
+                for k in delta_state:
+                    state[k] = global_state_dict[k].to(delta_state[k].device) + delta_state[k]
+            else:
+                # Float32 full-state dict (legacy fallback)
+                state = payload
+            
+            c_updates.append(state)
+            valid_sids.append(sid)
 
         if not c_updates:
-            import copy
             self.intra_state_dict = copy.deepcopy(global_state_dict)
             self.final_state_dict = copy.deepcopy(global_state_dict)
             return
@@ -192,7 +242,6 @@ class RelayNode2D(BaseRelayNode):
         
         self.intra_state_dict = svd_lora_aggregate(c_updates, weights)
             
-        import copy
         self.final_state_dict = copy.deepcopy(self.intra_state_dict)
 
 
