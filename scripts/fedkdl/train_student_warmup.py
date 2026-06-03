@@ -212,6 +212,7 @@ def run_centralized_full(epochs: int, patience: int = 30, resume: bool = False):
         device=device,
         project=str(REPO_ROOT / "runs" / "centralized"),
         name="full_finetune",
+        optimizer="AdamW", # Bắt buộc phải set optimizer thì YOLO mới không đè mất lr0
         lr0=0.001,  # Set lr0 to 0.001 (giống Top-K)
         exist_ok=True,
         verbose=True,
