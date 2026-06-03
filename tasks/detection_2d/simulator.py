@@ -663,10 +663,10 @@ class Simulator2D(BaseSimulator):
             'plots': False,
             'workers': 0,
             'close_mosaic': 0,
-            'optimizer': 'AdamW',
-            'lr0': 1e-4,
-            'warmup_epochs': 1.0,
-            'warmup_bias_lr': 0.0,
+            'optimizer': 'SGD',
+            'lr0': 1e-3,
+            'warmup_epochs': 0.0,
+            'warmup_bias_lr': 1e-3,
         }
 
         trainer = CustomDetectionTrainer(overrides=overrides, student_wrapper=self.global_student)
@@ -802,15 +802,14 @@ class Simulator2D(BaseSimulator):
             'plots': False,
             'workers': 0,
             'close_mosaic': 0,
-            'optimizer': 'AdamW',
+            'optimizer': 'SGD',
             'amp': False,
             
-            # Giảm LR xuống 2e-4 để tránh sốc optimizer (AdamW cold-start) làm hỏng trọng số FedAvg
-            'lr0': 2e-4,
+            # Dùng SGD + lr0=1e-3 để KD chạy max công suất trong 2 epochs mà không lo nổ
+            'lr0': 1e-3,
             
-            'warmup_epochs': 1.0,
-
-            'warmup_bias_lr': 0.0, # [CRITICAL FIX] Đảm bảo bias params không bị warmup với lr cao
+            'warmup_epochs': 0.0,
+            'warmup_bias_lr': 1e-3, # Cho phép bias chạy cùng speed
         }
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.head_lr_multiplier = 5.0  # Diff LR: LoRA 2e-4, Head 1e-3 (Giảm từ 10.0 xuống 5.0)
