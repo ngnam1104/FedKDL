@@ -168,12 +168,16 @@ def svd_lora_aggregate(
                 aggregated_sd[a_key] = A_new.to(original_dtype)
             except Exception as e:
                 print(f"[SVD Error] Lỗi phân rã SVD tại {b_key}: {e}. Fallback to standard FedAvg.")
-                B_sum = torch.zeros_like(sd[b_key].float())
-                A_sum = torch.zeros_like(sd[a_key].float())
+                B_sum = None
+                A_sum = None
                 for sd, w in zip(client_sds, weights):
-                    if b_key in sd: B_sum += sd[b_key].float() * w
-                    if a_key in sd: A_sum += sd[a_key].float() * w
-                aggregated_sd[b_key] = B_sum.to(original_dtype)
-                aggregated_sd[a_key] = A_sum.to(original_dtype)
+                    if b_key in sd:
+                        if B_sum is None: B_sum = torch.zeros_like(sd[b_key].float())
+                        B_sum += sd[b_key].float() * w
+                    if a_key in sd:
+                        if A_sum is None: A_sum = torch.zeros_like(sd[a_key].float())
+                        A_sum += sd[a_key].float() * w
+                if B_sum is not None: aggregated_sd[b_key] = B_sum.to(original_dtype)
+                if A_sum is not None: aggregated_sd[a_key] = A_sum.to(original_dtype)
 
     return aggregated_sd
