@@ -22,6 +22,7 @@ def parse_baseline_config(baseline: str) -> dict:
         'fedkdl_selective': (False, True,  True,  True,  False),
         'fedprox_kdl':      (False, True,  True,  True,  False),
         'fedkd':            (True,  False, False, True,  False),  # Flat, full param KD
+        'topk_grad':        (True,  False, False, False, False),  # Full param, Top-K sparsity
         'centralized':      (False, True,  False, False, False),  # Centralized LoRA
         'fedkdl_nokd':      (False, True,  True,  False, False),  # HFL, no Gateway adaptation
         'fedkdl_nolora':    (True,  False, False, True,  False),  # HFL, full params, KD
