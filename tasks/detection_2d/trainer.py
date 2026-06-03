@@ -365,10 +365,9 @@ def local_sgd_od(
     overrides = {
         'model': "yolo12n.pt", # Dummy, will be overwritten by _fl_injected_model
         'data': auv_yaml,
-        'cache': getattr(fed_cfg, 'CACHE_DATASET', True),
+        'cache': True,     # Bắt buộc nạp ảnh vào RAM 1 lần duy nhất để tối ưu I/O
         'epochs': epochs,
         'batch': batch_size,
-        'workers': getattr(fed_cfg, 'DATALOADER_WORKERS', 4),
         'close_mosaic': 0,
         'lr0': lr,
         'optimizer': opt_choice,
@@ -383,10 +382,10 @@ def local_sgd_od(
         'name': f'auv_{auv_id}',
         'exist_ok': True,
         'verbose': False,  # Ngăn YOLO in bảng kiến trúc
-        'save': False,
-        'val': False,
-        'plots': False,    # Vô hiệu hóa tính năng vẽ biểu đồ để tránh lỗi Plotting error do bỏ qua val
-        'workers': 0,
+        'save': False,     # Không lưu weight cục bộ
+        'val': False,      # Không đánh giá cục bộ
+        'plots': False,    # Không vẽ đồ thị cục bộ
+        'workers': 0,      # Dùng luồng chính để tránh sinh thread thừa
     }
 
     # 3. Khởi tạo Trainer phù hợp

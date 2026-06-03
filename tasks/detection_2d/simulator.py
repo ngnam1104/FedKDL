@@ -109,6 +109,11 @@ class AUVWorker2D(BaseWorker):
                 self.local_teacher.yolo.to(device)
             local_teacher = self.local_teacher
 
+        # [TWEAK] Giảm LR Init từ 0.001 xuống 0.0005 để chống Client Drift cho AUV
+        lr_init = getattr(fed_cfg, 'LR', 0.0005)
+        import math
+        lr = lr_init * (0.5 * (1 + math.cos(math.pi * (round_idx - 1) / total_rounds)))
+        
         new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
             student_model=local_student,
             auv_yaml=self.auv_yaml,
@@ -811,7 +816,7 @@ class Simulator2D(BaseSimulator):
             'warmup_bias_lr': 0.0, # [CRITICAL FIX] Đảm bảo bias params không bị warmup với lr cao
         }
         trainer = KDDetectionTrainer(overrides=overrides)
-        trainer.head_lr_multiplier = 10.0  # Diff LR: LoRA 5e-4, Head 5e-3
+        trainer.head_lr_multiplier = 5.0  # Diff LR: LoRA 2e-4, Head 1e-3 (Giảm từ 10.0 xuống 5.0)
         trainer.student_wrapper = self.global_student
         
         # [FIX v4] Masked KD: lambda=0.25 (GIẢM 50%). Vì chỉ Foreground anchors đóng góp loss,

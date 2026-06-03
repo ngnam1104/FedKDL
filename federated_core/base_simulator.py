@@ -147,6 +147,7 @@ class BaseSimulator(ABC):
                 torch.cuda.empty_cache()
 
             if self.task_key == "2D":
+                self.current_round = t  # Track current round for KD skipping
                 print(f"\n{'='*60}")
                 print(f"|  [Simulator] BẮT ĐẦU VÒNG {t}/{T_rounds}  |")
                 print(f"{'='*60}\n")
@@ -377,16 +378,23 @@ class BaseSimulator(ABC):
 
             # --- Đánh giá Global Model TRƯỚC khi KD để debug mAP/Prec/Rec ---
             pre_kd_metrics = {}
-            if 'kd' in self.baseline:
-                print(f"\n[Simulator] Evaluating Global Model PRE-KD (Round {t})...")
-                pre_eval = self.evaluate()
-                pre_kd_metrics = {f"pre_kd_{k}": v for k, v in pre_eval.items()}
+            # (Bỏ đánh giá pre-KD theo yêu cầu để giảm thiểu 40s mỗi vòng)
 
             # --- Phase 3b: Gateway-side Knowledge Distillation (Tier 3) ---
             # Chạy KD TRƯỚC evaluate để lưu được post-KD metrics vào history.
             # Adaptive Dropout Gate sẽ đọc history vòng trước để quyết định có chạy KD không.
             # Simulator2D (fedkdl) override → Teacher KD. Simulator1D → no-op.
-            kd_metrics = self._gateway_knowledge_distillation() or {}
+            kd_metrics = {}
+            if getattr(self.fed_cfg, 'KD_ACTIVE', False) and (t % 2 == 0):
+                kd_metrics = self._gateway_knowledge_distillation() or {}
+            elif getattr(self.fed_cfg, 'KD_ACTIVE', False) and (t % 2 != 0):
+                print(f"\n[Simulator] Vòng lẻ (Round {t}) - Bỏ qua KD để tiết kiệm thời gian (Periodic KD).")
+                # Fake KD metrics to keep log format consistent
+                kd_metrics = {
+                    'kd_active': False, 'kd_epochs': 0, 'kd_box': 0.0, 'kd_kl': 0.0, 'kd_lora': 0.0, 'kd_weighted': 0.0
+                }
+            elif getattr(self.fed_cfg, 'GLOBAL_FT', False):
+                self._gateway_supervised_finetune()
 
             print(f"\n[Simulator] Evaluating Global Model POST-KD (Round {t})...")
             eval_metrics = self.evaluate()
