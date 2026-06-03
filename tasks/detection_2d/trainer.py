@@ -396,7 +396,7 @@ def local_sgd_od(
         trainer.set_teacher(local_teacher.yolo.model)
         
         # [CÂN BẰNG LOSS] Hạ Supervised Loss xuống 1/4 (~3.3) và giữ KD ~3.0 để cân bằng tuyệt đối
-        trainer.stu_lambda = 0.25 
+        trainer.stu_lambda = 0.20
         trainer.kd_lambda = 1.0  
         
         trainer._fl_injected_model = student_model.yolo.model
