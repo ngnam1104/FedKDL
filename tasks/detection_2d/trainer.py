@@ -335,11 +335,15 @@ def local_sgd_od(
     state_before = copy.deepcopy(student_model.trainable_state_dict())
 
     # [CRITICAL FIX] Nếu là Full Parameter (fedkdl_nolora, topk_grad), 
-    # LR=1e-3 ban đầu là quá lớn cho Backbone pretrained -> Gây nổ Loss (NaN).
-    # Ta phải ép giảm LR xuống 1e-4 từ sớm.
+    # AdamW KHÔNG CÓ Warm-up sẽ tạo ra step size khổng lồ ở các batch đầu tiên
+    # do mẫu số v_t tiến về 0, chắc chắn làm nổ mạng (Loss = NaN).
+    # Ta phải chuyển sang SGD để đảm bảo an toàn tuyến tính.
     if getattr(student_model, 'full_param', False):
-        lr = 1e-4
-        print(f"[DiffLR] Full Param mode detected! Cố định LR toàn mạng = 1e-4 để chống nổ Loss.")
+        lr = 1e-3  # SGD cần LR to hơn một chút
+        opt_choice = 'SGD'
+        print(f"[DiffLR] Full Param mode detected! Chuyển sang Optimizer = SGD (lr=1e-3) để chống nổ Loss.")
+    else:
+        opt_choice = 'AdamW'
 
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
     overrides = {
@@ -351,7 +355,7 @@ def local_sgd_od(
         'workers': getattr(fed_cfg, 'DATALOADER_WORKERS', 4),
         'close_mosaic': 0,
         'lr0': lr,
-        'optimizer': 'AdamW',
+        'optimizer': opt_choice,
         'warmup_epochs': 0.0,
         'warmup_bias_lr': lr,  # Tránh nhảy lr=0.1 mặc định của YOLO gây loss nổ
         'warmup_momentum': 0.937,
