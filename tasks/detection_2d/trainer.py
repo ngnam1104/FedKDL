@@ -358,9 +358,9 @@ def local_sgd_od(
     # (do local epochs quá ngắn) sẽ tạo ra step size khổng lồ ở các batch đầu tiên
     # do mẫu số v_t tiến về 0, chắc chắn làm nổ mạng (Loss = NaN).
     # Ta chuyển sang SGD để đảm bảo an toàn tuyến tính.
-    lr = 1e-3  # SGD cần LR to hơn Adam một chút để học hiệu quả
+    # (Dùng lại biến lr được truyền từ simulator thay vì hardcode để giữ được cơ chế Global LR Decay)
     opt_choice = 'SGD'
-    print(f"[DiffLR] Chuyển Optimizer sang SGD (lr=1e-3) để chống nổ Loss do cold-start.")
+    print(f"[DiffLR] Chuyển Optimizer sang SGD (lr={lr:.4f}) để chống nổ Loss do cold-start.")
 
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
     overrides = {
