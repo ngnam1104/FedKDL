@@ -275,6 +275,10 @@ class CustomDetectionTrainer(DetectionTrainer):
                     prox_term = param.data - self.global_weights[name].to(param.device)
                     param.grad.data.add_(prox_term, alpha=self.fedprox_mu)
 
+        # [CRITICAL FIX] Gradient Clipping to prevent explosion (NaN loss) in early epochs
+        import torch
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
+
         super().optimizer_step()
 
 
