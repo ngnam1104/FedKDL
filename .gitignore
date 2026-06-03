@@ -80,3 +80,7 @@ datasets/*.cache
 # === Presentation & Binary ===
 *.pptx
 *.pdf
+
+.docs/
+*.tex
+*.pdf
