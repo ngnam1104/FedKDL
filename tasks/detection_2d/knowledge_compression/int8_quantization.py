@@ -177,7 +177,10 @@ def pack_payload(state_dict: Dict[str, torch.Tensor]) -> Tuple[bytes, float]:
         (payload_bytes, size_kb)
     """
     buf = bytearray()
-    for key, tensor in state_dict.items():
+    # [CRITICAL FIX] BẮT BUỘC SORT KEY để đồng bộ thứ tự giữa Client (pack) và Server (unpack).
+    # SVD Aggregator ở Server sắp xếp lại dict nên nếu không sort sẽ bị lệch byte (gây NaN/Inf).
+    for key in sorted(state_dict.keys()):
+        tensor = state_dict[key]
         # [GUARD] Log cảnh báo nếu phát hiện NaN/Inf để dễ debug root cause
         has_nan = torch.isnan(tensor).any().item()
         has_inf = torch.isinf(tensor).any().item()
@@ -217,7 +220,9 @@ def unpack_payload(payload: bytes,
     """
     offset = 0
     recovered = {}
-    for key, tmpl in template.items():
+    # [CRITICAL FIX] BẮT BUỘC SORT KEY để đồng bộ với pack_payload
+    for key in sorted(template.keys()):
+        tmpl = template[key]
         if 'bn' in key or 'running' in key or 'tracked' in key:
             # BatchNorm parameters were stored as raw float32 bytes
             numel = tmpl.numel()
