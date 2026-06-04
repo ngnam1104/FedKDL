@@ -86,7 +86,6 @@ class StudentModel:
                 print(f"[StudentModel] Injected LoRA into {injected} layers (Targets: {actual_targets}, Strategy: {actual_strategy}).")
                 
                 # Load lại weights LoRA từ checkpoint NẾU CÓ (vd: warmup đã bake vào .pt nhưng YOLO vứt khi load)
-                import torch
                 checkpoint = torch.load(ckpt, map_location='cpu', weights_only=False)
                 if 'model' in checkpoint:
                     ckpt_state = checkpoint['model'].state_dict() if hasattr(checkpoint['model'], 'state_dict') else checkpoint['model']
