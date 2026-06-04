@@ -44,7 +44,8 @@ def fedavg_intra_cluster(
     device = next(iter(global_state_dict.values())).device if global_state_dict else 'cpu'
     weighted_delta = torch.zeros(total_params, device=device)
     for delta_flat, n_i in auv_deltas:
-        safe_delta = torch.nan_to_num(delta_flat.to(device), nan=0.0, posinf=0.0, neginf=0.0)
+        # safe_delta = torch.nan_to_num(delta_flat.to(device), nan=0.0, posinf=0.0, neginf=0.0)
+        safe_delta = delta_flat.to(device)
         weighted_delta += (n_i / total_samples) * safe_delta
 
     # Cộng Δθ vào θ_global (flat → state_dict)

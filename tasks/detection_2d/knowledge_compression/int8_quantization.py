@@ -68,7 +68,8 @@ def quantize_tensor(x: torch.Tensor, bits: int | None = None) -> QuantizedTensor
             f"[quantize_tensor] Detected {nan_count} NaN, {inf_count} Inf, and {large_count} massive values (>1e30) "
             f"in tensor shape {tuple(x.shape)}. Sanitizing before quantization."
         )
-        x_flat = torch.nan_to_num(x_flat, nan=0.0, posinf=0.0, neginf=0.0)
+        # [DEBUG] Tạm tắt ép kiểu NaN/Inf về 0 để thấy lỗi vỡ thật sự
+        # x_flat = torch.nan_to_num(x_flat, nan=0.0, posinf=0.0, neginf=0.0)
         x_flat = torch.clamp(x_flat, min=-1e30, max=1e30)
 
     x_min = x_flat.min().item()

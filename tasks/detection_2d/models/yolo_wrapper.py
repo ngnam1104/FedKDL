@@ -149,12 +149,14 @@ class StudentModel:
             return True
         
         # [CRITICAL FIX] CHỈ GỬI CÁC LAYER ĐẦU RA CUỐI CÙNG (FINAL OUTPUTS)
-        # Gửi toàn bộ Detection Head tốn 558,000 params (quá nặng).
-        # Chỉ gửi nhánh đầu ra của Box (.cv2.*.2) và Class (.cv3.*.2) tốn 32,000 params.
-        # Khắc phục triệt để mAP=0 mà vẫn giữ mảng truyền tải (Payload) siêu nhỏ!
         for suffix in self._HEAD_OUTPUT_SUFFIXES:
             if k.endswith(suffix):
                 return True
+                
+        # [NEW FIX] Giải phóng tham số Affine của Batch Norm (weight, bias)
+        # Việc này tốn thêm ~16KB payload nhưng giúp model Nano hội tụ cực nhanh.
+        if 'bn.weight' in k or 'bn.bias' in k:
+            return True
             
         return False
 

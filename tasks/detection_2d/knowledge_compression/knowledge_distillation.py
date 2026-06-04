@@ -379,8 +379,8 @@ class KDDetectionTrainer(DetectionTrainer):
 
     def optimizer_step(self):
         # [CRITICAL FIX] Gradient Clipping for Knowledge Distillation to prevent NaN
-        import torch
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
+        # import torch
+        # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
         super().optimizer_step()
 
     def validate(self):
