@@ -79,6 +79,16 @@ class StudentModel:
             # FlexLoRA: Không khóa seed, cho phép A khởi tạo ngẫu nhiên và được train độc lập ở mỗi AUV
             injected = inject_lora(self.yolo.model, target_layer_names=actual_targets, rank=rank, strategy=actual_strategy)
             print(f"[StudentModel] Injected LoRA into {injected} layers (Targets: {actual_targets}, Strategy: {actual_strategy}).")
+            
+            # [CRITICAL FIX] Load lại weights LoRA từ checkpoint NẾU CÓ!
+            import torch
+            checkpoint = torch.load(ckpt, map_location='cpu', weights_only=False)
+            if 'model' in checkpoint:
+                ckpt_state = checkpoint['model'].state_dict() if hasattr(checkpoint['model'], 'state_dict') else checkpoint['model']
+                lora_state = {k: v for k, v in ckpt_state.items() if 'lora_' in k}
+                if len(lora_state) > 0:
+                    self.yolo.model.load_state_dict(lora_state, strict=False)
+                    print(f"[StudentModel] Recovered {len(lora_state)} LoRA tensors from {ckpt}!")
 
         if self.full_param:
             for param in self.yolo.model.parameters():

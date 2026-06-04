@@ -59,7 +59,7 @@ class FedKDLConfig:
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60})
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 16
-    LOCAL_LR: float = 1e-3
+    LOCAL_LR: float = 5e-4
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
 
