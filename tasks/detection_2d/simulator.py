@@ -817,18 +817,24 @@ class Simulator2D(BaseSimulator):
             'warmup_bias_lr': 1e-3, # Cho phép bias chạy cùng speed
         }
         trainer = KDDetectionTrainer(overrides=overrides)
-        trainer.head_lr_multiplier = 5.0  # Diff LR: LoRA 2e-4, Head 1e-3 (Giảm từ 10.0 xuống 5.0)
+        trainer.head_lr_multiplier = getattr(self.fed_cfg, 'KD_HEAD_LR_MULT', 8.0)  # Head LR boost trong Gateway KD
         trainer.student_wrapper = self.global_student
         
-        # [CÂN BẰNG LOSS] Áp dụng chuẩn GT 60% - KD 40%
-        # Supervised Loss thô ~7.17 -> x 0.2 = ~1.43 (60%)
-        # KD Loss thô ~3.13 -> x 0.3 = ~0.94 (40%)
-        trainer.stu_lambda = 0.20 
+        # [CÂN BẰNG LOSS] stu_lambda được đọc từ config (mặc định 0.5 = cân bằng Supervised/KD)
+        trainer.stu_lambda = getattr(self.fed_cfg, 'KD_STU_LAMBDA', 0.50)
         
         current_r = getattr(self, 'current_round', 1)
         total_r = getattr(self.fed_cfg, 'T_ROUNDS', self.fed_cfg.GLOBAL_ROUNDS.get("2D", 100))
-        # Hệ số KD sẽ khởi điểm ở 0.3 (chiếm 40%) và giảm dần về 0.05 khi tới các vòng cuối.
-        trainer.kd_lambda = max(0.05, 0.3 * (1.0 - (current_r - 1) / total_r))
+        # [FIX] kd_lambda giữ mạnh ở 0.3 đến 65% số vòng, sau đó mới decay nhanh về 0.08.
+        # Thiết kế này tránh tình trạng KD bị suy yếu quá sớm (vòng 30/60 cũ chỉ còn 0.15).
+        decay_start_r = int(total_r * 0.65)  # Bắt đầu decay từ vòng 39/60
+        if current_r <= decay_start_r:
+            kd_lambda = 0.30
+        else:
+            progress = (current_r - decay_start_r) / max(total_r - decay_start_r, 1)
+            kd_lambda = max(0.08, 0.30 * (1.0 - progress))
+        trainer.kd_lambda = kd_lambda
+        print(f"[Gateway KD] Round {current_r}/{total_r} | kd_lambda={kd_lambda:.3f} | stu_lambda={trainer.stu_lambda:.2f}")
         
         trainer.set_teacher(self.teacher.yolo.model)
         

@@ -86,6 +86,11 @@ class FedKDLConfig:
     ANOMALY_EVAL_MODE: str = "best_f1"
     ANOMALY_PERCENTILE: float = 99.8
 
+    # ── Gateway Knowledge Distillation ──────────────────────────────────────
+    KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
+    KD_STU_LAMBDA: float = 0.50     # Trọng số Supervised Loss trong KD (0.5 = cân bằng GT/KD)
+    KD_HEAD_LR_MULT: float = 8.0    # Head LR = LoRA LR × multiplier trong Gateway KD
+
     # ── Joint optimisation / latency budget (base_simulator logs) ───────────
     LAMBDA_E: float = 1e-3
     LAMBDA_TAU: float = 1e-3
