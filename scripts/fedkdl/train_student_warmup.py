@@ -133,19 +133,13 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     rank = fed_cfg.LORA_RANK
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    warmup_pt = REPO_ROOT / "yolo12n_warmup.pt"
-    ckpt_path = str(warmup_pt)
-    
-    if not warmup_pt.exists():
-        print(f"[Cảnh báo] Không tìm thấy {warmup_pt}. Tiến hành Warmup trước khi chạy Centralized LoRA...")
-        run_warmup(epochs=3)
-        
+    ckpt_path = "yolo12n.pt"
     if resume:
         last_pt = REPO_ROOT / "runs" / "centralized" / "lora_finetune" / "weights" / "last.pt"
         if last_pt.exists():
             ckpt_path = str(last_pt)
         else:
-            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ warmup model!")
+            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ đầu!")
             resume = False
             
     student = StudentModel(
