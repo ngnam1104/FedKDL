@@ -18,18 +18,19 @@ def parse_baseline_config(baseline: str) -> dict:
     """Return the 2D experiment configuration for each baseline."""
     # (full_param, use_lora, use_int8, use_gateway_kd, use_gateway_proxy_ft)
     cfg_map = {
-        'fedkdl':           (False, True,  True,  True,  False),
-        'fedkdl_selective': (False, True,  True,  True,  False),
-        'fedprox_kdl':      (False, True,  True,  True,  False),
-        'fedkd':            (True,  False, False, True,  False),  # Flat, full param KD
+        # [BẢN ĐƠN GIẢN HÓA] Tắt use_int8 (đổi True -> False) để dùng Float32 an toàn tuyệt đối
+        'fedkdl':           (False, True,  False,  True,  False),
+        'fedkdl_selective': (False, True,  False,  True,  False),
+        'fedprox_kdl':      (False, True,  False,  True,  False),
+        'fedkd':            (True,  False, False,  True,  False),  # Flat, full param KD
         'topk_grad':        (True,  False, False, False, False),  # Full param, Top-K sparsity
         'centralized':      (False, True,  False, False, False),  # Centralized LoRA
-        'fedkdl_nokd':      (False, True,  True,  False, False),  # HFL, no Gateway adaptation
-        'fedkdl_nolora':    (True,  False, False, True,  False),  # HFL, full params, KD
-        'fedkdl_proxy_ft':  (False, True,  True,  False, True),   # HFL + supervised proxy fine-tune, no Teacher KD
+        'fedkdl_nokd':      (False, True,  False, False, False),  # HFL, no Gateway adaptation
+        'fedkdl_nolora':    (True,  False, False,  True,  False),  # HFL, full params, KD
+        'fedkdl_proxy_ft':  (False, True,  False, False,  True),   # HFL + supervised proxy fine-tune, no Teacher KD
     }
     # Fallback default matches fedkdl.
-    f_p, u_l, u_i, u_kd, u_ft = cfg_map.get(baseline, (False, True, True, True, False))
+    f_p, u_l, u_i, u_kd, u_ft = cfg_map.get(baseline, (False, True, False, True, False))
     return {
         'full_param': f_p,
         'use_lora': u_l,
@@ -445,6 +446,10 @@ class Simulator2D(BaseSimulator):
 
         # Nếu là FedKDL thì bật EMD Clustering
         if 'fedkdl' in self.baseline:
+            # [BẢN ĐƠN GIẢN HÓA] BỎ QUA EMD Clustering theo yêu cầu của user.
+            # Hệ thống sẽ sử dụng 100% mảng self.association mặc định (chỉ gán theo khoảng cách vật lý).
+            print(f"\n[Simulator2D] EMD Clustering đã bị tắt. Giữ nguyên Physical Distance Association...")
+            '''
             print(f"\n[Simulator2D] Khởi tạo Knowledge-Aware Association (EMD β=0.2)...")
             self.auv_label_hists = np.zeros((N, nc), dtype=np.float32)
             self.auv_label_counts = np.zeros((N, nc), dtype=np.float32)
@@ -500,6 +505,12 @@ class Simulator2D(BaseSimulator):
             self.clusters = {m: [] for m in range(M)}
             for s, f in self.association.items():
                 self.clusters[f].append(s)
+            '''
+            # Build clusters safely even if EMD is skipped
+            self.clusters = {m: [] for m in range(M)}
+            for s, f in self.association.items():
+                if f in self.clusters:
+                    self.clusters[f].append(s)
 
         # 3. Tiến hành cấp phát Worker/Node như bình thường
         for s_id in range(self.net_cfg.N_AUVS):
