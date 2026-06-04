@@ -133,7 +133,7 @@ class AUVWorker2D(BaseWorker):
         local_metrics = {}
         print(f"[AUV {self.auv_id}] Local train metrics skipped to save time.")
 
-        if delta_norm < fed_cfg.DELTA_SKIP:
+        if False and delta_norm < fed_cfg.DELTA_SKIP:
             print(f"[AUV {self.auv_id}] 💤 Lazy Filter Activated (delta={delta_norm:.4f} < {fed_cfg.DELTA_SKIP}). Node is resting (No TX).")
             payload_bytes = None
             payload_kb = 0.0
