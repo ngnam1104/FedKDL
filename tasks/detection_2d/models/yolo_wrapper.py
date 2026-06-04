@@ -99,10 +99,14 @@ class StudentModel:
             # và dùng Batch statistics để chuẩn hóa trong lúc train, gây ra sự sai lệch nghiêm trọng
             # giữa các AUV và khi suy luận (đó là lý do mô hình bị nổ ở Round 4-5).
             
+            # Tìm tên của layer cuối cùng (Head) để không đóng băng BN của nó
+            head_idx = len(self.yolo.model.model) - 1
+            head_prefix = f'model.{head_idx}'
+            
             for name, module in self.yolo.model.named_modules():
                 if isinstance(module, torch.nn.BatchNorm2d):
                     # Bỏ đóng băng BN của Detection Head để tránh lỗi Domain Shift
-                    if 'model.22' in name or 'model.23' in name:
+                    if head_prefix in name:
                         continue
                     module.__class__ = FrozenBatchNorm2d
                     module.eval()
@@ -129,12 +133,16 @@ class StudentModel:
         if ('lora_B' in k or 'lora_A' in k) and self.use_lora:
             return True
         
-        # [CRITICAL FIX] KHÔNG GỬI BatchNorm của Backbone lên Server!
-        # Do Backbone đã bị đóng băng bằng FrozenBatchNorm2d, các giá trị running_mean/var
-        # sẽ luôn luôn bất biến bằng với pre-trained gốc. Việc gửi đi là dư thừa và làm tăng
-        # số lượng tham số payload một cách vô ích.
+        # [CRITICAL FIX] KHÔNG GỬI BatchNorm của Backbone lên Server vì nó đã bị đóng băng (FrozenBatchNorm2d).
+        # TUY NHIÊN, BatchNorm của Detection Head KHÔNG bị đóng băng để học Domain Shift, 
+        # nên CHÚNG TA PHẢI GỬI BN của Head lên Server (FedBN) để Global Model đánh giá không bị mAP 0.0000!
+        head_idx = len(self.yolo.model.model) - 1
+        head_prefix = f'model.{head_idx}'
         
-        # CHỈ GỬI các thông số của Detection Head (Nơi thực sự được train).
+        if head_prefix in k and ('bn' in k or 'running' in k or 'tracked' in k):
+            return True
+            
+        # GỬI các thông số Output Classifiers của Detection Head.
         for suffix in self._HEAD_OUTPUT_SUFFIXES:
             if k.endswith(suffix):
                 return True
