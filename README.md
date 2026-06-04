@@ -226,6 +226,7 @@ FedKDL/
 │   ├── hfl/                     # 5 script vẽ đồ thị cho kịch bản 1D
 │   ├── fedkdl/                  # 5 script vẽ + pretrain Teacher cho kịch bản 2D
 │   └── od/                      # plot_ablation.py
+├── scratch/                     # Chứa các script test nháp, phân tích tham số (analyze_params.py)
 ├── main_trainer.py              # CLI entrypoint cho kịch bản 1D
 ├── main_trainer_od.py           # CLI entrypoint cho kịch bản 2D
 ├── run_hfl_experiments.sh       # Grid runner 1D (432 run)
