@@ -18,19 +18,19 @@ def parse_baseline_config(baseline: str) -> dict:
     """Return the 2D experiment configuration for each baseline."""
     # (full_param, use_lora, use_int8, use_gateway_kd, use_gateway_proxy_ft)
     cfg_map = {
-        # [BẢN ĐƠN GIẢN HÓA] Tắt use_int8 (đổi True -> False) để dùng Float32 an toàn tuyệt đối
-        'fedkdl':           (False, True,  False,  True,  False),
-        'fedkdl_selective': (False, True,  False,  True,  False),
-        'fedprox_kdl':      (False, True,  False,  True,  False),
+        # [BẢN ĐƠN GIẢN HÓA] Bật lại use_int8=True, nhưng sẽ CHỈ DÙNG RAW INT8, bỏ Delta.
+        'fedkdl':           (False, True,  True,  True,  False),
+        'fedkdl_selective': (False, True,  True,  True,  False),
+        'fedprox_kdl':      (False, True,  True,  True,  False),
         'fedkd':            (True,  False, False,  True,  False),  # Flat, full param KD
         'topk_grad':        (True,  False, False, False, False),  # Full param, Top-K sparsity
         'centralized':      (False, True,  False, False, False),  # Centralized LoRA
-        'fedkdl_nokd':      (False, True,  False, False, False),  # HFL, no Gateway adaptation
+        'fedkdl_nokd':      (False, True,  True, False, False),  # HFL, no Gateway adaptation
         'fedkdl_nolora':    (True,  False, False,  True,  False),  # HFL, full params, KD
-        'fedkdl_proxy_ft':  (False, True,  False, False,  True),   # HFL + supervised proxy fine-tune, no Teacher KD
+        'fedkdl_proxy_ft':  (False, True,  True, False,  True),   # HFL + supervised proxy fine-tune, no Teacher KD
     }
     # Fallback default matches fedkdl.
-    f_p, u_l, u_i, u_kd, u_ft = cfg_map.get(baseline, (False, True, False, True, False))
+    f_p, u_l, u_i, u_kd, u_ft = cfg_map.get(baseline, (False, True, True, True, False))
     return {
         'full_param': f_p,
         'use_lora': u_l,
@@ -168,12 +168,9 @@ class AUVWorker2D(BaseWorker):
             payload_kb = payload_bytes.payload_bytes / 1024.0
             print(f"[AUV {self.auv_id}] [Top-K] Sparse Payload: {payload_kb:.1f} KB (K={self._topk_compressor.K}/{total_params} params)")
         elif use_int8:
-            # Tính toán delta (để lượng tử hóa nhằm giữ độ chính xác)
-            delta_state = {}
-            for k in new_state:
-                delta_state[k] = new_state[k] - global_state[k].to(new_state[k].device)
-            payload_bytes, payload_kb = pack_payload(delta_state)
-            print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB INT8 (Delta) "
+            # [USER REQUEST] Ép lượng tử hóa INT8 TRỰC TIẾP trên trọng số gốc (Không dùng Delta)
+            payload_bytes, payload_kb = pack_payload(new_state)
+            print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB INT8 (Raw) "
                   f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
         else:
             # Fake packing for simulation (Float32 payload)
@@ -220,11 +217,8 @@ class RelayNode2D(BaseRelayNode):
                     else:
                         state[k] = v
             elif use_kd_lora_int8 and isinstance(payload, (bytes, bytearray)):
-                # INT8 LoRA payload
-                delta_state = unpack_payload(payload, global_state_dict)
-                state = {}
-                for k in delta_state:
-                    state[k] = global_state_dict[k].to(delta_state[k].device) + delta_state[k]
+                # INT8 LoRA payload (RAW, NO DELTA)
+                state = unpack_payload(payload, global_state_dict)
             else:
                 # Float32 full-state dict (legacy fallback)
                 state = payload
