@@ -874,6 +874,17 @@ class Simulator2D(BaseSimulator):
         self.global_student.strip_inference_tensors()
         self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
         res = evaluate_od(self.global_student, self.test_yaml, self.device)
+        
+        # [CRITICAL FIX] Dừng khẩn cấp nếu Global Model bị sụp đổ hoàn toàn (mAP = 0.0000)
+        # Ultralytics trả về dict chứa key như 'metrics/mAP50-95(B)'. Ta check mAP50.
+        map50 = res.get('metrics/mAP50(B)', 1.0)
+        if map50 < 1e-5:
+            raise RuntimeError(
+                f"[CRITICAL ERROR] Global Model evaluation resulted in {map50:.4f} mAP50! "
+                f"This indicates catastrophic overflow/corruption in the model weights. "
+                f"Aborting FL round to prevent jumping to the next round with a broken model."
+            )
+            
         gc.collect()
         torch.cuda.empty_cache()
         return res

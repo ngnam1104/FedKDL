@@ -129,7 +129,12 @@ class StudentModel:
         if ('lora_B' in k or 'lora_A' in k) and self.use_lora:
             return True
         # Gửi toàn bộ BatchNorm của Detection Head lên Server để tổng hợp (FedBN -> Global BN)
-        if ('model.22' in k or 'model.23' in k) and 'bn' in k:
+        # [CRITICAL FIX] Trích xuất TOÀN BỘ BatchNorm running_mean / running_var của mạng!
+        # Nếu chỉ trích xuất BN của Head, Backbone sẽ dùng BN cũ của yolo12n.pt trong lúc val(),
+        # gây ra mAP 0.0000 do lệch feature maps!
+        if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k:
+            return True
+        if 'bn' in k and ('weight' in k or 'bias' in k):
             return True
         for suffix in self._HEAD_OUTPUT_SUFFIXES:
             if k.endswith(suffix):

@@ -155,15 +155,19 @@ def svd_lora_aggregate(
             # --- SAFETY CHECK: Kiểm tra từng client xem ai gửi NaN ---
             for idx, (B_client, A_client) in enumerate(zip(list_B, list_A)):
                 if torch.isnan(B_client).any() or torch.isnan(A_client).any():
-                    print(f"\n[CRITICAL ERROR] Client index {idx} in this cluster returned NaN/Inf for layer {b_key}!")
-                    print(f"B_client has_nan: {torch.isnan(B_client).any().item()}, has_inf: {torch.isinf(B_client).any().item()}")
-                    print(f"A_client has_nan: {torch.isnan(A_client).any().item()}, has_inf: {torch.isinf(A_client).any().item()}")
+                    raise RuntimeError(
+                        f"[CRITICAL ERROR] Client index {idx} in this cluster returned NaN/Inf for layer {b_key}! "
+                        f"B_client has_nan: {torch.isnan(B_client).any().item()}, has_inf: {torch.isinf(B_client).any().item()}. "
+                        f"A_client has_nan: {torch.isnan(A_client).any().item()}, has_inf: {torch.isinf(A_client).any().item()}. "
+                        f"Aborting FL round to prevent corruption."
+                    )
             
             # [CRITICAL FIX] Chuyển B_i, A_i sang double trước khi nhân ma trận để triệt tiêu lỗi tràn số float32 
-            # (float32 chỉ chứa tối đa 3.4e38, nếu tích vượt quá sẽ sinh ra Inf).
             W_avg = sum(w * torch.matmul(B_i.double(), A_i.double()) for w, B_i, A_i in zip(weights, list_B, list_A))
             W_avg = torch.nan_to_num(W_avg, nan=0.0, posinf=0.0, neginf=0.0)
-            
+            # [CRITICAL FIX] Clamp W_avg về phạm vi an toàn [-0.5, 0.5].
+            # Nếu W_avg vượt quá 0.5, nó sẽ phá hủy hoàn toàn kiến trúc mạng khi add vào W_base!
+            W_avg = torch.clamp(W_avg, min=-0.5, max=0.5)
             # [CRITICAL FIX 2] Kể cả khi W_avg không bị Inf ở float64, nó có thể lớn tới 1e60.
             # Khi phân rã SVD xong, cast S về float32 sẽ lập tức tạo ra Inf -> sinh ra NaN ở B_new.
             # Hơn nữa, weights trong YOLO không bao giờ vượt quá [-10, 10]. Clamping giúp loại bỏ rác.
@@ -187,9 +191,12 @@ def svd_lora_aggregate(
                     B_new = U[:, :rank] * sqrt_S[:rank].unsqueeze(0)
                     A_new = sqrt_S[:rank].unsqueeze(1) * Vh[:rank, :]
                 
-                # Cốt thép bảo vệ cuối cùng: Đảm bảo không có bất kỳ rác nào lọt vào Global Model
-                B_new = torch.nan_to_num(B_new, nan=0.0, posinf=1.0, neginf=-1.0)
-                A_new = torch.nan_to_num(A_new, nan=0.0, posinf=1.0, neginf=-1.0)
+                # [CRITICAL FIX] Dừng lập tức nếu SVD bị lỗi NaN, tuyệt đối không mask lỗi vì sẽ gây sập toàn hệ thống!
+                if torch.isnan(B_new).any() or torch.isinf(B_new).any():
+                    raise RuntimeError(
+                        f"[CRITICAL ERROR] SVD Factorization produced NaN/Inf for layer {b_key}! "
+                        f"This means W_avg was extremely malformed. Aborting FL round."
+                    )
                 
                 aggregated_sd[b_key] = B_new.to(original_dtype)
                 aggregated_sd[a_key] = A_new.to(original_dtype)

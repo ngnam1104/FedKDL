@@ -182,10 +182,10 @@ def pack_payload(state_dict: Dict[str, torch.Tensor]) -> Tuple[bytes, float]:
         has_nan = torch.isnan(tensor).any().item()
         has_inf = torch.isinf(tensor).any().item()
         if has_nan or has_inf:
-            import warnings
-            warnings.warn(
-                f"[pack_payload] Key '{key}': NaN={has_nan}, Inf={has_inf}. "
-                f"Shape={tuple(tensor.shape)}. Will be sanitized automatically."
+            raise RuntimeError(
+                f"[CRITICAL ERROR] Local training produced NaN/Inf in Key '{key}'! "
+                f"NaN={has_nan}, Inf={has_inf}, Shape={tuple(tensor.shape)}. "
+                f"Aborting FL round to prevent corrupting the Global Model."
             )
         qt = quantize_tensor(tensor)
         # 8 bytes header: scale (float32=4B) + zero_point (int32=4B)
