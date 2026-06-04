@@ -96,13 +96,8 @@ def run_warmup(epochs: int):
     torch.save(ckpt, save_path)
     print(f"\n[Thành công] Đã lưu Student LoRA warmup tại: {save_path}")
 
-    try:
-        from verify_teacher_lora_eval import merge_lora_into_base
-    except ImportError:
-        from bake_teacher_lora import bake_lora_into_model as merge_lora_into_base
-
     print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã merge LoRA)...")
-    merge_lora_into_base(student.yolo.model)
+    student.bake_lora()
     full_yaml_test = REPO_ROOT / "datasets/URPC2020.yaml"
     student.yolo.val(
         data=str(full_yaml_test),
