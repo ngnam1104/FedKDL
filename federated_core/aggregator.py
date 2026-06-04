@@ -144,15 +144,23 @@ def svd_lora_aggregate(
         a_key = b_key.replace('lora_B', 'lora_A')
         pairs = []
         pair_weights = []
-        for sd, weight in zip(client_sds, weights):
+        for client_idx, (sd, weight) in enumerate(zip(client_sds, weights)):
             if b_key not in sd or a_key not in sd:
                 continue
             B_i = sd[b_key].float()
             A_i = sd[a_key].float()
             if not torch.isfinite(B_i).all() or not torch.isfinite(A_i).all():
-                raise RuntimeError(
-                    f"[CRITICAL ERROR] Non-finite LoRA factors before SVD aggregation for {b_key}."
+                nan_B = torch.isnan(B_i).sum().item()
+                inf_B = torch.isinf(B_i).sum().item()
+                nan_A = torch.isnan(A_i).sum().item()
+                inf_A = torch.isinf(A_i).sum().item()
+                print(
+                    f"[SVD AGG WARNING] Client #{client_idx} has Non-finite LoRA for {b_key}: "
+                    f"B(NaN={nan_B}, Inf={inf_B}, max={B_i.abs().max():.4e}), "
+                    f"A(NaN={nan_A}, Inf={inf_A}, max={A_i.abs().max():.4e}). "
+                    f"SKIPPING this client for this key."
                 )
+                continue
             pairs.append((B_i, A_i))
             pair_weights.append(weight)
 

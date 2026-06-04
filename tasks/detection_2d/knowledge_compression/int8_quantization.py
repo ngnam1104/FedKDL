@@ -242,5 +242,11 @@ def unpack_payload(payload: bytes,
             recovered[key] = dequantize_tensor(
                 QuantizedTensor(q_tensor, scale, zero_point, tuple(tmpl.shape))
             )
+            # [DEBUG] Check if dequantization produced non-finite values
+            if not torch.isfinite(recovered[key]).all():
+                print(f"[unpack_payload WARNING] Key '{key}' has Non-finite after dequant! "
+                      f"scale={scale:.6e}, zp={zero_point}, "
+                      f"int8 range=[{q_tensor.min()}, {q_tensor.max()}], "
+                      f"float range=[{recovered[key].min():.6e}, {recovered[key].max():.6e}]")
             
     return recovered
