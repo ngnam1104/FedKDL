@@ -17,22 +17,23 @@ from config.settings import fed_cfg
 
 def _fl_prepare_model_for_train(model: torch.nn.Module, device) -> torch.nn.Module:
     """
-    Đưa DetectionModel lên device và khởi tạo lại criterion.
+    Đưa DetectionModel lên device và đảm bảo criterion.proj cùng device.
     Ultralytics gắn v8DetectionLoss trên model.criterion; buffer `proj` lấy device
     lúc init — nếu model/criterion lệch device sẽ lỗi matmul CUDA vs CPU.
+    
+    KHÔNG gọi init_criterion() ở đây vì model.hyp có thể chưa được set
+    thành SimpleNamespace (gây AttributeError: 'dict' object has no attribute 'box').
     """
-    from ultralytics.utils.torch_utils import unwrap_model
-
     if isinstance(device, str):
         device = torch.device(device)
     model = model.to(device)
-    unwrapped = unwrap_model(model)
-    if hasattr(unwrapped, "init_criterion"):
-        unwrapped.criterion = unwrapped.init_criterion()
-    elif getattr(unwrapped, "criterion", None) is not None:
-        crit = unwrapped.criterion
-        crit.to(device)
-        if hasattr(crit, "proj"):
+    
+    # Chỉ move proj tensor sang device, không reinit criterion
+    crit = getattr(model, 'criterion', None)
+    if crit is not None:
+        if hasattr(crit, 'to'):
+            crit.to(device)
+        if hasattr(crit, 'proj'):
             crit.proj = crit.proj.to(device)
     return model
 
@@ -82,15 +83,7 @@ class CustomDetectionTrainer(DetectionTrainer):
             
         return super().validate()
 
-    def setup_model(self):
-        ckpt = super().setup_model()
-        # [FIX BUG] Trong lúc warmup / centralized lora, model được khởi tạo trên CPU
-        # nên model.criterion (chứa self.proj) bị mắc kẹt ở CPU, gây lỗi lúc validate.
-        # Ta ép model chuyển sang device trước và khởi tạo lại criterion.
-        self.model = self.model.to(self.device)
-        if hasattr(self.model, 'init_criterion'):
-            self.model.criterion = self.model.init_criterion()
-        return ckpt
+
     def _setup_train(self):
         from ultralytics.utils import LOGGER
 

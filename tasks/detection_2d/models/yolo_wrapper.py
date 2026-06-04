@@ -69,26 +69,31 @@ class StudentModel:
             print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         if not self.full_param and self.use_lora:
-            # YOLO Nano được tiêm LoRA vào toàn bộ các layer Conv (Targets: ['Conv'])
-            # Nhưng vẫn tuân thủ chiến lược 'adaptive' (bỏ qua 0-3, r=2 cho 4-9, r=8 cho >=10)
-            is_nano = '12n' in ckpt.lower() or '11n' in ckpt.lower() or '8n' in ckpt.lower()
+            from tasks.detection_2d.models.lora import LoRAConv2d
+            # Kiểm tra xem checkpoint đã chứa sẵn LoRAConv2d chưa
+            existing_lora = sum(1 for m in self.yolo.model.modules() if isinstance(m, LoRAConv2d))
             
-            actual_strategy = "adaptive"
-            actual_targets = ['Conv'] if is_nano else lora_targets
+            if existing_lora > 0:
+                # Warmup checkpoint đã chứa LoRAConv2d → không cần inject thêm
+                print(f"[StudentModel] Checkpoint đã có {existing_lora} LoRAConv2d layers, bỏ qua inject.")
+            else:
+                # Base model (vd: yolo12n.pt) → cần inject LoRA mới
+                is_nano = '12n' in ckpt.lower() or '11n' in ckpt.lower() or '8n' in ckpt.lower()
+                actual_strategy = "adaptive"
+                actual_targets = ['Conv'] if is_nano else lora_targets
 
-            # FlexLoRA: Không khóa seed, cho phép A khởi tạo ngẫu nhiên và được train độc lập ở mỗi AUV
-            injected = inject_lora(self.yolo.model, target_layer_names=actual_targets, rank=rank, strategy=actual_strategy)
-            print(f"[StudentModel] Injected LoRA into {injected} layers (Targets: {actual_targets}, Strategy: {actual_strategy}).")
-            
-            # [CRITICAL FIX] Load lại weights LoRA từ checkpoint NẾU CÓ!
-            import torch
-            checkpoint = torch.load(ckpt, map_location='cpu', weights_only=False)
-            if 'model' in checkpoint:
-                ckpt_state = checkpoint['model'].state_dict() if hasattr(checkpoint['model'], 'state_dict') else checkpoint['model']
-                lora_state = {k: v for k, v in ckpt_state.items() if 'lora_' in k}
-                if len(lora_state) > 0:
-                    self.yolo.model.load_state_dict(lora_state, strict=False)
-                    print(f"[StudentModel] Recovered {len(lora_state)} LoRA tensors from {ckpt}!")
+                injected = inject_lora(self.yolo.model, target_layer_names=actual_targets, rank=rank, strategy=actual_strategy)
+                print(f"[StudentModel] Injected LoRA into {injected} layers (Targets: {actual_targets}, Strategy: {actual_strategy}).")
+                
+                # Load lại weights LoRA từ checkpoint NẾU CÓ (vd: warmup đã bake vào .pt nhưng YOLO vứt khi load)
+                import torch
+                checkpoint = torch.load(ckpt, map_location='cpu', weights_only=False)
+                if 'model' in checkpoint:
+                    ckpt_state = checkpoint['model'].state_dict() if hasattr(checkpoint['model'], 'state_dict') else checkpoint['model']
+                    lora_state = {k: v for k, v in ckpt_state.items() if 'lora_' in k}
+                    if len(lora_state) > 0:
+                        self.yolo.model.load_state_dict(lora_state, strict=False)
+                        print(f"[StudentModel] Recovered {len(lora_state)} LoRA tensors from {ckpt}!")
 
         if self.full_param:
             for param in self.yolo.model.parameters():
