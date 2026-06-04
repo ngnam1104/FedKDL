@@ -78,11 +78,10 @@ def compute_djoint_matrix(
                          np.inf)
 
     # ── D_joint = β·EMD_norm + (1-β)·Dist_norm ───────────────────────────
-    djoint = np.where(
-        np.isfinite(emd_norm) & np.isfinite(dist_norm),
-        beta * emd_norm + (1.0 - beta) * dist_norm,
-        np.inf,
-    )
+    # Avoid eager np.where evaluation on inf values (e.g. 0 * inf -> NaN warning).
+    valid = np.isfinite(emd_norm) & np.isfinite(dist_norm)
+    djoint = np.full_like(emd_norm, np.inf, dtype=float)
+    djoint[valid] = beta * emd_norm[valid] + (1.0 - beta) * dist_norm[valid]
     return djoint
 
 def knowledge_aware_association(

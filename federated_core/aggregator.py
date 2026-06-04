@@ -89,138 +89,112 @@ def fedavg_global(
     return svd_lora_aggregate(relay_state_dicts, weights)
 
 
+def _weighted_fedavg_tensors(tensors: List[torch.Tensor], weights: List[float]) -> torch.Tensor:
+    if len(tensors) != len(weights):
+        raise ValueError(f"Expected one weight per tensor, got {len(tensors)} tensors and {len(weights)} weights.")
+    ref = tensors[0]
+    out = torch.zeros_like(ref, dtype=torch.float32)
+    for tensor, weight in zip(tensors, weights):
+        tensor_f32 = tensor.float()
+        if not torch.isfinite(tensor_f32).all():
+            raise RuntimeError("[CRITICAL ERROR] Non-finite tensor found during FedAvg aggregation.")
+        out += float(weight) * tensor_f32
+    return out
+
+
 def svd_lora_aggregate(
     client_sds: List[Dict[str, torch.Tensor]],
     weights: List[float],
 ) -> Dict[str, torch.Tensor]:
     """
-    SVD-based Aggregation for FlexLoRA.
+    SVD aggregation for FlexLoRA.
+
+    For each LoRA pair, aggregate the effective low-rank matrix W_i = B_i @ A_i,
+    then project the weighted average back to rank r with the Eckart-Young optimal
+    truncated SVD. Non-LoRA payload keys are aggregated by ordinary FedAvg.
     """
     if not client_sds:
         return {}
+    if len(client_sds) != len(weights):
+        raise ValueError(f"Expected one weight per client, got {len(client_sds)} clients and {len(weights)} weights.")
 
-    aggregated_sd = {}
-    all_keys = set()
-    for sd in client_sds:
-        all_keys.update(sd.keys())
+    total_weight = float(sum(weights))
+    if total_weight <= 0.0:
+        weights = [1.0 / len(client_sds)] * len(client_sds)
+    else:
+        weights = [float(w) / total_weight for w in weights]
 
-    # Find all lora_B keys
-    lora_B_keys = [k for k in all_keys if 'lora_B' in k]
+    aggregated_sd: Dict[str, torch.Tensor] = {}
+    all_keys = set().union(*(sd.keys() for sd in client_sds))
+    lora_B_keys = sorted(k for k in all_keys if 'lora_B' in k)
+    lora_A_keys = {k.replace('lora_B', 'lora_A') for k in lora_B_keys}
 
-    for k in all_keys:
-        if k in lora_B_keys:
+    for key in sorted(all_keys):
+        if key in lora_B_keys or key in lora_A_keys:
             continue
-        if 'lora_A' in k:
+        tensors = [sd[key] for sd in client_sds if key in sd]
+        key_weights = [w for sd, w in zip(client_sds, weights) if key in sd]
+        if not tensors:
             continue
-        
-        # Standard FedAvg cho các keys khác (Detection Head)
-        original_dtype = None
-        list_tensor = []
-        for sd, w in zip(client_sds, weights):
-            if k in sd:
-                if original_dtype is None:
-                    original_dtype = sd[k].dtype
-                list_tensor.append(sd[k])
-        
-        if list_tensor:
-            stacked = torch.stack([t.float() for t in list_tensor], dim=0)
-            avg = torch.sum(stacked * torch.tensor(weights, device=stacked.device).view(-1, *([1]*(stacked.dim()-1))), dim=0)
-            avg = torch.nan_to_num(avg, nan=0.0, posinf=0.0, neginf=0.0)
-            aggregated_sd[k] = avg.to(original_dtype)
+        weight_sum = sum(key_weights)
+        key_weights = [w / weight_sum for w in key_weights] if weight_sum > 0 else [1.0 / len(tensors)] * len(tensors)
+        aggregated_sd[key] = _weighted_fedavg_tensors(tensors, key_weights).to(tensors[0].dtype)
 
-    # SVD cho LoRA keys
     for b_key in lora_B_keys:
         a_key = b_key.replace('lora_B', 'lora_A')
-        
-        rank = None
+        pairs = []
+        pair_weights = []
+        for sd, weight in zip(client_sds, weights):
+            if b_key not in sd or a_key not in sd:
+                continue
+            B_i = sd[b_key].float()
+            A_i = sd[a_key].float()
+            if not torch.isfinite(B_i).all() or not torch.isfinite(A_i).all():
+                raise RuntimeError(
+                    f"[CRITICAL ERROR] Non-finite LoRA factors before SVD aggregation for {b_key}."
+                )
+            pairs.append((B_i, A_i))
+            pair_weights.append(weight)
+
+        if not pairs:
+            continue
+
+        weight_sum = sum(pair_weights)
+        pair_weights = [w / weight_sum for w in pair_weights] if weight_sum > 0 else [1.0 / len(pairs)] * len(pairs)
+        rank = pairs[0][0].shape[1]
+        out_features = pairs[0][0].shape[0]
+        in_features = pairs[0][1].shape[1]
+        original_dtype_B = client_sds[0][b_key].dtype if b_key in client_sds[0] else pairs[0][0].dtype
+        original_dtype_A = client_sds[0][a_key].dtype if a_key in client_sds[0] else pairs[0][1].dtype
+
         W_avg = None
-        original_dtype = None
-        list_B = []
-        list_A = []
-        
-        for sd, w in zip(client_sds, weights):
-            if b_key in sd and a_key in sd:
-                B_i = torch.nan_to_num(sd[b_key].float(), nan=0.0, posinf=0.0, neginf=0.0)
-                A_i = torch.nan_to_num(sd[a_key].float(), nan=0.0, posinf=0.0, neginf=0.0)
-                if original_dtype is None:
-                    original_dtype = sd[b_key].dtype
-                    rank = B_i.shape[1]
-                    out_features = B_i.shape[0]
-                    in_features = A_i.shape[1]
-                list_B.append(B_i)
-                list_A.append(A_i)
-        
-        if list_B:
-            # --- SAFETY CHECK: Kiểm tra từng client xem ai gửi NaN ---
-            for idx, (B_client, A_client) in enumerate(zip(list_B, list_A)):
-                if torch.isnan(B_client).any() or torch.isnan(A_client).any():
-                    raise RuntimeError(
-                        f"[CRITICAL ERROR] Client index {idx} in this cluster returned NaN/Inf for layer {b_key}! "
-                        f"B_client has_nan: {torch.isnan(B_client).any().item()}, has_inf: {torch.isinf(B_client).any().item()}. "
-                        f"A_client has_nan: {torch.isnan(A_client).any().item()}, has_inf: {torch.isinf(A_client).any().item()}. "
-                        f"Aborting FL round to prevent corruption."
-                    )
-            
-            # [CRITICAL FIX] Chuyển B_i, A_i sang double trước khi nhân ma trận để triệt tiêu lỗi tràn số float32 
-            W_avg = sum(w * torch.matmul(B_i.double(), A_i.double()) for w, B_i, A_i in zip(weights, list_B, list_A))
-            W_avg = torch.nan_to_num(W_avg, nan=0.0, posinf=0.0, neginf=0.0)
-            
-            try:
-                U, S, Vh = torch.linalg.svd(W_avg, full_matrices=False)
-                U, S, Vh = U.float(), S.float(), Vh.float()
-                
-                # [CRITICAL FIX - Spectral Clipping] 
-                # Giới hạn giá trị singular values lớn nhất (max=10.0).
-                # Điều này giúp loại bỏ hoàn toàn sự gia tăng theo cấp số nhân của Effective Learning Rate
-                # do B và A đều có hệ số khác 0 (ngăn chặn lỗi NaN/Inf bùng nổ ở các vòng tiếp theo).
-                S = torch.clamp(S, max=10.0)
-                
-                # [CRITICAL FIX - SVD Scale Imbalance] 
-                sqrt_S = torch.sqrt(S)
-                
-                # Xử lý trường hợp M < rank (ví dụ lớp Conv có số channel nhỏ)
-                M = S.shape[0]
-                if M < rank:
-                    B_new = torch.zeros((out_features, rank), dtype=torch.float32, device=B_i.device)
-                    A_new = torch.zeros((rank, in_features), dtype=torch.float32, device=A_i.device)
-                    B_new[:, :M] = U * sqrt_S.unsqueeze(0)
-                    A_new[:M, :] = sqrt_S.unsqueeze(1) * Vh
-                else:
-                    B_new = U[:, :rank] * sqrt_S[:rank].unsqueeze(0)
-                    A_new = sqrt_S[:rank].unsqueeze(1) * Vh[:rank, :]
-                
-                # [CRITICAL FIX] Dừng lập tức nếu SVD bị lỗi NaN, tuyệt đối không mask lỗi vì sẽ gây sập toàn hệ thống!
-                if torch.isnan(B_new).any() or torch.isinf(B_new).any():
-                    raise RuntimeError(
-                        f"[CRITICAL ERROR] SVD Factorization produced NaN/Inf for layer {b_key}! "
-                        f"This means W_avg was extremely malformed. Aborting FL round."
-                    )
-                
-                aggregated_sd[b_key] = B_new.to(original_dtype)
-                aggregated_sd[a_key] = A_new.to(original_dtype)
-            except Exception as e:
-                import traceback
-                tb_str = traceback.format_exc()
-                has_nan = torch.isnan(W_avg).any().item()
-                has_inf = torch.isinf(W_avg).any().item()
-                max_val = W_avg.abs().max().item() if not has_nan else "NaN"
-                
-                print(f"\n{'='*60}")
-                print(f"[FATAL SVD ERROR] Lỗi phân rã SVD tại {b_key}")
-                print(f"Exception: {e}")
-                print(f"[SVD DEBUG] W_avg shape={W_avg.shape}, dtype={W_avg.dtype}")
-                print(f"[SVD DEBUG] has_nan={has_nan}, has_inf={has_inf}, max_abs={max_val}")
-                print(f"[SVD DEBUG] Traceback:\n{tb_str}")
-                
-                # Dump ma trận lỗi ra đĩa để phân tích
-                try:
-                    safe_key = b_key.replace('.', '_')
-                    torch.save(W_avg, f"error_W_avg_{safe_key}.pt")
-                    print(f"[SVD DEBUG] Đã lưu ma trận lỗi ra file: error_W_avg_{safe_key}.pt")
-                except Exception as save_e:
-                    pass
-                print(f"{'='*60}\n")
-                print(f"[FATAL SVD ERROR] Quá trình FL bị buộc dừng để tránh lan truyền trọng số hỏng (NaN/Inf) sang vòng sau!")
-                raise RuntimeError(f"SVD phân rã thất bại tại layer {b_key}. Vui lòng kiểm tra file dump W_avg để debug.")
+        for (B_i, A_i), weight in zip(pairs, pair_weights):
+            W_i = torch.matmul(B_i.double(), A_i.double())
+            W_avg = float(weight) * W_i if W_avg is None else W_avg + float(weight) * W_i
+
+        if W_avg is None or not torch.isfinite(W_avg).all():
+            raise RuntimeError(f"[CRITICAL ERROR] Non-finite weighted LoRA product before SVD for {b_key}.")
+
+        try:
+            U, S, Vh = torch.linalg.svd(W_avg, full_matrices=False)
+            if not torch.isfinite(S).all():
+                raise RuntimeError("SVD returned non-finite singular values")
+            keep = min(rank, S.numel())
+            sqrt_S = torch.sqrt(S[:keep]).float()
+            U_r = U[:, :keep].float()
+            Vh_r = Vh[:keep, :].float()
+
+            B_new = torch.zeros((out_features, rank), dtype=torch.float32, device=U_r.device)
+            A_new = torch.zeros((rank, in_features), dtype=torch.float32, device=Vh_r.device)
+            B_new[:, :keep] = U_r * sqrt_S.unsqueeze(0)
+            A_new[:keep, :] = sqrt_S.unsqueeze(1) * Vh_r
+        except Exception as exc:
+            raise RuntimeError(f"SVD factorization failed for LoRA layer {b_key}: {exc}") from exc
+
+        if not torch.isfinite(B_new).all() or not torch.isfinite(A_new).all():
+            raise RuntimeError(f"[CRITICAL ERROR] SVD produced non-finite LoRA factors for {b_key}.")
+
+        aggregated_sd[b_key] = B_new.to(original_dtype_B)
+        aggregated_sd[a_key] = A_new.to(original_dtype_A)
 
     return aggregated_sd

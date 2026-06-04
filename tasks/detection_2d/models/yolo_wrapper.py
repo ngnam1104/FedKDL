@@ -69,15 +69,13 @@ class StudentModel:
             print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         if not self.full_param and self.use_lora:
-            # [CRITICAL FIX for NANO LORA]
-            # YOLO Nano quá nhỏ, nếu skip các shallow layers (0-3) thì nó không thể học lại 
-            # bộ lọc màu sắc (color shift) cho domain dưới nước, dẫn đến mAP cực kỳ thấp.
-            # Ta tự động chuyển sang tiêm LoRA toàn diện ('Conv', strategy='all') nếu là bản 'n'.
+            # YOLO Nano được tiêm LoRA vào toàn bộ các layer Conv (Targets: ['Conv'])
+            # Nhưng vẫn tuân thủ chiến lược 'adaptive' (bỏ qua 0-3, r=2 cho 4-9, r=8 cho >=10)
             is_nano = '12n' in ckpt.lower() or '11n' in ckpt.lower() or '8n' in ckpt.lower()
             
-            actual_strategy = "adaptive"  # [UPDATE] Đồng bộ sử dụng chung chiến lược adaptive cho mọi phiên bản YOLO
+            actual_strategy = "adaptive"
             actual_targets = ['Conv'] if is_nano else lora_targets
-            
+
             # FlexLoRA: Không khóa seed, cho phép A khởi tạo ngẫu nhiên và được train độc lập ở mỗi AUV
             injected = inject_lora(self.yolo.model, target_layer_names=actual_targets, rank=rank, strategy=actual_strategy)
             print(f"[StudentModel] Injected LoRA into {injected} layers (Targets: {actual_targets}, Strategy: {actual_strategy}).")
@@ -133,19 +131,18 @@ class StudentModel:
         if ('lora_B' in k or 'lora_A' in k) and self.use_lora:
             return True
         
-        # [CRITICAL FIX] KHÔNG GỬI BatchNorm của Backbone lên Server vì nó đã bị đóng băng (FrozenBatchNorm2d).
-        # TUY NHIÊN, BatchNorm của Detection Head KHÔNG bị đóng băng để học Domain Shift, 
-        # nên CHÚNG TA PHẢI GỬI BN của Head lên Server (FedBN) để Global Model đánh giá không bị mAP 0.0000!
+        # [CRITICAL FIX] Toàn bộ Detection Head phải được train (bao gồm cả nhánh Box cv2 và nhánh Class cv3).
+        # Nếu chỉ train cv3 (Class) mà đóng băng cv2 (Box), LoRA ở Neck sẽ làm sai lệch features
+        # khiến nhánh Box của COCO dự đoán sai hoàn toàn -> mAP = 0.0000.
         head_idx = len(self.yolo.model.model) - 1
         head_prefix = f'model.{head_idx}'
         
-        if head_prefix in k and ('bn' in k or 'running' in k or 'tracked' in k):
+        if head_prefix in k:
+            # Ngoại trừ dfl.conv.weight (tensor hằng số dùng để decode Box, không bao giờ được train)
+            if 'dfl.conv' in k:
+                return False
             return True
             
-        # GỬI các thông số Output Classifiers của Detection Head.
-        for suffix in self._HEAD_OUTPUT_SUFFIXES:
-            if k.endswith(suffix):
-                return True
         return False
 
     def strip_inference_tensors(self):

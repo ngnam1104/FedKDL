@@ -29,7 +29,7 @@ class NumpyEncoder(json.JSONEncoder):
 def parse_args():
     parser = argparse.ArgumentParser("FedKDL OD Trainer")
     parser.add_argument("--topo", type=str, required=True, help="Đường dẫn file topo (.pkl)")
-    parser.add_argument("--data", type=str, required=True, help="Đường dẫn file data partition (.pkl)")
+    parser.add_argument("--data", type=str, required=True, help="Đường dẫn file data partition (.pkl)")yê
     parser.add_argument("--baseline", type=str, required=True, help="fedkdl hoặc baseline_od")
     parser.add_argument("--rounds", type=int, default=None, help="Ghi đè số vòng (GLOBAL_ROUNDS)")
     parser.add_argument("--out-dir", type=str, default="results/logs_kdl",
@@ -82,13 +82,27 @@ def main():
     )
 
     def _train():
+        # [AUTO WARMUP CHECK]
+        # Đảm bảo pre-train model mới nhất luôn được tạo ra nếu chưa có
+        warmup_pt = Path("yolo12n_warmup.pt")
+        if args.baseline in ['fedkdl', 'fedkd']:
+            if not warmup_pt.exists():
+                print(f"[Auto-Warmup] Không tìm thấy {warmup_pt}. Tiến hành tạo warmup model mới (3 epochs)...")
+                from scripts.fedkdl.train_student_warmup import run_warmup
+                run_warmup(epochs=3)
+                if not warmup_pt.exists():
+                    print(f"[Lỗi nghiêm trọng] Không tạo được {warmup_pt}. Hủy tiến trình.")
+                    sys.exit(1)
+            else:
+                print(f"[Auto-Warmup] Tìm thấy {warmup_pt}, sử dụng model này cho Simulator.")
+
         # Initialize Simulator first to get total_samples and network info
         sim = Simulator2D(
             topo_path=str(topo_path),
             data_path=str(data_path),
             baseline=args.baseline,
             test_yaml="datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml",
-            student_ckpt="yolo12n_warmup.pt",
+            student_ckpt="yolo12n_warmup.pt" if args.baseline in ['fedkdl', 'fedkd'] else "yolo12n.pt",
             teacher_ckpt="yolo12l_lora_pretrained.pt" if Path("yolo12l_lora_pretrained.pt").exists() else ("yolo12l_pretrained.pt" if Path("yolo12l_pretrained.pt").exists() else "yolo12l.pt"),
             device=device,
         )

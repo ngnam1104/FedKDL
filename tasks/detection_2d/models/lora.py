@@ -97,6 +97,12 @@ def inject_lora(module: nn.Module,
             if part == '': continue
             current = getattr(current, part)
             path_classes.append(current.__class__.__name__)
+
+        # Detection head / DFL logits are trained directly via head payload keys.
+        # Injecting LoRA there adds a second low-rank path into box/class logits and
+        # makes SVD reparameterization fragile across FL rounds.
+        if any(cls_name in {"Detect", "v10Detect", "Segment", "Pose", "OBB"} for cls_name in path_classes):
+            continue
         
         # Kiểm tra xem module này có nằm trong block mục tiêu không
         is_target = ('Conv' in target_layer_names) or any(any(t in cls_name for t in target_layer_names) for cls_name in path_classes)

@@ -187,10 +187,19 @@ def pack_payload(state_dict: Dict[str, torch.Tensor]) -> Tuple[bytes, float]:
                 f"NaN={has_nan}, Inf={has_inf}, Shape={tuple(tensor.shape)}. "
                 f"Aborting FL round to prevent corrupting the Global Model."
             )
-        qt = quantize_tensor(tensor)
-        # 8 bytes header: scale (float32=4B) + zero_point (int32=4B)
-        buf.extend(struct.pack('fi', qt.scale, qt.zero_point))
-        buf.extend(qt.data_int8.flatten().cpu().numpy().tobytes())
+            
+        # [CRITICAL FIX] Bỏ qua Quantization cho BatchNorm! 
+        # Nếu Variance bị ép về INT8 sẽ làm mất các giá trị nhỏ -> làm feature map bùng nổ (division by zero) -> mAP = 0.
+        if 'bn' in key or 'running' in key or 'tracked' in key:
+            # Ghi ra raw bytes (cùng float32) mà không cần header scale/zero_point
+            tensor_f32 = tensor.float().cpu().numpy()
+            buf.extend(tensor_f32.tobytes())
+        else:
+            qt = quantize_tensor(tensor)
+            # 8 bytes header: scale (float32=4B) + zero_point (int32=4B)
+            buf.extend(struct.pack('fi', qt.scale, qt.zero_point))
+            buf.extend(qt.data_int8.flatten().cpu().numpy().tobytes())
+            
     data = bytes(buf)
     return data, len(data) / 1024.0
 
@@ -209,14 +218,29 @@ def unpack_payload(payload: bytes,
     offset = 0
     recovered = {}
     for key, tmpl in template.items():
-        scale, zero_point = struct.unpack_from('fi', payload, offset)
-        offset += 8
-        numel = tmpl.numel()
-        q_bytes = payload[offset: offset + numel]
-        offset += numel
-        q_arr = np.frombuffer(q_bytes, dtype=np.int8).copy()
-        q_tensor = torch.from_numpy(q_arr).reshape(tmpl.shape)
-        recovered[key] = dequantize_tensor(
-            QuantizedTensor(q_tensor, scale, zero_point, tuple(tmpl.shape))
-        )
+        if 'bn' in key or 'running' in key or 'tracked' in key:
+            # BatchNorm parameters were stored as raw float32 bytes
+            numel = tmpl.numel()
+            byte_size = numel * 4  # float32 = 4 bytes
+            q_bytes = payload[offset: offset + byte_size]
+            offset += byte_size
+            
+            f32_arr = np.frombuffer(q_bytes, dtype=np.float32).copy()
+            recovered[key] = torch.from_numpy(f32_arr).reshape(tmpl.shape)
+            
+            # Khôi phục kiểu dữ liệu gốc (VD: num_batches_tracked là int64)
+            if tmpl.dtype == torch.int64:
+                recovered[key] = recovered[key].long()
+        else:
+            scale, zero_point = struct.unpack_from('fi', payload, offset)
+            offset += 8
+            numel = tmpl.numel()
+            q_bytes = payload[offset: offset + numel]
+            offset += numel
+            q_arr = np.frombuffer(q_bytes, dtype=np.int8).copy()
+            q_tensor = torch.from_numpy(q_arr).reshape(tmpl.shape)
+            recovered[key] = dequantize_tensor(
+                QuantizedTensor(q_tensor, scale, zero_point, tuple(tmpl.shape))
+            )
+            
     return recovered

@@ -515,20 +515,21 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
     torch.cuda.empty_cache()
     gc.collect()
     
-    results = student_model.yolo.val(
-        data=test_yaml,
-        device=device,
-        verbose=False,
-        split='val',
-        half=False,  # [FIX] Ngăn cast model sang FP16 in-place
-        workers=0,   # [CRITICAL FIX] Tránh đóng băng multiprocessing/SHM
-        batch=16     # Giới hạn batch size để tránh tràn VRAM
-    )
-    
-    # Khôi phục lại mạng chưa Fuse cho các vòng FL tiếp theo!
-    student_model.yolo.model = unfused_model
-    torch.cuda.empty_cache()
-    gc.collect()
+    try:
+        results = student_model.yolo.val(
+            data=test_yaml,
+            device=device,
+            verbose=False,
+            split='val',
+            half=False,  # [FIX] Ngăn cast model sang FP16 in-place
+            workers=0,   # [CRITICAL FIX] Tránh đóng băng multiprocessing/SHM
+            batch=16     # Giới hạn batch size để tránh tràn VRAM
+        )
+    finally:
+        # Khôi phục lại mạng chưa Fuse cho các vòng FL tiếp theo kể cả khi val() lỗi.
+        student_model.yolo.model = unfused_model
+        torch.cuda.empty_cache()
+        gc.collect()
     
     # Lấy precision và recall (mean)
     mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
