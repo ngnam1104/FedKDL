@@ -42,6 +42,20 @@ def run_warmup(epochs: int):
         use_lora=True,
     )
 
+    # [CRITICAL HOTFIX] 
+    # Khi thay đổi nc=4, toàn bộ Detection Head được random khởi tạo mới.
+    # Hàm _is_payload_key hiện tại của FL chỉ trả về True cho lớp đầu ra cuối cùng (.cv2.x.2),
+    # khiến các lớp Conv trung gian của Head bị đóng băng với trọng số ngẫu nhiên -> mAP = 0!
+    # Do đó, TRONG QUÁ TRÌNH WARMUP, ta phải cho phép train TOÀN BỘ Detection Head.
+    original_is_payload = student._is_payload_key
+    def _warmup_is_payload(k: str) -> bool:
+        if original_is_payload(k): return True
+        head_idx = len(student.yolo.model.model) - 1
+        if f'model.{head_idx}.' in k: return True
+        return False
+    student._is_payload_key = _warmup_is_payload
+
+
     payload_keys = set(student.trainable_state_dict().keys())
     frozen_weights_before = {}
     for k, v in student.yolo.model.state_dict().items():
@@ -119,13 +133,19 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     rank = fed_cfg.LORA_RANK
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    ckpt_path = "yolo12n.pt"
+    warmup_pt = REPO_ROOT / "yolo12n_warmup.pt"
+    ckpt_path = str(warmup_pt)
+    
+    if not warmup_pt.exists():
+        print(f"[Cảnh báo] Không tìm thấy {warmup_pt}. Tiến hành Warmup trước khi chạy Centralized LoRA...")
+        run_warmup(epochs=3)
+        
     if resume:
         last_pt = REPO_ROOT / "runs" / "centralized" / "lora_finetune" / "weights" / "last.pt"
         if last_pt.exists():
             ckpt_path = str(last_pt)
         else:
-            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ đầu!")
+            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ warmup model!")
             resume = False
             
     student = StudentModel(
