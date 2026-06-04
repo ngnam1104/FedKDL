@@ -297,7 +297,10 @@ class EnvironmentManager:
         imgs_by_habitat = {h: [] for h in range(4)}
         imgs_noclass = []
 
-        for idx, img_path in enumerate(all_images):
+        from tqdm import tqdm
+        print("  [Data] Bắt đầu đọc labels để phân loại Habitat (Cảnh báo: Nếu đọc từ Google Drive trực tiếp sẽ khá lâu do giới hạn IO của Colab...)")
+        
+        for idx, img_path in tqdm(enumerate(all_images), total=len(all_images), desc="Đọc labels"):
             lbl_path = img_path.replace('/images/', '/labels/').replace('\\images\\', '\\labels\\')
             lbl_path = lbl_path.rsplit('.', 1)[0] + '.txt'
             counts = {c: 0 for c in range(4)}
