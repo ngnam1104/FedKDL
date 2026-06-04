@@ -126,7 +126,6 @@ def svd_lora_aggregate(
             stacked = torch.stack([t.float() for t in list_tensor], dim=0)
             avg = torch.sum(stacked * torch.tensor(weights, device=stacked.device).view(-1, *([1]*(stacked.dim()-1))), dim=0)
             avg = torch.nan_to_num(avg, nan=0.0, posinf=0.0, neginf=0.0)
-            avg = torch.clamp(avg, min=-1000.0, max=1000.0)  # Cốt thép cho các params không phải LoRA (BN, head bias)
             aggregated_sd[k] = avg.to(original_dtype)
 
     # SVD cho LoRA keys
@@ -165,17 +164,16 @@ def svd_lora_aggregate(
             # [CRITICAL FIX] Chuyển B_i, A_i sang double trước khi nhân ma trận để triệt tiêu lỗi tràn số float32 
             W_avg = sum(w * torch.matmul(B_i.double(), A_i.double()) for w, B_i, A_i in zip(weights, list_B, list_A))
             W_avg = torch.nan_to_num(W_avg, nan=0.0, posinf=0.0, neginf=0.0)
-            # [CRITICAL FIX] Clamp W_avg về phạm vi an toàn [-0.5, 0.5].
-            # Nếu W_avg vượt quá 0.5, nó sẽ phá hủy hoàn toàn kiến trúc mạng khi add vào W_base!
-            W_avg = torch.clamp(W_avg, min=-0.5, max=0.5)
-            # [CRITICAL FIX 2] Kể cả khi W_avg không bị Inf ở float64, nó có thể lớn tới 1e60.
-            # Khi phân rã SVD xong, cast S về float32 sẽ lập tức tạo ra Inf -> sinh ra NaN ở B_new.
-            # Hơn nữa, weights trong YOLO không bao giờ vượt quá [-10, 10]. Clamping giúp loại bỏ rác.
-            W_avg = torch.clamp(W_avg, min=-10.0, max=10.0)
             
             try:
                 U, S, Vh = torch.linalg.svd(W_avg, full_matrices=False)
                 U, S, Vh = U.float(), S.float(), Vh.float()
+                
+                # [CRITICAL FIX - Spectral Clipping] 
+                # Giới hạn giá trị singular values lớn nhất (max=10.0).
+                # Điều này giúp loại bỏ hoàn toàn sự gia tăng theo cấp số nhân của Effective Learning Rate
+                # do B và A đều có hệ số khác 0 (ngăn chặn lỗi NaN/Inf bùng nổ ở các vòng tiếp theo).
+                S = torch.clamp(S, max=10.0)
                 
                 # [CRITICAL FIX - SVD Scale Imbalance] 
                 sqrt_S = torch.sqrt(S)

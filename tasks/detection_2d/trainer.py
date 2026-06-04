@@ -206,22 +206,33 @@ class CustomDetectionTrainer(DetectionTrainer):
                     v.requires_grad = False
 
         # ---------------------------------------------------------------
-        # Differential LR: Head params học nhanh hơn LoRA (head_lr_multiplier lần).
-        # Mặc định = 1.0 → không ảnh hưởng gì (giữ nguyên hành vi FL cũ).
-        # Set trainer.head_lr_multiplier = 5.0 để Head học với lr * 5.
+        # Differential LR: Head params học nhanh hơn, LoRA học chậm hơn.
+        # Khi dùng SVD, ma trận B và A đều dense, khiến Effective LR của LoRA bùng nổ.
+        # Việc hạ LoRA LR (vd: x0.1) giúp ngăn chặn lỗi NaN mà không ảnh hưởng tốc độ học của Head.
         # ---------------------------------------------------------------
         head_lr_multiplier = getattr(self, 'head_lr_multiplier', 1.0)
-        if head_lr_multiplier != 1.0:
+        lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 0.1)  # Giảm 10 lần cho LoRA để chống nổ SVD
+        
+        if head_lr_multiplier != 1.0 or lora_lr_multiplier != 1.0:
             id_to_name = {id(p): n for n, p in model.named_parameters()}
             # Detect head nằm ở layer cuối (yolo12n: model.22, YOLO12l: model.21)
             head_patterns = ('model.21.', 'model.22.', 'model.23.')
             new_groups = []
+            
             for group in optimizer.param_groups:
-                head_p  = [p for p in group['params']
-                           if any(h in id_to_name.get(id(p), '') for h in head_patterns)
-                           and 'lora_' not in id_to_name.get(id(p), '')]
-                head_p_ids = set(id(x) for x in head_p)
-                other_p = [p for p in group['params'] if id(p) not in head_p_ids]
+                head_p = []
+                lora_p = []
+                other_p = []
+                
+                for p in group['params']:
+                    name = id_to_name.get(id(p), '')
+                    if 'lora_' in name:
+                        lora_p.append(p)
+                    elif any(h in name for h in head_patterns):
+                        head_p.append(p)
+                    else:
+                        other_p.append(p)
+                        
                 if other_p:
                     g = {k: v for k, v in group.items() if k != 'params'}
                     g['params'] = other_p
@@ -231,9 +242,15 @@ class CustomDetectionTrainer(DetectionTrainer):
                     g['params'] = head_p
                     g['lr'] = group.get('lr', lr) * head_lr_multiplier
                     new_groups.append(g)
+                if lora_p:
+                    g = {k: v for k, v in group.items() if k != 'params'}
+                    g['params'] = lora_p
+                    g['lr'] = group.get('lr', lr) * lora_lr_multiplier
+                    new_groups.append(g)
+                    
             optimizer.param_groups = new_groups
-            print(f"[DiffLR] Head LR boosted ×{head_lr_multiplier} → "
-                  f"LoRA lr={lr:.2e} | Head lr={lr * head_lr_multiplier:.2e}")
+            print(f"[DiffLR] Head LR boosted ×{head_lr_multiplier}, LoRA scaled ×{lora_lr_multiplier} → "
+                  f"LoRA lr={lr * lora_lr_multiplier:.2e} | Head lr={lr * head_lr_multiplier:.2e} | Base={lr:.2e}")
 
         # Loại bỏ các parameter đã bị đóng băng (requires_grad=False) khỏi optimizer param_groups
         real_trained_count = 0
@@ -517,6 +534,15 @@ def evaluate_od(student_model, test_yaml: str, device: str = "cpu") -> dict:
     mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
     mr = float(np.mean(results.box.mr)) if hasattr(results.box, 'mr') else 0.0
     
+    # [FAIL-FAST] Nếu mAP50 rớt về 0.0, chắc chắn model đã bị hỏng trọng số!
+    map50 = float(results.box.map50)
+    if map50 < 1e-5:
+        raise RuntimeError(
+            f"[CRITICAL ERROR] Model evaluation resulted in {map50:.4f} mAP50! "
+            f"This indicates the model weights have been severely corrupted "
+            f"(e.g. exploding gradients or SVD scale divergence). Aborting FL."
+        )
+        
     return {
         'mAP50-95': float(results.box.map),
         'mAP50': float(results.box.map50),
