@@ -136,6 +136,7 @@ class StudentModel:
         # Nhánh Classification (cv3)
         '.cv3.0.2.weight', '.cv3.1.2.weight', '.cv3.2.2.weight',
         '.cv3.0.2.bias',   '.cv3.1.2.bias',   '.cv3.2.2.bias',
+        '.cv3.0.1.1.conv.weight', '.cv3.1.1.1.conv.weight', '.cv3.2.1.1.conv.weight',
         # Nhánh One2One (nếu YOLO11/YOLO12 có)
         '.one2one_cv2.0.2.weight', '.one2one_cv2.1.2.weight', '.one2one_cv2.2.2.weight',
         '.one2one_cv2.0.2.bias',   '.one2one_cv2.1.2.bias',   '.one2one_cv2.2.2.bias',
