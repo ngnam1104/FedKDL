@@ -150,17 +150,6 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
         use_lora=True,
     )
     
-    # [CRITICAL HOTFIX] 
-    # Giống như Warmup, vì Centralized LoRA khởi chạy từ yolo12n.pt (khởi tạo lại Head cho nc=4),
-    # ta phải mở khóa TOÀN BỘ Detection Head để các layer trung gian không bị kẹt ở trạng thái ngẫu nhiên.
-    original_is_payload = student._is_payload_key
-    def _centralized_is_payload(k: str) -> bool:
-        if original_is_payload(k): return True
-        head_idx = len(student.yolo.model.model) - 1
-        if f'model.{head_idx}.' in k: return True
-        return False
-    student._is_payload_key = _centralized_is_payload
-
     overrides = {
         'model': ckpt_path,
         'data': str(full_yaml),
