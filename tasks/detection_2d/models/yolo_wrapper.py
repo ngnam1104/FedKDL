@@ -75,7 +75,7 @@ class StudentModel:
             # Ta tự động chuyển sang tiêm LoRA toàn diện ('Conv', strategy='all') nếu là bản 'n'.
             is_nano = '12n' in ckpt.lower() or '11n' in ckpt.lower() or '8n' in ckpt.lower()
             
-            actual_strategy = "all" if is_nano else "adaptive"
+            actual_strategy = "adaptive"  # [UPDATE] Đồng bộ sử dụng chung chiến lược adaptive cho mọi phiên bản YOLO
             actual_targets = ['Conv'] if is_nano else lora_targets
             
             # FlexLoRA: Không khóa seed, cho phép A khởi tạo ngẫu nhiên và được train độc lập ở mỗi AUV
@@ -128,14 +128,13 @@ class StudentModel:
         # FlexLoRA gửi cả lora_A và lora_B lên Server để phân rã SVD
         if ('lora_B' in k or 'lora_A' in k) and self.use_lora:
             return True
-        # Gửi toàn bộ BatchNorm của Detection Head lên Server để tổng hợp (FedBN -> Global BN)
-        # [CRITICAL FIX] Trích xuất TOÀN BỘ BatchNorm running_mean / running_var của mạng!
-        # Nếu chỉ trích xuất BN của Head, Backbone sẽ dùng BN cũ của yolo12n.pt trong lúc val(),
-        # gây ra mAP 0.0000 do lệch feature maps!
-        if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k:
-            return True
-        if 'bn' in k and ('weight' in k or 'bias' in k):
-            return True
+        
+        # [CRITICAL FIX] KHÔNG GỬI BatchNorm của Backbone lên Server!
+        # Do Backbone đã bị đóng băng bằng FrozenBatchNorm2d, các giá trị running_mean/var
+        # sẽ luôn luôn bất biến bằng với pre-trained gốc. Việc gửi đi là dư thừa và làm tăng
+        # số lượng tham số payload một cách vô ích.
+        
+        # CHỈ GỬI các thông số của Detection Head (Nơi thực sự được train).
         for suffix in self._HEAD_OUTPUT_SUFFIXES:
             if k.endswith(suffix):
                 return True
