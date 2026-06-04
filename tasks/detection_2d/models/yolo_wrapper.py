@@ -115,33 +115,32 @@ class StudentModel:
         print(f"[StudentModel] Trainable ({mode_str}): {trainable:,} / {total:,} params "
               f"({100*trainable/total:.1f}%)")
 
-    # Keys của lớp output classifier trong YOLO26 Detect head (nc-specific):
-    #   cv3.0.2, cv3.1.2, cv3.2.2  (one2many branch)
-    #   one2one_cv3.0.2, one2one_cv3.1.2, one2one_cv3.2.2  (one2one branch)
-    # Tổng kích thước: ~2KB INT8 (nc=4, URPC2020)
     _HEAD_OUTPUT_SUFFIXES = (
+        # Nhánh Box Regression (cv2)
+        '.cv2.0.2.weight', '.cv2.1.2.weight', '.cv2.2.2.weight',
+        '.cv2.0.2.bias',   '.cv2.1.2.bias',   '.cv2.2.2.bias',
+        # Nhánh Classification (cv3)
         '.cv3.0.2.weight', '.cv3.1.2.weight', '.cv3.2.2.weight',
         '.cv3.0.2.bias',   '.cv3.1.2.bias',   '.cv3.2.2.bias',
+        # Nhánh One2One (nếu YOLO11/YOLO12 có)
+        '.one2one_cv2.0.2.weight', '.one2one_cv2.1.2.weight', '.one2one_cv2.2.2.weight',
+        '.one2one_cv2.0.2.bias',   '.one2one_cv2.1.2.bias',   '.one2one_cv2.2.2.bias',
         '.one2one_cv3.0.2.weight', '.one2one_cv3.1.2.weight', '.one2one_cv3.2.2.weight',
         '.one2one_cv3.0.2.bias',   '.one2one_cv3.1.2.bias',   '.one2one_cv3.2.2.bias',
     )
 
     def _is_payload_key(self, k: str) -> bool:
-        # FlexLoRA gửi cả lora_A và lora_B lên Server để phân rã SVD
+        # FlexLoRA gửi lora_A và lora_B lên Server để phân rã SVD
         if ('lora_B' in k or 'lora_A' in k) and self.use_lora:
             return True
         
-        # [CRITICAL FIX] Toàn bộ Detection Head phải được train (bao gồm cả nhánh Box cv2 và nhánh Class cv3).
-        # Nếu chỉ train cv3 (Class) mà đóng băng cv2 (Box), LoRA ở Neck sẽ làm sai lệch features
-        # khiến nhánh Box của COCO dự đoán sai hoàn toàn -> mAP = 0.0000.
-        head_idx = len(self.yolo.model.model) - 1
-        head_prefix = f'model.{head_idx}'
-        
-        if head_prefix in k:
-            # Ngoại trừ dfl.conv.weight (tensor hằng số dùng để decode Box, không bao giờ được train)
-            if 'dfl.conv' in k:
-                return False
-            return True
+        # [CRITICAL FIX] CHỈ GỬI CÁC LAYER ĐẦU RA CUỐI CÙNG (FINAL OUTPUTS)
+        # Gửi toàn bộ Detection Head tốn 558,000 params (quá nặng).
+        # Chỉ gửi nhánh đầu ra của Box (.cv2.*.2) và Class (.cv3.*.2) tốn 32,000 params.
+        # Khắc phục triệt để mAP=0 mà vẫn giữ mảng truyền tải (Payload) siêu nhỏ!
+        for suffix in self._HEAD_OUTPUT_SUFFIXES:
+            if k.endswith(suffix):
+                return True
             
         return False
 
