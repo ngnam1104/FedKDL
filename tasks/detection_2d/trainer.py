@@ -82,8 +82,15 @@ class CustomDetectionTrainer(DetectionTrainer):
             
         return super().validate()
 
-    # (Moved to the merged optimizer_step method below)
-
+    def setup_model(self):
+        ckpt = super().setup_model()
+        # [FIX BUG] Trong lúc warmup / centralized lora, model được khởi tạo trên CPU
+        # nên model.criterion (chứa self.proj) bị mắc kẹt ở CPU, gây lỗi lúc validate.
+        # Ta ép model chuyển sang device trước và khởi tạo lại criterion.
+        self.model = self.model.to(self.device)
+        if hasattr(self.model, 'init_criterion'):
+            self.model.criterion = self.model.init_criterion()
+        return ckpt
     def _setup_train(self):
         from ultralytics.utils import LOGGER
 
