@@ -146,11 +146,63 @@ def blend_state_dicts(
     alpha: float = 0.8,
 ) -> Dict[str, torch.Tensor]:
     """
-    Phép trộn trực tiếp trên state dicts (không cần model object).
+    Phép trộn trực tiếp trên state dicts.
+    [CRITICAL FIX] Nếu trộn LoRA, phải khôi phục ΔW = B*A, trộn ΔW, rồi SVD lại để bảo toàn không gian (Subspace Alignment).
     """
     blended = {}
-    for key in self_sd:
+    all_keys = list(self_sd.keys())
+    lora_B_keys = [k for k in all_keys if 'lora_B' in k]
+    
+    # 1. Trộn các tham số phi LoRA (Detection Head)
+    for key in all_keys:
+        if 'lora_B' in key or 'lora_A' in key:
+            continue
         blended[key] = alpha * self_sd[key].float() + (1.0 - alpha) * neighbor_sd[key].float()
+        
+    # 2. Trộn LoRA qua phép chiếu SVD
+    for b_key in lora_B_keys:
+        a_key = b_key.replace('lora_B', 'lora_A')
+        
+        # Khôi phục W của bản thân
+        B_self = self_sd[b_key].double()
+        A_self = self_sd[a_key].double()
+        W_self = torch.matmul(B_self, A_self)
+        
+        # Khôi phục W của láng giềng
+        B_nbr = neighbor_sd[b_key].double()
+        A_nbr = neighbor_sd[a_key].double()
+        W_nbr = torch.matmul(B_nbr, A_nbr)
+        
+        # Trộn ma trận W
+        W_blend = alpha * W_self + (1.0 - alpha) * W_nbr
+        W_blend = torch.nan_to_num(W_blend, nan=0.0, posinf=0.0, neginf=0.0)
+        W_blend = torch.clamp(W_blend, min=-10.0, max=10.0).float()
+        
+        # Khai triển SVD lại W_blend
+        rank = B_self.shape[1]
+        try:
+            U, S, Vh = torch.linalg.svd(W_blend, full_matrices=False)
+            sqrt_S = torch.sqrt(S)
+            
+            M = S.shape[0]
+            if M < rank:
+                out_features = B_self.shape[0]
+                in_features = A_self.shape[1]
+                B_new = torch.zeros((out_features, rank), dtype=torch.float32, device=B_self.device)
+                A_new = torch.zeros((rank, in_features), dtype=torch.float32, device=A_self.device)
+                B_new[:, :M] = U * sqrt_S.unsqueeze(0)
+                A_new[:M, :] = sqrt_S.unsqueeze(1) * Vh
+            else:
+                B_new = U[:, :rank] * sqrt_S[:rank].unsqueeze(0)
+                A_new = sqrt_S[:rank].unsqueeze(1) * Vh[:rank, :]
+        except RuntimeError:
+            # Fallback nếu SVD fail đột ngột (thường hiếm khi xảy ra vì đã clamp)
+            B_new = self_sd[b_key].float()
+            A_new = self_sd[a_key].float()
+            
+        blended[b_key] = B_new.to(self_sd[b_key].dtype)
+        blended[a_key] = A_new.to(self_sd[a_key].dtype)
+        
     return blended
 
 
