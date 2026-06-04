@@ -83,6 +83,15 @@ class CustomDetectionTrainer(DetectionTrainer):
             
         return super().validate()
 
+    def setup_model(self):
+        ckpt = super().setup_model()
+        # [FIX BUG] Ultralytics khởi tạo model trên CPU ở round đầu tiên,
+        # khiến `model.criterion.proj` (1 tensor thường) bị kẹt ở CPU.
+        # Khi _setup_train tạo EMA, nó copy luôn tensor lỗi này sang EMA.
+        # Ta phải fix device NGAY TẠI ĐÂY (trước khi tạo EMA).
+        self.model = _fl_prepare_model_for_train(self.model, self.device)
+        return ckpt
+
 
     def _setup_train(self):
         from ultralytics.utils import LOGGER
@@ -97,10 +106,10 @@ class CustomDetectionTrainer(DetectionTrainer):
         finally:
             LOGGER.warning = original_warning
 
-        # Ultralytics _setup_train có thể thay self.model; khôi phục FL model + criterion đồng device.
         if injected is not None:
-            self.model = _fl_prepare_model_for_train(injected, self.device)
-        else:
+            # Restore lại model đã inject LoRA sau khi _setup_train cố override nó
+            self.model = injected
+            # Đảm bảo device của injected model
             self.model = _fl_prepare_model_for_train(self.model, self.device)
 
         # Inject optimizer state từ round trước (keyed by param name) để simulate
