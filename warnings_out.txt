@@ -1,3 +1,0 @@
-465: [SVD Warning] Fallback to standard FedAvg.
-2: /kaggle/working/FedKDL/tasks/detection_2d/knowledge_compression/knowledge_association.py:83: RuntimeWarning: invalid value encountered in multiply
-2: WARNING ⚠️ <span class="ansi-blue-intense-fg ansi-bold">val: </span>Cache directory /kaggle/input/datasets/lywang777/urpc2020/URPC2020/valid is not writable, cache not saved.
