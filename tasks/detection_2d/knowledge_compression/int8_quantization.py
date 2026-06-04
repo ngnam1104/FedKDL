@@ -192,12 +192,13 @@ def pack_payload(state_dict: Dict[str, torch.Tensor]) -> Tuple[bytes, float]:
                 f"Aborting FL round to prevent corrupting the Global Model."
             )
             
-        # [CRITICAL FIX] Bỏ qua Quantization cho BatchNorm! 
-        # Nếu Variance bị ép về INT8 sẽ làm mất các giá trị nhỏ -> làm feature map bùng nổ (division by zero) -> mAP = 0.
+        # [CRITICAL FIX] Bỏ qua Quantization INT8 cho BatchNorm! 
+        # Nếu Variance bị ép về INT8 sẽ làm mất các giá trị nhỏ -> làm feature map bùng nổ -> mAP = 0.
         if 'bn' in key or 'running' in key or 'tracked' in key:
-            # Ghi ra raw bytes (cùng float32) mà không cần header scale/zero_point
-            tensor_f32 = tensor.float().cpu().numpy()
-            buf.extend(tensor_f32.tobytes())
+            # [HOTFIX] Ghi ra raw bytes dạng Float16 (2 bytes) thay vì Float32 (4 bytes) 
+            # để tiết kiệm băng thông, giúp tổng Payload (kèm các Conv layer mới) chui lọt mốc 200KB!
+            tensor_f16 = tensor.half().cpu().numpy()
+            buf.extend(tensor_f16.tobytes())
         else:
             qt = quantize_tensor(tensor)
             # 8 bytes header: scale (float32=4B) + zero_point (int32=4B)
@@ -225,14 +226,14 @@ def unpack_payload(payload: bytes,
     for key in sorted(template.keys()):
         tmpl = template[key]
         if 'bn' in key or 'running' in key or 'tracked' in key:
-            # BatchNorm parameters were stored as raw float32 bytes
+            # BatchNorm parameters were stored as raw float16 bytes
             numel = tmpl.numel()
-            byte_size = numel * 4  # float32 = 4 bytes
+            byte_size = numel * 2  # float16 = 2 bytes
             q_bytes = payload[offset: offset + byte_size]
             offset += byte_size
             
-            f32_arr = np.frombuffer(q_bytes, dtype=np.float32).copy()
-            recovered[key] = torch.from_numpy(f32_arr).reshape(tmpl.shape)
+            f16_arr = np.frombuffer(q_bytes, dtype=np.float16).copy()
+            recovered[key] = torch.from_numpy(f16_arr.astype(np.float32)).reshape(tmpl.shape)
             
             # Khôi phục kiểu dữ liệu gốc (VD: num_batches_tracked là int64)
             if tmpl.dtype == torch.int64:
