@@ -29,7 +29,7 @@ class NumpyEncoder(json.JSONEncoder):
 def parse_args():
     parser = argparse.ArgumentParser("FedKDL OD Trainer")
     parser.add_argument("--topo", type=str, required=True, help="Đường dẫn file topo (.pkl)")
-    parser.add_argument("--data", type=str, required=True, help="Đường dẫn file data partition (.pkl)")yê
+    parser.add_argument("--data", type=str, required=True, help="Đường dẫn file data partition (.pkl)")
     parser.add_argument("--baseline", type=str, required=True, help="fedkdl hoặc baseline_od")
     parser.add_argument("--rounds", type=int, default=None, help="Ghi đè số vòng (GLOBAL_ROUNDS)")
     parser.add_argument("--out-dir", type=str, default="results/logs_kdl",
