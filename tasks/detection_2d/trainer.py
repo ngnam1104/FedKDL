@@ -219,8 +219,8 @@ class CustomDetectionTrainer(DetectionTrainer):
         # Khi dùng SVD, ma trận B và A đều dense, khiến Effective LR của LoRA bùng nổ.
         # Việc hạ LoRA LR (vd: x0.1) giúp ngăn chặn lỗi NaN mà không ảnh hưởng tốc độ học của Head.
         # ---------------------------------------------------------------
-        head_lr_multiplier = getattr(self, 'head_lr_multiplier', 1.0)
-        lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 0.5)  # AdamW tự cân bằng tốt, không cần giảm 10 lần nữa
+        head_lr_multiplier = getattr(self, 'head_lr_multiplier', 5.0)  # Tăng Head LR lên 0.01 (Base 0.002 * 5.0)
+        lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 0.2)  # Hệ số LoRA 0.2 để tránh nổ FP16
         
         if head_lr_multiplier != 1.0 or lora_lr_multiplier != 1.0:
             id_to_name = {id(p): n for n, p in model.named_parameters()}

@@ -93,7 +93,7 @@ def run_warmup(epochs: int):
     )
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
-    trainer.head_lr_multiplier = 1.0
+    # trainer.head_lr_multiplier = 1.0  # Commented out to use trainer.py default
 
     print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {full_yaml.name} (LoRA lr=2e-3 | Head lr=2e-3)")
     trainer.train()
@@ -191,7 +191,7 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     )
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
-    trainer.head_lr_multiplier = 1.0  # Head LR = 2e-3 * 1.0 = 2e-3 (Cân bằng với LoRA)
+    # trainer.head_lr_multiplier = 1.0  # Commented out to use trainer.py default
 
     trainer.train()
     
