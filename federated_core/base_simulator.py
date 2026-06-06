@@ -287,9 +287,24 @@ class BaseSimulator(ABC):
             mean_c = compute_mean_cluster_size(cluster_sizes)
             q1_dist = compute_q1_relay_distance(self.G)
 
-            # Nội cụm (Intra-cluster)
+            # Nội cụm (Intra-cluster) + deduct SVD energy from Relay battery
+            from physics_models.energy import e_tx, e_svd
+            dead_relays = []
+            e_svd_total = 0.0
             for m, relay in self.relays.items():
+                if not relay.alive:
+                    dead_relays.append(m)
+                    print(f"[!] Relay {m} ĐÃ CHẾT (pin = {relay.battery:.1f} J). Cụm {relay.cluster_members} bỏ qua vòng này.")
+                    continue
                 e_r2r_total += self._aggregate_intra_relay(m, relay, payloads, auv_n_samples)
+                # Temp SVD + Final SVD energy (2 calls per round)
+                # Representative dimensions: Neck layers dominant (d_out~256, d_in~128)
+                e_svd_cost = e_svd(
+                    d_out=256, d_in=128, n_svd_calls=2,
+                    epsilon_op=self.en_cfg.EPSILON_OP.get(self.task_key, 2.0e-12)
+                )
+                relay.deduct_battery(e_svd_cost, min_battery=self.en_cfg.RELAY_E_MIN)
+                e_svd_total += e_svd_cost
 
             # Liên cụm (Inter-cluster Cooperation)
             if 'selective' in self.baseline:
@@ -299,11 +314,15 @@ class BaseSimulator(ABC):
             else:
                 coop_rule = 'nocoop'
             
-            all_intra = {m: relay.intra_state_dict for m, relay in self.relays.items() if relay.intra_state_dict is not None}
-            from physics_models.energy import e_tx
+            # Chỉ lấy state dict của relay còn sống
+            all_intra = {
+                m: relay.intra_state_dict
+                for m, relay in self.relays.items()
+                if relay.alive and relay.intra_state_dict is not None
+            }
             
             for m, relay in self.relays.items():
-                if relay.intra_state_dict is None:
+                if not relay.alive or relay.intra_state_dict is None:
                     continue
                 did_coop, partner_id = relay.cooperate(
                     rule=coop_rule,
@@ -320,23 +339,27 @@ class BaseSimulator(ABC):
                     key = link_key_fwd if link_key_fwd in self.G else (link_key_bwd if link_key_bwd in self.G else None)
                     if key:
                         link = self.G[key]
-                        e_r2r_total += e_tx(
+                        e_coop_tx = e_tx(
                             self._compute_relay_model_bits(), link.R_bps, link.SL_min,
                             self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
                         )
+                        e_r2r_total += e_coop_tx
+                        relay.deduct_battery(e_coop_tx, min_battery=self.en_cfg.RELAY_E_MIN)
             
-            # Tính năng lượng gửi Relay -> Gateway
-            from physics_models.energy import e_tx
+            # Tính năng lượng gửi Relay -> Gateway và trừ vào pin Relay
             if not self.is_flat:
                 for m, relay in self.relays.items():
-                    if relay.final_state_dict is not None:
-                        link_key = ('relay', m, 'gateway', 0)
-                        if link_key in self.G:
-                            link = self.G[link_key]
-                            e_r2g_total += e_tx(
-                                self._compute_relay_model_bits(), link.R_bps, link.SL_min,
-                                self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
-                            )
+                    if not relay.alive or relay.final_state_dict is None:
+                        continue
+                    link_key = ('relay', m, 'gateway', 0)
+                    if link_key in self.G:
+                        link = self.G[link_key]
+                        e_r2g_cost = e_tx(
+                            self._compute_relay_model_bits(), link.R_bps, link.SL_min,
+                            self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
+                        )
+                        e_r2g_total += e_r2g_cost
+                        relay.deduct_battery(e_r2g_cost, min_battery=self.en_cfg.RELAY_E_MIN)
 
             # --- Phase 3: Global Aggregation ---
             relay_final = {m: relay.final_state_dict for m, relay in self.relays.items() if relay.final_state_dict is not None}
@@ -364,12 +387,16 @@ class BaseSimulator(ABC):
                 flop_multiplier=self.get_flop_multiplier(),
                 f_cpu=self.en_cfg.F_CPU
             )
-            
+            # Độ trễ điện toán tại Relay — τ_comp,m (physics_models/latency.py)
+            from physics_models.latency import relay_comp_delay
+            tau_svd = relay_comp_delay(f_cpu=self.en_cfg.F_CPU)
+
             latency_info = self.latency_tracker.compute_round_latency(
                 G=self.G,
                 association={s: self.association[s] for s in alive_auvs if s in self.association},
                 cooperation_partners=cooperation_partners,
                 tau_comp=tau_comp,
+                tau_svd=tau_svd,
                 auv_payload_bits=avg_payload_bits,
                 relay_model_bits=relay_model_bits,
             )
@@ -410,7 +437,8 @@ class BaseSimulator(ABC):
             # joint_cost_round là đóng góp của round t vào tổng trên (chưa gộp F(θ^T)).
             # F(θ^T) = avg validation/training loss tại round T  —  đại diện bằng 'loss'.
             # ─────────────────────────────────────────────────────────────────────────
-            e_round_total = e_a2r_total + e_r2r_total + e_r2g_total + e_comp_total
+            # Năng lượng vòng = Truyền thông + Tính toán AUV + Tính toán Relay
+            e_round_total = e_a2r_total + e_r2r_total + e_r2g_total + e_comp_total + e_svd_total
             round_loss    = float(np.mean(avg_losses)) if avg_losses else 0.0
             lambda_e      = self.fed_cfg.LAMBDA_E
             lambda_tau    = self.fed_cfg.LAMBDA_TAU
@@ -443,6 +471,7 @@ class BaseSimulator(ABC):
                 'e_r2r':   e_r2r_total,   # Relay ↔ Relay cooperation TX energy
                 'e_r2g':   e_r2g_total,   # Relay → Gateway TX energy
                 'e_comp':  e_comp_total,  # Local computation energy (all active auvs)
+                'e_svd':   e_svd_total,   # Relay SVD computation energy
                 'e_cumul': self.energy_tracker.cumulative_energy,
 
                 # ── Joint Cost — Eq. 22 (λ_E, λ_τ weighted) ─────────────────────

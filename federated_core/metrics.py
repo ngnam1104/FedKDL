@@ -213,9 +213,10 @@ class LatencyTracker:
         association: Dict[int, int],
         cooperation_partners: Dict[int, int],
         tau_comp: float,
+        tau_svd: float,
         auv_payload_bits: float,
         relay_model_bits: float,
-    ) -> float:
+    ) -> dict:
         """
         Tính τ_round theo Eq. 21.
 
@@ -288,13 +289,14 @@ class LatencyTracker:
         max_a2r = max(a2r_per_relay.values()) if a2r_per_relay else 0.0
         max_r2r = max(r2r_per_relay.values()) if r2r_per_relay else 0.0
         
-        tau_round = (max(per_relay_total) if per_relay_total else 0.0) + tau_comp
+        tau_round = (max(per_relay_total) if per_relay_total else 0.0) + tau_comp + tau_svd
         return {
             'tau_round': tau_round,
             'tau_a2r': max_a2r,
             'tau_r2r': max_r2r,
             'tau_r2g': max_r2g,
-            'tau_comp': tau_comp
+            'tau_comp': tau_comp,
+            'tau_svd': tau_svd
         }
 
     def add_round(self, round_idx: int, latency_info: dict):

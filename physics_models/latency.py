@@ -40,6 +40,30 @@ def comp_delay_dynamic(n_samples: int,
     return total_flops / f_cpu
 
 
+def relay_comp_delay(d_out: int = 256, d_in: int = 128,
+                     n_svd_calls: int = 2,
+                     f_cpu: float = 2.0e9) -> float:
+    """
+    Độ trễ tính toán tại trạm Relay  —  τ_comp,m = Φ_m / f_cpu.
+
+    Khối lượng công việc Phi_m bao gồm các bước tổng hợp mô hình
+    (xấp xỉ bằng FLOPs của phân rã không gian con, thực hiện 2 lần mỗi vòng):
+        Φ_m ≈ n_svd_calls × 6 × d_out × d_in × min(d_out, d_in)
+
+    Args:
+        d_out:       Chiều output của lớp đại diện (default: 256).
+        d_in:        Chiều input của lớp đại diện (default: 128).
+        n_svd_calls: Số lần xử lý mỗi vòng lặp (default: 2).
+        f_cpu:       Xung nhịp CPU tại Relay.
+
+    Returns:
+        τ_comp,m in seconds.
+    """
+    k = min(d_out, d_in)
+    phi_m = n_svd_calls * 6 * d_out * d_in * k
+    return phi_m / f_cpu
+
+
 
 def round_delay(
     auv_delays: List[float],

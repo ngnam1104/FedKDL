@@ -1,33 +1,28 @@
-# Kế hoạch Hoàn thiện Bài báo FedKDL (Q1 Paper)
+Cấu trúc 4 Kịch bản Tinh chỉnh:
+Kịch bản 1: Rào cản Không gian và Năng lượng của Kiến trúc Phẳng (Topology & Non-IID)
 
-Danh sách 7 Sơ đồ Kiến trúc (Conceptual Figures) mang tính quyết định để ăn điểm Reviewers:
+Mục tiêu: Chứng minh mạng Phẳng (Flat) là bất khả thi dưới biển.
+Thiết lập: So sánh kiến trúc HFL của FedKDL với các thuật toán Flat (FedAvg, FedProx, SCAFFOLD).
+Luận điểm: Các kiến trúc phẳng bắt AUV truyền thẳng lên mặt nước, đòi hỏi công suất âm thanh khổng lồ $\rightarrow$ Vắt kiệt pin cực nhanh. Hơn nữa, do sóng yếu, tỷ lệ rớt gói (Packet Loss) cực cao khiến Gateway không nhận đủ gradient, cộng thêm dữ liệu bị Non-IID theo độ sâu $\rightarrow$ Mô hình phân kỳ hoàn toàn.
+Kịch bản 2: Giải phẫu Cơ chế Nén và Sai lệch Không gian con (Compression & Subspace Misalignment)
 
-- [ ] **Sơ đồ 0: Mối liên hệ giữa FL và SSL ở phần Intro**
-  - *Tên:* The motivation of combining Federated Learning (FL) and Semi-Supervised Learning (SSL) in IoUT.
-  - *Mô tả:* Sơ đồ chứng minh sự cấp thiết của bài toán, so sánh luồng gửi dữ liệu thô tốn kém với việc tận dụng học máy tại chỗ (SSL) và kết hợp liên kết cục bộ (FL) dưới môi trường nước sâu.
-- [ ] **Sơ đồ 1: Kiến trúc Tổng quan IoUT**
-  - *Tên:* The Overall Architecture of FedKDL in Internet of Underwater Things (IoUT).
-  - *Mô tả:* Bức tranh toàn cảnh 3 tầng nước (Deep Layer: AUV đóng băng mạng + LoRA, Mid-water: Relay với SVD-LoRA, Surface: Gateway với bộ não Teacher/Student và LoRA-Projection KD).
-- [x] **Sơ đồ 2: Kênh truyền Vật lý & Nhiễu Wenz**
-  - *Tên:* Physical Link and Feasibility Graph under Thorp-Wenz Noise.
-  - *Mô tả:* Đồ thị liên kết mạng, đường truyền ngắn xanh, đường dài đỏ vỡ vụn do hàm rào cản nhiễu Wenz.
-- [] **Sơ đồ 3: Phân mảnh Dữ liệu Sinh thái Biển sâu (Non-IID)** (Còn lỗi, cần sửa sau)
-  - *Tên:* Depth-Habitat Non-IID Data Distribution model via Gaussian-Dirichlet mechanisms.
-  - *Mô tả:* Lát cắt đại dương, các đường Gaussian đại diện cho sinh vật theo độ sâu để giải thích sự phân mảnh Non-IID.
-- [x] **Sơ đồ 4: Giải phẫu mạng YOLO tiêm LoRA và Lượng tử hóa** (Đã vẽ bằng TikZ)
-  - *Tên:* Low-Rank Adaptation and Asymmetric Delta INT8 Quantization on YOLO Backbone.
-  - *Mô tả:* Bóc tách phần "ruột" AI tại AUV. Luồng bypass với hình thang A, B và khối lượng tử hóa INT8.
-- [x] **Sơ đồ 5: Tổng hợp chéo SVD-LoRA tại Relay** (Đã vẽ bằng TikZ)
-  - *Tên:* Subspace Misalignment Correction via SVD-LoRA Aggregation at Relay Nodes.
-  - *Mô tả:* Minh họa sự vượt trội của FedKDL (SVD tái phân rã) so với FedAvg truyền thống.
-- [x] **Sơ đồ 6: Chưng cất Tri thức qua LoRA-Projection tại Gateway** (Đã vẽ bằng TikZ)
-  - *Tên:* LoRA-Projection Knowledge Distillation mechanism at Surface Gateway.
-  - *Mô tả:* Teacher và Student chưng cất tri thức trực tiếp qua điểm neo $h = A \cdot x$ để tránh tràn RAM.
-- [] **Sơ đồ 7: Kiến trúc Tổng thể YOLOv12 tiêm Adaptive LoRA** (Đã vẽ bằng TikZ)
-  - *Tên:* Full YOLOv12 Architecture with Adaptive LoRA Injection and Asymmetric Quantization.
-  - *Mô tả:* Sơ đồ luồng dữ liệu toàn bộ mạng YOLOv12 (Backbone, PAN-FPN Neck, Head) kèm các khối LoRA bypass và trích xuất $\Delta W_q$.
+Mục tiêu: Chứng minh SVD-LoRA là cơ chế nén tối ưu nhất.
+Thiết lập: Tất cả các baseline trong Kịch bản 2 đều được đặt trên kiến trúc HFL 3 tầng (để đảm bảo không rớt gói, giả định lý tưởng). Ta so sánh: HFL + Full Parameter, HFL + Top-K (Sparsification), HFL + Naive LoRA, và HFL + SVD-LoRA.
+Luận điểm:
+Full Param: Vẫn tốn quá nhiều pin viễn thông để truyền hàng MB dữ liệu qua Relay.
+Top-K: Phải tính toán toàn bộ đạo hàm ngược (Backprop) ở AUV rồi mới lọc, gây hao pin CPU. Việc vứt bỏ ngẫu nhiên ma trận cũng làm hỏng đặc trưng không gian 2D.
+Naive LoRA: Nén tốt, nhưng lấy trung bình trực tiếp sinh ra sai lệch tích chéo (cross-terms mismatch) khiến mAP phân kỳ.
+SVD-LoRA (FedKDL): Triệt tiêu hoàn toàn lỗi toán học, duy trì mAP tiệm cận với Centralized.
+Kịch bản 3: Nút thắt Chưng cất Tri thức Thị giác 2D (Knowledge Distillation Mismatch)
 
-## Các công việc khác
+Mục tiêu: Khẳng định sự thất bại của các kỹ thuật KD cũ trên bài toán Object Detection.
+Thiết lập: Áp dụng HFL + SVD-LoRA, thay đổi bộ KD ở Gateway: Không dùng KD, dùng Logit-KD (FedMD), dùng Feature-KD (FedProto), và LoRA-Projection KD (FedKDL).
+Luận điểm:
+Logit-KD: Bị "thiếu máu" thông tin vì object detection cần trích xuất không gian cực dày đặc (dense prediction).
+Feature-KD: Gây xung đột chiều dữ liệu (Feature Mismatch) vì mạng Teacher (YOLO12l) và Student (YOLO12n) khác nhau về số kênh (channels). Ép khớp feature map gây tràn RAM.
+LoRA-Projection KD: Khớp nối mượt mà qua các không gian con hạng thấp, giúp Student thừa hưởng sức mạnh thị giác ưu việt.
+Kịch bản 4: Đánh giá Chi phí Tổng thể (Joint Cost Assessment)
 
-- [ ] Chèn 7 khung `\begin{figure}` vào file `FedKDL.tex` với Caption chuẩn hàn lâm.
-- [ ] Chạy code Python và plot đồ thị cho 7 Kịch bản Thực nghiệm.
+Mục tiêu: Tổng kết toàn diện bài toán tối ưu hóa.
+Thiết lập: Tính toán hàm chi phí $F = \text{Energy} + \text{Latency}$ từ kết quả của cả 3 kịch bản trên.
+Luận điểm: Đồ thị hóa chi phí tổng thể qua từng vòng lặp. FedKDL là hệ thống duy nhất liên tục suy giảm chi phí $F$ và duy trì tuổi thọ cho bầy đàn IoUT.

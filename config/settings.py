@@ -42,9 +42,11 @@ class AcousticChannelConfig:
 @dataclass
 class EnergyConfig:
     """Năng lượng — dùng bởi simulator 1D/2D, base_simulator, main_trainer*."""
-    E_INIT: float = 1500.0           # J — pin khởi tạo AUV
-    E_MIN: float = 50.0              # J — ngưỡng dự trữ khẩn cấp
-    EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-11, "2D": 2.0e-12})
+    E_INIT: float = 4000.0           # J — ngân sách năng lượng FL mỗi chu kỳ triển khai AUV (~72 vòng)
+    RELAY_E_INIT: float = 2000.0     # J — pin Relay (đủ cho >100 vòng)
+    E_MIN: float = 50.0              # J — ngưỡng dự trữ khẩn cấp (AUV)
+    RELAY_E_MIN: float = 50.0        # J — ngưỡng dự trữ khẩn cấp (Relay)
+    EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-28, "2D": 1.0e-28})
     F_CPU: float = 2.0e9             # Hz — CPU AUV (Gateway nhân ×5 trong main_trainer)
     P_C_TX: float = 0.05             # W — mạch phát (e_tx)
     P_C_RX: float = 0.03             # W — mạch thu (e_rx, chưa dùng trong FL loop)

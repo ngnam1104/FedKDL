@@ -85,38 +85,62 @@ def e_rx(S_bits: float, R_bps: float,
 #  Năng lượng điện toán (Computation Energy)
 # ──────────────────────────────────────────────────────────────────────
 
-def e_comp_dynamic(n_samples: int,
-                   n_local_epochs: int,
-                   flops_per_sample: float,
-                   epsilon_op: float,
-                   flop_multiplier: float = 3.0) -> float:
+def e_comp(n_samples: int,
+           local_epochs: int,
+           flops_per_sample: float,
+           epsilon_op: float,
+           flop_multiplier: float = 1.0,
+           f_cpu: float = 2.0e9) -> float:
     """
-    Năng lượng tính toán cục bộ dựa trên số lượng FLOPs (tường minh).
+    Năng lượng tính toán cục bộ chuẩn vật lý vi mạch (CMOS).
     
-    Phi_i = n_samples * n_local_epochs * flops_per_sample * flop_multiplier
-    E_comp = epsilon_op * Phi_i
+    Trong mô hình phân tán, khối lượng công việc và năng lượng yêu cầu:
+    - Phi_i = n_samples * E_local * flops_per_sample * flop_multiplier
+    - E_comp = epsilon_op * Phi_i * (f_cpu ** 2)
     
+    Args:
+        n_samples:        Số lượng mẫu dữ liệu nội bộ.
+        local_epochs:     Số vòng lặp nội bộ.
+        flops_per_sample: Chi phí tính toán (FLOPs) cho 1 mẫu dữ liệu.
+        epsilon_op:       Hệ số điện dung hiệu dụng tĩnh.
+        flop_multiplier:  Hệ số nhân thuật toán (bù trừ lan truyền ngược).
+        f_cpu:            Xung nhịp CPU tĩnh.
+        
     Returns:
         E_comp in Joules.
     """
-    total_flops = n_samples * n_local_epochs * flops_per_sample * flop_multiplier
-    return total_flops * epsilon_op
+    total_flops = n_samples * local_epochs * flops_per_sample * flop_multiplier
+    return epsilon_op * total_flops * (f_cpu ** 2)
 
 
-def e_comp_full(n_samples: int, n_local_epochs: int,
-                zeta: float, theta_size: int,
-                f_cpu: float, epsilon_op: float) -> float:
+def e_svd(d_out: int, d_in: int,
+           epsilon_op: float,
+           n_svd_calls: int = 2,
+           f_cpu: float = 2.0e9) -> float:
     """
-    Năng lượng tính toán cục bộ (công thức đầy đủ)  —  Eq. 20.
+    Năng lượng tính toán SVD tại Relay  —  Eq. bổ sung.
 
-    Phi = n_samples × E_local × ζ × |Θ|
-    E_comp = ε_op × Phi × f_cpu²
+    FLOPs của Truncated SVD (full_matrices=False) xấp xỉ:
+        Phi_svd ≈ 6 × d_out × d_in × min(d_out, d_in)
+
+    Relay thực hiện 2 lần SVD mỗi vòng:
+        - Lần 1 (Temp SVD): sau intra-cluster aggregation
+        - Lần 2 (Final SVD): sau HFL-Nearest blending
+
+    Args:
+        d_out:       Chiều output của lớp LoRA (d_out).
+        d_in:        Chiều input của lớp LoRA (d_in).
+        epsilon_op:  Hệ số điện dung hiệu dụng.
+        n_svd_calls: Số lần SVD thực hiện (mặc định 2).
+        f_cpu:       Xung nhịp CPU.
 
     Returns:
-        E_comp in Joules.
+        E_svd in Joules.
     """
-    Phi = n_samples * n_local_epochs * zeta * theta_size
-    return epsilon_op * Phi * f_cpu ** 2
+    k = min(d_out, d_in)
+    flops_per_svd = 6 * d_out * d_in * k
+    total_flops = n_svd_calls * flops_per_svd
+    return epsilon_op * total_flops * (f_cpu ** 2)
 
 
 # ──────────────────────────────────────────────────────────────────────

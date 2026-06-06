@@ -191,7 +191,7 @@ class Simulator1D(BaseSimulator):
             device=self.device,
         )
 
-        from physics_models.energy import e_tx, e_comp_dynamic
+        from physics_models.energy import e_tx, e_comp
         if payload is not None:
             # tx cost
             relay_id = self.association.get(s_id, -1)
@@ -207,11 +207,11 @@ class Simulator1D(BaseSimulator):
                     self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
                 )
                 # comp cost
-                e_comp_cost = e_comp_dynamic(
+                e_comp_cost = e_comp(
                     n_samples=auv.n_samples,
-                    n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
+                    local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                     flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
-                    flop_multiplier=self.fed_cfg.FLOP_MULTIPLIER[self.task_key],
+                    flop_multiplier=self.get_flop_multiplier(),
                     epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
                 )
                 return s_id, payload, avg_loss, auv.n_samples, e_tx_cost, e_comp_cost, local_metrics

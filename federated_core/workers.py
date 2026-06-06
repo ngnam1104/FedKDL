@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 class BaseWorker:
     """Quản lý pin và vòng đời của AUV — CHUNG cho 1D và 2D."""
-    def __init__(self, auv_id: int, battery_init: float = 500.0):
+    def __init__(self, auv_id: int, battery_init: float = 2000.0):
         self.auv_id = auv_id
         self.battery = battery_init
         self.alive = True
@@ -22,12 +22,21 @@ class BaseWorker:
 
 class BaseRelayNode:
     """Tổng hợp nội cụm và hợp tác liên cụm — CHUNG."""
-    def __init__(self, relay_id: int, cluster_members: List[int]):
+    def __init__(self, relay_id: int, cluster_members: List[int],
+                 battery_init: float = 2000.0):
         self.relay_id = relay_id
         self.cluster_members = list(cluster_members)
         self.cluster_size = len(cluster_members)
         self.intra_state_dict = None
         self.final_state_dict = None
+        self.battery = battery_init
+        self.alive = True
+
+    def deduct_battery(self, energy_joules: float, min_battery: float = 50.0):
+        """Khấu trừ pin Relay và check death."""
+        self.battery -= energy_joules
+        if self.battery <= min_battery:
+            self.alive = False
 
     def cooperate(
         self,

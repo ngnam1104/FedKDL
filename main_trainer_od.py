@@ -115,7 +115,7 @@ def main():
                 total_samples = 4000 # Fallback
             
             from physics_models.latency import comp_delay_dynamic
-            from physics_models.energy import e_comp_dynamic
+            from physics_models.energy import e_comp
             from config.settings import energy_cfg as en_cfg
             
             # In centralized, Gateway trains 1 epoch per round.
@@ -127,12 +127,13 @@ def main():
                 f_cpu=en_cfg.F_CPU * 5 # Assuming GW is 5x faster
             )
             
-            e_comp_gw = e_comp_dynamic(
+            e_comp_gw = e_comp(
                 n_samples=total_samples,
-                n_local_epochs=1,
+                local_epochs=fed_cfg.LOCAL_EPOCHS,
                 flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["2D"],
                 epsilon_op=en_cfg.EPSILON_OP["2D"],
-                flop_multiplier=fed_cfg.FLOP_MULTIPLIER["2D"]
+                flop_multiplier=fed_cfg.FLOP_MULTIPLIER["2D"],
+                f_cpu=en_cfg.F_CPU * 5
             )
             
             # Raw data transmission in round 1

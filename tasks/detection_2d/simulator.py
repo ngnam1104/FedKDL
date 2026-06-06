@@ -523,6 +523,7 @@ class Simulator2D(BaseSimulator):
                 self.relays[m] = RelayNode2D(
                     relay_id=m,
                     cluster_members=members,
+                    battery_init=self.en_cfg.RELAY_E_INIT,
                 )
 
     def get_flop_multiplier(self) -> float:
@@ -560,7 +561,7 @@ class Simulator2D(BaseSimulator):
         cfg = parse_baseline_config(self.baseline)
         use_int8 = cfg['use_int8']
         
-        from physics_models.energy import e_tx, e_comp_dynamic
+        from physics_models.energy import e_tx, e_comp
         if payload is not None:
             if not use_int8:
                 S_bits = payload_kb * 1024 * 8
@@ -582,9 +583,9 @@ class Simulator2D(BaseSimulator):
                     self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
                 )
 
-                e_comp_cost = e_comp_dynamic(
+                e_comp_cost = e_comp(
                     n_samples=auv.n_samples,
-                    n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
+                    local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                     flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
                     flop_multiplier=self.get_flop_multiplier(),
                     epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
