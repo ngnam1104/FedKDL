@@ -290,8 +290,8 @@ class CustomDetectionTrainer(DetectionTrainer):
                     param.grad.data.add_(prox_term, alpha=self.fedprox_mu)
 
         # [CRITICAL FIX] Gradient Clipping to prevent explosion
-        # import torch
-        # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
+        import torch
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
 
         topk_ratio = getattr(self, "topk_grad_ratio", None)
         if topk_ratio is not None and topk_ratio < 1.0:
