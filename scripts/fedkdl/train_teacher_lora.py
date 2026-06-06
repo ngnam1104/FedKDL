@@ -59,7 +59,11 @@ def main():
             'project': "runs/fedkdl",
             'name': "global_teacher_lora",
             'exist_ok': True,
-            'val': True
+            'val': True,
+            # [FIX EMA NaN] Teacher dùng AdamW + amp=True → phải set lr0 cứng.
+            # Mặc định YOLO là 0.01 — quá lớn khi nhân multiplier → tràn FP16 (giới hạn 65504).
+            # Mục tiêu: Head LR = 0.002, LoRA LR = 0.0005
+            'lr0': 0.002,
         }
         
         trainer = CustomDetectionTrainer(

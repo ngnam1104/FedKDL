@@ -216,11 +216,20 @@ class CustomDetectionTrainer(DetectionTrainer):
 
         # ---------------------------------------------------------------
         # Differential LR: Head params học nhanh hơn, LoRA học chậm hơn.
-        # Khi dùng SVD, ma trận B và A đều dense, khiến Effective LR của LoRA bùng nổ.
-        # Việc hạ LoRA LR (vd: x0.1) giúp ngăn chặn lỗi NaN mà không ảnh hưởng tốc độ học của Head.
+        #
+        # Base lr0 theo từng context:
+        #   - Teacher (train_teacher_lora.py):   lr0 = 0.002  (AdamW, amp=True)
+        #   - Student Warmup/Centralized LoRA:   lr0 = 0.002  (AdamW, amp=False)
+        #   - Local SGD (AUV):                   lr0 = 5e-4   (SGD,   amp=False) → an toàn
+        #   - Gateway KD (KDDetectionTrainer):   lr0 = 1e-3   (SGD,   amp=False)
+        #                                        → override head_lr_multiplier=8.0 từ fed_cfg
+        #
+        # Với lr0=0.002 (Teacher + Warmup):
+        #   head_lr_multiplier=1.0  → Head LR = 0.002 × 1.0 = 0.002
+        #   lora_lr_multiplier=0.25 → LoRA LR = 0.002 × 0.25 = 0.0005
         # ---------------------------------------------------------------
-        head_lr_multiplier = getattr(self, 'head_lr_multiplier', 5.0)  # Tăng Head LR lên 0.01 (Base 0.002 * 5.0)
-        lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 0.2)  # Hệ số LoRA 0.2 để tránh nổ FP16
+        head_lr_multiplier = getattr(self, 'head_lr_multiplier', 1.0)   # Head LR = lr0 × 1.0 = 0.002
+        lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 0.25)  # LoRA LR = lr0 × 0.25 = 0.0005
         
         if head_lr_multiplier != 1.0 or lora_lr_multiplier != 1.0:
             id_to_name = {id(p): n for n, p in model.named_parameters()}
