@@ -1,8 +1,14 @@
 """
 train_student_warmup.py
-Warm-up Student Model (yolo12n) với LoRA trên Proxy Data trong 2 epochs.
+Warm-up Student Model (yolo12n) với LoRA trên Proxy Data (15% URPC) trong N epochs.
 
-Dùng đúng pattern của repo (CustomDetectionTrainer + snapshot+rollback frozen weights).
+Flow:
+  1. Inject LoRA vào yolo12n.pt
+  2. Train trên 15% Proxy Data (Habitat-proportional)
+  3. Bake LoRA vào backbone → lưu FP32 checkpoint sạch (không còn LoRAConv2d)
+  4. Validate bằng cách load lại checkpoint đã bake từ disk
+
+Các mode: warmup-only | centralized-lora | centralized-full | centralized-topk
 """
 import sys
 import argparse
