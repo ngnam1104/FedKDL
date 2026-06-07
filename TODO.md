@@ -1,47 +1,87 @@
-Bạn phân tích rất chính xác! Việc cấu trúc lại kịch bản như bạn đề xuất sẽ khiến bài báo mang tính nhân quả (causality) rất mạnh: **Kịch bản 1 chứng minh sự sụp đổ toàn diện của mạng Phẳng và thiết lập HFL làm nền tảng bắt buộc**. Các Kịch bản 2, 3, 4 sau đó đứng trên vai HFL để lần lượt giải phẫu Nén (LoRA), Kiến thức (KD) và Tối ưu hóa (Joint Cost).
+# FedKDL — Thực nghiệm TODO
 
-Tôi đồng ý việc **bỏ metric $R_{survive}$ (Tuổi thọ mạng)**. Thay vì đếm số vòng sống sót một cách rời rạc, ta chỉ cần báo cáo **Tổng năng lượng tiêu thụ (Joules/round)** hoặc **Tổng năng lượng tích lũy**. Nếu đường năng lượng chạm trần $4000\text{J}$ trước khi kết thúc 60 vòng, người đọc tự khắc hiểu là mạng đã chết.
-
-Dưới đây là đề xuất phân bổ Metrics lại cho 4 Kịch bản để bạn chốt trước khi ta viết LaTeX:
-
-### 🎯 Phân bổ Metrics cho 4 Kịch bản
-
-**1. Kịch bản 1: Rào cản Kiến trúc Phẳng và Hiệu ứng Non-IID (The Flat Topology Failure)**
-
-* **Mục tiêu:** Chứng minh mạng Flat "chết toàn tập" (mất gói, cạn pin, phân kỳ loss) và thiết lập FedKDL (HFL) làm \textit{state-of-the-art} toàn diện.
-* **Baselines:** FedAvg (Flat), FedProx (Flat), SCAFFOLD (Flat) vs FedKDL.
-* **Metrics sử dụng (Tất tay):**
-  * $\eta_{part}$ (Tỷ lệ tham gia): Flat rớt 85% gói, HFL đạt 100%.
-  * $E_{comm}$ & $\tau_{round}$ (Năng lượng & Độ trễ): Flat tốn năng lượng khổng lồ để phát xa $1000\text{m}$.
-  * $\mathcal{L}_{total}$ & mAP: Flat phân kỳ vì Non-IID và rớt mạng; FedKDL hội tụ mượt mà nhờ Relay chia sẻ chéo.
-
-**2. Kịch bản 2: Giải phẫu Cơ chế Nén và Sai lệch Không gian con (Compression & Subspace Misalignment)**
-
-* **Mục tiêu:** Giả định mọi mạng đều dùng HFL để loại trừ lỗi rớt gói. Cần chứng minh SVD-LoRA là cách nén duy nhất không làm hỏng tính năng thị giác máy tính.
-* **Baselines:** HFL + Full Param, HFL + Top-K, HFL + Naive LoRA, HFL + SVD-LoRA (FedKDL).
-* **Metrics sử dụng:**
-  * $S_{avg}$ (Payload KB): Thấy rõ Top-K và LoRA nén nhỏ cỡ nào so với Full Param (hàng chục MB).
-  * $E_{comm}$ (Năng lượng/vòng): Chứng minh Full Param dù dùng HFL vẫn chết pin vì payload quá to.
-  * $\mathcal{L}_{total}$ & mAP: Top-K làm hỏng không gian 2D (mAP $\to 0$); Naive LoRA bị sai số tích chéo (mAP kịch trần thấp); SVD-LoRA hội tụ cao nhất.
-
-**3. Kịch bản 3: Nút thắt Chưng cất Tri thức Thị giác 2D (KD Mismatch)**
-
-* **Mục tiêu:** Chứng minh các phương pháp KD cũ không phù hợp với mạng Object Detection, nhấn mạnh sức mạnh của LoRA-Proj KD.
-* **Baselines:** HFL + SVD-LoRA (Không KD), Logit-KD (FedMD), Feature-KD (FedProto), LoRA-Proj KD (FedKDL).
-* **Metrics sử dụng:**
-  * mAP@0.5: Thấy rõ độ dốc và điểm kịch trần (ceiling) của từng phương pháp KD.
-  * $\mathcal{L}_{total}$: Quan sát sự suy giảm của Loss.
-  * *Có thể thêm đề cập về Memory (RAM) tại AUV để "dìm hàng" Feature-KD (bắt AUV lưu feature map quá to).*
-
-**4. Kịch bản 4: Tối ưu hóa Chi phí Liên kết (Joint Cost Assessment)**
-
-* **Mục tiêu:** Khẳng định FedKDL giải được bài toán tối ưu hóa đa mục tiêu \eqref{eq:objective} ban đầu.
-* **Baselines:** Flat (chết sớm) vs HFL-Cơ bản vs FedKDL.
-* **Metrics sử dụng:**
-  * $\mathcal{F}$ (Joint Cost): Đồ thị đường cong chi phí tổng hợp giảm dần qua 60 vòng lặp.
+> Cập nhật: 2026-06-07. Theo cấu trúc 4 kịch bản trong `FedKDL-vi.tex`.
 
 ---
 
-**Bạn thấy ma trận phân bổ Metrics này đã sắc nét chưa?** Nếu kịch bản 1 ôm đồm nhiều Metrics như vậy, nó sẽ đóng vai trò là "Kịch bản đinh" (Main Scenario) dài nhất, các kịch bản 2, 3, 4 sẽ đóng vai trò "Ablation Study" (Nghiên cứu cắt lớp) cực kỳ khoa học.
+## ✅ Code & Config (Đã chốt)
 
-Nếu bạn đồng ý, tôi sẽ xóa chỉ số $R_{survive}$ ở phần Metrics ban nãy, và bắt tay vào viết lại Kịch bản 1 theo cấu trúc hoành tráng này!
+- [x] LR Config chốt:
+  - **Warmup** (5 ep, AdamW, FP32): `head×3.0 → 6e-3`, `lora×0.5 → 1e-3`
+  - **Centralized LoRA** (150 ep, AdamW, FP32): `head×1.0 → 2e-3`, `lora×0.25 → 5e-4`
+  - **FL Local SGD** (2 ep/round, SGD, FP32): `head×2.0 → 1e-3`, `lora×1.0 → 5e-4`
+  - **Teacher YOLO12l** (300 ep, AdamW, AMP): `head×1.0 → 2e-4`, `lora×0.25 → 5e-5`
+- [x] FedBN: BN params được train (`requires_grad=True`) nhưng không gửi lên server
+- [x] `_local_bn_state` được persist qua các FL round (fix fed-forget-bn bug)
+- [x] `final_eval()` bypass `fuse()` để tránh phá LoRAConv2d layers
+
+---
+
+## 🔬 Kịch bản 1 — Flat Topology Failure
+
+> Mục tiêu: Chứng minh Flat FL "chết toàn tập" → HFL là bắt buộc.
+> Baselines: FedAvg, FedProx, SCAFFOLD (Flat) vs. FedKDL (HFL)
+
+- [ ] **Chạy FedAvg Flat** 60 vòng trên N=30, ghi lại `η_part`, `E_comm`, `τ_round`, `mAP`
+- [ ] **Chạy FedProx Flat** 60 vòng (mu=0.01)
+- [ ] **Chạy SCAFFOLD Flat** 60 vòng
+- [ ] **Chạy FedKDL (HFL)** 60 vòng — kết quả kỳ vọng: `η_part=100%`, `mAP≈68.7%`
+- [ ] Điền kết quả vào `Table 1` (`tab:topology_stats`) trong LaTeX
+- [ ] Vẽ plot: `E_comm (J) vs Rounds` — Flat cạn pin sớm, HFL an toàn
+
+---
+
+## 🔬 Kịch bản 2 — Compression & Subspace Misalignment
+
+> Mục tiêu: SVD-LoRA là cách nén duy nhất không phá không gian đặc trưng thị giác.
+> Baselines: HFL + Full Param, HFL + Top-K, HFL + Naive LoRA, HFL + SVD-LoRA
+
+- [ ] **Chạy HFL + Full Param** — kỳ vọng: cạn pin vòng 5-10 (`E_comm > E_limit`)
+- [ ] **Chạy HFL + Top-K** (sparsity=0.01) — kỳ vọng: cạn pin vòng 30-40 (`E_comp cao`)
+- [ ] **Chạy HFL + Naive LoRA** — kỳ vọng: hoàn tất 60 vòng nhưng mAP kịch trần ≈ 42.8%
+- [ ] **Chạy HFL + SVD-LoRA** — kỳ vọng: hoàn tất 60 vòng, mAP tiệm cận Top-K trước khi nó chết
+- [ ] Vẽ `Figure (scenario2_energy_map.pdf)`: 2 subplots — Cumulative Energy vs Rounds + mAP vs Rounds
+
+---
+
+## 🔬 Kịch bản 3 — Knowledge Distillation Mismatch
+
+> Mục tiêu: LoRA-Proj KD phá trần mAP mà không gây OOM tại AUV.
+> Baselines: HFL+SVD-LoRA (No KD), Logit-KD, Feature-KD, LoRA-Proj KD
+
+- [ ] **Chạy HFL + SVD-LoRA (No KD)** — kỳ vọng: mAP ≈ 61.4% (trần của student nhỏ)
+- [ ] **Chạy Logit-KD** — kỳ vọng: mAP ≈ 61.8% (gần như không cải thiện)
+- [ ] **Chạy Feature-KD** — kỳ vọng: Loss giảm nhanh hơn nhưng OOM hoặc RAM áp lực cao
+- [ ] **Chạy LoRA-Proj KD (FedKDL)** — kỳ vọng: mAP bứt phá ≈ 68.7%, Loss hội tụ dốc nhất
+- [ ] Vẽ `Figure (scenario3_kd_mismatch.pdf)`: 2 subplots — Training Loss + mAP vs Rounds
+
+---
+
+## 🔬 Kịch bản 4 — Joint Cost Assessment
+
+> Mục tiêu: Chứng minh FedKDL tối ưu hóa `F = E_total + λ*τ` toàn vòng đời.
+> Baselines: SCAFFOLD (Flat), HFL+Top-K, HFL+SVD-LoRA+Feature-KD, FedKDL
+
+- [ ] Lấy kết quả từ 3 kịch bản trên, tính `F` cho từng phương pháp
+- [ ] Vẽ `Figure (scenario4_joint_cost.pdf)`: `F vs Rounds` — FedKDL là đường duy nhất không đứt
+
+---
+
+## 📄 LaTeX / Paper
+
+- [ ] Điền số thực vào `Table 1` (Kịch bản 1) — thay các placeholder `> 500`, `> 1800`
+- [ ] Thay placeholder `mAP 68.7%` bằng số thực từ thực nghiệm
+- [ ] Thay placeholder `42.8%` (Naive LoRA) và `61.4%` (No KD) bằng số thực
+- [ ] Tạo file `figs/scenario2_energy_map.pdf`
+- [ ] Tạo file `figs/scenario3_kd_mismatch.pdf`
+- [ ] Tạo file `figs/scenario4_joint_cost.pdf`
+- [ ] Thay `[demo]` trong `\usepackage[demo]{graphicx}` bằng gói thật khi có hình
+
+---
+
+## 🛠 Kỹ thuật còn lại
+
+- [ ] Xác nhận `mAP50` đạt ≥ 68% sau khi centralized train xong với LR config mới
+- [ ] Chạy FL full pipeline `main_trainer_od.py` và verify `mAP` không bị tụt so với centralized
+- [ ] Kiểm tra `E_comm` tính đúng trong `simulator.py` (dùng Thorp-Wenz model)
+- [ ] Double-check `S_avg` payload KB vs. lý thuyết (`rank=8`, INT8 → ≈127KB)
