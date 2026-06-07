@@ -126,7 +126,7 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     
     if not warmup_pt.exists():
         print(f"[Cảnh báo] Không tìm thấy {warmup_pt}. Tiến hành Warmup trước khi chạy Centralized LoRA...")
-        run_warmup(epochs=3)
+        run_warmup(epochs=5)  # Tối thiểu 5 epochs để head hội tụ trước centralized phase
         
     if resume:
         last_pt = REPO_ROOT / "runs" / "centralized" / "lora_finetune" / "weights" / "last.pt"
