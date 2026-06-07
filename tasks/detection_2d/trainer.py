@@ -497,10 +497,12 @@ def local_sgd_od(
         except Exception as e:
             print(f"[OptimState] Không thể extract optimizer state: {e}")
 
-    # Đảm bảo không có bất kỳ trọng số nào ngoài LoRA và head bị thay đổi
+    # Đảm bảo không có bất kỳ trọng số nào ngoài LoRA và head bị thay đổi.
+    # [FedBN] Loại trừ BN params khỏi check: BN được train local và KHÔNG aggregate,
+    # nên chúng được phép thay đổi (đây là thiết kế của FedBN, không phải lỗi).
     if not student_model.full_param:
         for k, v in student_model.yolo.model.named_parameters():
-            if k in frozen_weights_before:
+            if k in frozen_weights_before and 'bn' not in k:
                 diff = torch.abs(frozen_weights_before[k].to(v.device) - v).max().item()
                 if diff > 1e-6:
                     raise RuntimeError(f"CƠ CHẾ NGẦM PHÁT HIỆN: Lớp '{k}' dự kiến bị đóng băng nhưng đã thay đổi (max diff: {diff})!")
