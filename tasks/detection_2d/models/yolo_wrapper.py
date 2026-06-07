@@ -8,6 +8,12 @@ from ultralytics import YOLO
 from tasks.detection_2d.models.lora import inject_lora
 
 
+class FrozenBatchNorm2d(torch.nn.BatchNorm2d):
+    """Bản vá lỗi Pickle cho BatchNorm2d khi bị đóng băng trong PEFT (LoRA)."""
+    def train(self, mode=False):
+        return super().train(False)
+
+
 class StudentModel:
     """
     yolo12n + LoRA injection cho Federated Learning.
