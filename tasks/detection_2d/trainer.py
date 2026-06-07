@@ -233,8 +233,8 @@ class CustomDetectionTrainer(DetectionTrainer):
         #
         #   [2] FL Local SGD (2 epochs/round, SGD, amp=False):
         #       lr0 = 5e-4  (từ Global Cosine LR decay)
-        #       head_lr_multiplier = 2.0  → Head LR = ~1e-3
-        #       lora_lr_multiplier = 0.5  → LoRA LR = ~2.5e-4
+        #       head_lr_multiplier = 2.0  → Head LR = 1e-3
+        #       lora_lr_multiplier = 1.0  → LoRA LR = 5e-4
         #       Đặt trong: trainer.py → local_sgd_od()
         #
         #   [3] Teacher YOLO12l (300 epochs, AdamW, amp=True):
@@ -472,7 +472,7 @@ def local_sgd_od(
     else:
         # Diff LR:
         trainer.head_lr_multiplier = 2.0
-        trainer.lora_lr_multiplier = 0.5
+        trainer.lora_lr_multiplier = 1.0
 
     # HẠN ĐỊNH: Xác định các keys sẽ được truyền qua mạng (LoRA + Head) và coi
     # toàn bộ phần còn lại là "đóng băng"; sử dụng `trainable_state_dict()`
