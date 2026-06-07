@@ -201,7 +201,13 @@ class CustomDetectionTrainer(DetectionTrainer):
                 strip_optimizer(self.best)
                 self.run_callbacks("on_fit_epoch_end")
         else:
-            super().final_eval()
+            # [CRITICAL FIX] Ultralytics final_eval sẽ tự động gọi fuse() làm hỏng LoRAConv2d.
+            # Ta bỏ qua bước final_eval mặc định này. Epoch cuối cùng đã in ra mAP chính xác rồi.
+            print("\n[CustomDetectionTrainer] Bỏ qua final_eval() mặc định của Ultralytics vì hàm fuse() sẽ làm hỏng LoRAConv2d.")
+            print("[CustomDetectionTrainer] Metrics ở epoch cuối cùng (phía trên) chính là kết quả chính xác nhất!")
+            from ultralytics.utils.torch_utils import strip_optimizer
+            if self.last.exists(): strip_optimizer(self.last)
+            if self.best.exists(): strip_optimizer(self.best)
 
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
