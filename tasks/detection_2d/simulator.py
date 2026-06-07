@@ -99,6 +99,10 @@ class AUVWorker2D(BaseWorker):
         local_student = StudentModel(student_ckpt, rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 
+        # [FedBN FIX] Restore persistent local BN parameters if they exist from previous rounds
+        if getattr(self, '_local_bn_state', None) is not None:
+            local_student.yolo.model.load_state_dict(self._local_bn_state, strict=False)
+
         # Cấp phát Teacher cục bộ nếu chạy thuật toán FedKD (Local KD)
         local_teacher = None
         if baseline == 'fedkd':
@@ -126,6 +130,14 @@ class AUVWorker2D(BaseWorker):
             local_teacher=local_teacher,
             cached_optimizer_state=None,  # Bỏ cache optimizer giữa các vòng để tránh AdamW nổ gradient do sai lệch trọng số
         )
+        
+        # [FedBN FIX] Save local BN parameters for the next round
+        current_sd = local_student.yolo.model.state_dict()
+        self._local_bn_state = {
+            k: v.cpu().clone() for k, v in current_sd.items() 
+            if 'bn' in k or 'running' in k or 'tracked' in k
+        }
+
         # Bỏ qua lưu optimizer state để đảm bảo local training ổn định
         self._optimizer_state = None
 
