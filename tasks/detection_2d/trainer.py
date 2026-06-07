@@ -215,7 +215,7 @@ class CustomDetectionTrainer(DetectionTrainer):
         if self.student_wrapper and not self.student_wrapper.full_param:
             payload_keys = set(self.student_wrapper.trainable_state_dict().keys())
             for k, v in model.named_parameters():
-                if k in payload_keys:
+                if k in payload_keys or 'bn' in k:
                     v.requires_grad = True
                 else:
                     v.requires_grad = False
