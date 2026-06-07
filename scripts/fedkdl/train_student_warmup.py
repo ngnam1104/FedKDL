@@ -43,14 +43,6 @@ def run_warmup(epochs: int):
     )
 
 
-
-
-    payload_keys = set(student.trainable_state_dict().keys())
-    frozen_weights_before = {}
-    for k, v in student.yolo.model.state_dict().items():
-        if k not in payload_keys:
-            frozen_weights_before[k] = v.clone().detach()
-
     overrides = {
         'model': "yolo12n.pt",
         'data': str(proxy_yaml),
@@ -87,24 +79,23 @@ def run_warmup(epochs: int):
     print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} (LoRA lr=2e-3 | Head lr=2e-3)")
     trainer.train()
 
-    print("\n[Rollback] Khôi phục frozen weights về giá trị gốc (nếu có sai lệch ngầm)...")
-    with torch.no_grad():
-        state_dict = student.yolo.model.state_dict()
-        for k, v_before in frozen_weights_before.items():
-            if k in state_dict:
-                state_dict[k].copy_(v_before)
-    student.yolo.model.load_state_dict(state_dict)
-
-    # [TEST] Lưu lại FP16 (.half()) để kiểm tra xem model có bị nổ gradient (inf/nan) không.
-    # Với LR đã hạ xuống 5e-4 và bật warmup momentum, model sẽ an toàn khi ép về FP16.
-    ckpt = {"model": student.yolo.model.half(), "epoch": epochs}
-    torch.save(ckpt, save_path)
-    print(f"\n[Thành công] Đã lưu Student LoRA warmup (FP32) tại: {save_path}")
-
-    print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã merge LoRA)...")
+    # Step 1: Bake LoRA vào backbone weights TRƯỚC khi lưu
+    # (Đảm bảo file .pt không chứa LoRAConv2d để Ultralytics fuse() hoạt động đúng)
+    print("\n[Bake LoRA] Gộp LoRA vào backbone trước khi lưu checkpoint...")
     student.bake_lora()
+
+    # Step 2: Lưu model đã bake (FP32) - file sạch, không còn LoRAConv2d
+    student.yolo.model.float()  # Đảm bảo FP32
+    ckpt = {"model": student.yolo.model, "epoch": epochs}
+    torch.save(ckpt, save_path)
+    print(f"\n[Thành công] Đã lưu Student LoRA warmup (FP32, baked) tại: {save_path}")
+
+    # Step 3: Val trên file đã bake (load lại từ disk để đảm bảo khớp với file)
+    print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã bake LoRA vào weights)...")
+    from ultralytics import YOLO as _YOLO
+    val_model = _YOLO(str(save_path))
     full_yaml_test = REPO_ROOT / "datasets/URPC2020.yaml"
-    student.yolo.val(
+    val_model.val(
         data=str(full_yaml_test),
         imgsz=640,
         batch=16,
