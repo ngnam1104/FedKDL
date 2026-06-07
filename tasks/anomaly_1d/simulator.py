@@ -212,7 +212,8 @@ class Simulator1D(BaseSimulator):
                     local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                     flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
                     flop_multiplier=self.get_flop_multiplier(),
-                    epsilon_op=self.en_cfg.EPSILON_OP[self.task_key]
+                    epsilon_op=self.en_cfg.EPSILON_OP[self.task_key],
+                    f_cpu=self.en_cfg.F_CPU,
                 )
                 return s_id, payload, avg_loss, auv.n_samples, e_tx_cost, e_comp_cost, local_metrics
         

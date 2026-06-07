@@ -31,20 +31,25 @@ def comp_delay_dynamic(n_samples: int,
                        n_local_epochs: int,
                        flops_per_sample: float,
                        flop_multiplier: float = 1.0,
-                       f_cpu: float = 2.0e9) -> float:
+                       f_cpu: float = 1.5e9,
+                       n_cores: int = 6,
+                       flops_per_cycle: float = 4.0) -> float:
     """
     Độ trễ tính toán cục bộ động.
-    T_comp = (samples * epochs * flops_per_sample * multiplier) / f_cpu
+    T_comp = FLOPs / (f_cpu * n_cores * flops_per_cycle)
+    Nguồn: Jetson Orin Nano Datasheet r4 (F_CPU=1.5GHz, N_CORES=6)
     """
     total_flops = n_samples * n_local_epochs * flops_per_sample * flop_multiplier
-    return total_flops / f_cpu
+    return total_flops / (f_cpu * n_cores * flops_per_cycle)
 
 
 def relay_comp_delay(d_out: int = 256, d_in: int = 128,
                      n_svd_calls: int = 2,
-                     f_cpu: float = 2.0e9) -> float:
+                     f_cpu: float = 1.5e9,
+                     n_cores: int = 6,
+                     flops_per_cycle: float = 4.0) -> float:
     """
-    Độ trễ tính toán tại trạm Relay  —  τ_comp,m = Φ_m / f_cpu.
+    Độ trễ tính toán tại trạm Relay  —  τ_comp,m = Φ_m / (f_cpu * n_cores * flops_per_cycle).
 
     Khối lượng công việc Phi_m bao gồm các bước tổng hợp mô hình
     (xấp xỉ bằng FLOPs của phân rã không gian con, thực hiện 2 lần mỗi vòng):
@@ -54,14 +59,15 @@ def relay_comp_delay(d_out: int = 256, d_in: int = 128,
         d_out:       Chiều output của lớp đại diện (default: 256).
         d_in:        Chiều input của lớp đại diện (default: 128).
         n_svd_calls: Số lần xử lý mỗi vòng lặp (default: 2).
-        f_cpu:       Xung nhịp CPU tại Relay.
+        f_cpu:       Xung nhịp CPU tại Relay. Nguồn: Jetson Orin Nano Datasheet r4.
+        n_cores:     Số lõi CPU. Nguồn: Jetson Orin Nano Datasheet r4.
 
     Returns:
         τ_comp,m in seconds.
     """
     k = min(d_out, d_in)
     phi_m = n_svd_calls * 6 * d_out * d_in * k
-    return phi_m / f_cpu
+    return phi_m / (f_cpu * n_cores * flops_per_cycle)
 
 
 

@@ -385,11 +385,17 @@ class BaseSimulator(ABC):
                 n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                 flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
                 flop_multiplier=self.get_flop_multiplier(),
-                f_cpu=self.en_cfg.F_CPU
+                f_cpu=self.en_cfg.F_CPU,
+                n_cores=getattr(self.en_cfg, 'N_CORES', 6),
+                flops_per_cycle=getattr(self.en_cfg, 'FLOPS_PER_CYCLE', 4.0)
             )
             # Độ trễ điện toán tại Relay — τ_comp,m (physics_models/latency.py)
             from physics_models.latency import relay_comp_delay
-            tau_svd = relay_comp_delay(f_cpu=self.en_cfg.F_CPU)
+            tau_svd = relay_comp_delay(
+                f_cpu=self.en_cfg.F_CPU,
+                n_cores=getattr(self.en_cfg, 'N_CORES', 6),
+                flops_per_cycle=getattr(self.en_cfg, 'FLOPS_PER_CYCLE', 4.0)
+            )
 
             latency_info = self.latency_tracker.compute_round_latency(
                 G=self.G,

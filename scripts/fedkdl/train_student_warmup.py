@@ -21,14 +21,14 @@ from config.settings import fed_cfg
 
 def run_warmup(epochs: int):
     print("==================================================")
-    print(f"[Student Warmup LoRA] Warm-up YOLO12n + LoRA trong {epochs} epochs trên toàn bộ dữ liệu (Full YAML)")
+    print(f"[Student Warmup LoRA] Warm-up YOLO12n + LoRA")
     print("==================================================")
 
     rank = fed_cfg.LORA_RANK
     print(f"-> LoRA Rank: {rank}")
 
-    # Sử dụng full dataset để warmup
-    full_yaml = REPO_ROOT / "datasets/URPC2020.yaml"
+    # Sử dụng proxy dataset (15% URPC) để warmup
+    proxy_yaml = REPO_ROOT / "datasets/URPC2020_proxy.yaml"
 
     save_path = REPO_ROOT / "yolo12n_warmup.pt"
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -42,18 +42,7 @@ def run_warmup(epochs: int):
         use_lora=True,
     )
 
-    # [CRITICAL HOTFIX] 
-    # Khi thay đổi nc=4, toàn bộ Detection Head được random khởi tạo mới.
-    # Hàm _is_payload_key hiện tại của FL chỉ trả về True cho lớp đầu ra cuối cùng (.cv2.x.2),
-    # khiến các lớp Conv trung gian của Head bị đóng băng với trọng số ngẫu nhiên -> mAP = 0!
-    # Do đó, TRONG QUÁ TRÌNH WARMUP, ta phải cho phép train TOÀN BỘ Detection Head.
-    original_is_payload = student._is_payload_key
-    def _warmup_is_payload(k: str) -> bool:
-        if original_is_payload(k): return True
-        head_idx = len(student.yolo.model.model) - 1
-        if f'model.{head_idx}.' in k: return True
-        return False
-    student._is_payload_key = _warmup_is_payload
+
 
 
     payload_keys = set(student.trainable_state_dict().keys())
@@ -64,7 +53,7 @@ def run_warmup(epochs: int):
 
     overrides = {
         'model': "yolo12n.pt",
-        'data': str(full_yaml),
+        'data': str(proxy_yaml),
         'epochs': epochs,
         'batch': 16,
         'workers': 2,
@@ -95,7 +84,7 @@ def run_warmup(epochs: int):
     trainer.model = student.yolo.model
     # trainer.head_lr_multiplier = 1.0  # Commented out to use trainer.py default
 
-    print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {full_yaml.name} (LoRA lr=2e-3 | Head lr=2e-3)")
+    print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} (LoRA lr=2e-3 | Head lr=2e-3)")
     trainer.train()
 
     print("\n[Rollback] Khôi phục frozen weights về giá trị gốc (nếu có sai lệch ngầm)...")
@@ -106,9 +95,11 @@ def run_warmup(epochs: int):
                 state_dict[k].copy_(v_before)
     student.yolo.model.load_state_dict(state_dict)
 
+    # [TEST] Lưu lại FP16 (.half()) để kiểm tra xem model có bị nổ gradient (inf/nan) không.
+    # Với LR đã hạ xuống 5e-4 và bật warmup momentum, model sẽ an toàn khi ép về FP16.
     ckpt = {"model": student.yolo.model.half(), "epoch": epochs}
     torch.save(ckpt, save_path)
-    print(f"\n[Thành công] Đã lưu Student LoRA warmup tại: {save_path}")
+    print(f"\n[Thành công] Đã lưu Student LoRA warmup (FP32) tại: {save_path}")
 
     print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã merge LoRA)...")
     student.bake_lora()
@@ -323,7 +314,10 @@ def main():
     args = parser.parse_args()
 
     if args.mode in ["warmup", "all"]:
-        run_warmup(epochs=args.epochs_warmup)
+        # [FIX] 5 epoch warmup để Detection Head (random init) hội tụ đủ
+        # trước khi centralized phase bắt đầu (mặc định cũ là 3, quá ngắn).
+        warmup_epochs = max(args.epochs_warmup, 5)
+        run_warmup(epochs=warmup_epochs)
         
     if args.mode in ["centralized_lora", "all"]:
         run_centralized_lora(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume)

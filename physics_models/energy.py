@@ -90,7 +90,7 @@ def e_comp(n_samples: int,
            flops_per_sample: float,
            epsilon_op: float,
            flop_multiplier: float = 1.0,
-           f_cpu: float = 2.0e9) -> float:
+           f_cpu: float = 1.5e9) -> float:
     """
     Năng lượng tính toán cục bộ chuẩn vật lý vi mạch (CMOS).
     
@@ -116,7 +116,7 @@ def e_comp(n_samples: int,
 def e_svd(d_out: int, d_in: int,
            epsilon_op: float,
            n_svd_calls: int = 2,
-           f_cpu: float = 2.0e9) -> float:
+           f_cpu: float = 1.5e9) -> float:
     """
     Năng lượng tính toán SVD tại Relay  —  Eq. bổ sung.
 

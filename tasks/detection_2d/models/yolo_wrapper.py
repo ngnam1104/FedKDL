@@ -8,12 +8,6 @@ from ultralytics import YOLO
 from tasks.detection_2d.models.lora import inject_lora
 
 
-class FrozenBatchNorm2d(torch.nn.BatchNorm2d):
-    """Bản vá lỗi Pickle cho BatchNorm2d khi bị đóng băng trong PEFT (LoRA)."""
-    def train(self, mode=False):
-        return super().train(False)
-
-
 class StudentModel:
     """
     yolo12n + LoRA injection cho Federated Learning.
@@ -79,7 +73,7 @@ class StudentModel:
             else:
                 # Base model (vd: yolo12n.pt) → cần inject LoRA mới
                 is_nano = '12n' in ckpt.lower() or '11n' in ckpt.lower() or '8n' in ckpt.lower()
-                actual_strategy = "adaptive"
+                actual_strategy = "adaptive"  # Trở lại adaptive để giữ payload dưới 300KB
                 actual_targets = ['Conv'] if is_nano else lora_targets
 
                 injected = inject_lora(self.yolo.model, target_layer_names=actual_targets, rank=rank, strategy=actual_strategy)
@@ -98,30 +92,17 @@ class StudentModel:
             for param in self.yolo.model.parameters():
                 param.requires_grad_(True)
         else:
-            # Đóng băng tất cả, trừ payload keys
+            # Đóng băng tất cả, trừ payload keys VÀ toàn bộ BatchNorm (cho FedBN)
             for name, param in self.yolo.model.named_parameters():
                 if self._is_payload_key(name):
                     param.requires_grad_(True)
+                elif 'bn' in name:
+                    # [FedBN] Mở train cho TẤT CẢ các lớp BatchNorm (weight, bias).
+                    # Running stats (mean, var) sẽ tự động được cập nhật vì ta không dùng FrozenBatchNorm2d nữa.
+                    # Những tham số này CHỈ được train local, KHÔNG truyền qua mạng.
+                    param.requires_grad_(True)
                 else:
                     param.requires_grad_(False)
-            
-            # [CRITICAL FIX v11] Đóng băng vĩnh viễn BatchNorm statistics!
-            # Nếu dùng LoRA (full_param=False), Backbone bị đóng băng. 
-            # Tuy nhiên, nếu không khóa BatchNorm, nó vẫn sẽ cập nhật running_mean/var 
-            # và dùng Batch statistics để chuẩn hóa trong lúc train, gây ra sự sai lệch nghiêm trọng
-            # giữa các AUV và khi suy luận (đó là lý do mô hình bị nổ ở Round 4-5).
-            
-            # Tìm tên của layer cuối cùng (Head) để không đóng băng BN của nó
-            head_idx = len(self.yolo.model.model) - 1
-            head_prefix = f'model.{head_idx}'
-            
-            for name, module in self.yolo.model.named_modules():
-                if isinstance(module, torch.nn.BatchNorm2d):
-                    # Bỏ đóng băng BN của Detection Head để tránh lỗi Domain Shift
-                    if head_prefix in name:
-                        continue
-                    module.__class__ = FrozenBatchNorm2d
-                    module.eval()
 
         trainable = sum(p.numel() for p in self.yolo.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.yolo.model.parameters())
@@ -129,36 +110,42 @@ class StudentModel:
         print(f"[StudentModel] Trainable ({mode_str}): {trainable:,} / {total:,} params "
               f"({100*trainable/total:.1f}%)")
 
-    _HEAD_OUTPUT_SUFFIXES = (
-        # Nhánh Box Regression (cv2)
-        '.cv2.0.2.weight', '.cv2.1.2.weight', '.cv2.2.2.weight',
-        '.cv2.0.2.bias',   '.cv2.1.2.bias',   '.cv2.2.2.bias',
-        # Nhánh Classification (cv3)
-        '.cv3.0.2.weight', '.cv3.1.2.weight', '.cv3.2.2.weight',
-        '.cv3.0.2.bias',   '.cv3.1.2.bias',   '.cv3.2.2.bias',
-        '.cv3.0.1.1.conv.weight', '.cv3.1.1.1.conv.weight', '.cv3.2.1.1.conv.weight',
-        # Nhánh One2One (nếu YOLO11/YOLO12 có)
-        '.one2one_cv2.0.2.weight', '.one2one_cv2.1.2.weight', '.one2one_cv2.2.2.weight',
-        '.one2one_cv2.0.2.bias',   '.one2one_cv2.1.2.bias',   '.one2one_cv2.2.2.bias',
-        '.one2one_cv3.0.2.weight', '.one2one_cv3.1.2.weight', '.one2one_cv3.2.2.weight',
-        '.one2one_cv3.0.2.bias',   '.one2one_cv3.1.2.bias',   '.one2one_cv3.2.2.bias',
-    )
-
     def _is_payload_key(self, k: str) -> bool:
+        # [FedBN] KHÔNG gửi bất kỳ tham số BatchNorm nào qua mạng.
+        # Tất cả tham số liên quan đến BatchNorm (weight, bias, running_mean, running_var...)
+        # sẽ được giữ lại hoàn toàn ở máy local để đóng vai trò bộ lọc cá nhân hóa cho từng AUV.
+        if 'bn' in k or 'running' in k or 'tracked' in k:
+            return False
         # FlexLoRA gửi lora_A và lora_B lên Server để phân rã SVD
         if ('lora_B' in k or 'lora_A' in k) and self.use_lora:
             return True
         
-        # [CRITICAL FIX] CHỈ GỬI CÁC LAYER ĐẦU RA CUỐI CÙNG (FINAL OUTPUTS)
-        for suffix in self._HEAD_OUTPUT_SUFFIXES:
-            if k.endswith(suffix):
+        # Head payload strategy (model.21):
+        #   cv3 (classification): FULL branch → 48 KB (quan trọng nhất cho KD alignment)
+        #   cv2 (box regression): chỉ output conv cuối (.2.*) → 12 KB (LoRA đã xử lý phần còn lại)
+        #   dfl: 16 params, giữ luôn
+        # Tổng head: ~60 KB | Tổng payload: ~187 KB / 300 KB budget.
+        head_idx = len(self.yolo.model.model) - 1
+        head_prefix = f'model.{head_idx}.'
+        if head_prefix in k:
+            # Full cv3 branch (all 3 scales)
+            if f'{head_prefix}cv3.' in k:
                 return True
+            # cv2: lấy lớp bottleneck (.1) và output cuối (.2) cho cả 3 scale
+            # Lý do: .0 là feature extractor (LoRA đã xử lý), .1-.2 là quan trọng cho box reg
+            if f'{head_prefix}cv2.' in k:
+                parts = k.split('.')
+                # format: model.21.cv2.<scale>.<layer>.<...>
+                if len(parts) >= 5 and parts[4] in ('1', '2'):
+                    return True
+            # dfl weights
+            if f'{head_prefix}dfl.' in k:
+                return True
+            return False
                 
-        # [NEW FIX] Giải phóng tham số Affine của Batch Norm (weight, bias)
-        # Việc này tốn thêm ~16KB payload nhưng giúp model Nano hội tụ cực nhanh.
-        if 'bn.weight' in k or 'bn.bias' in k:
-            return True
-            
+        # [NOTE] BN affine (weight, bias) bị ĐÓNG hoàn toàn để khớp với Teacher
+        # (Teacher checkpoint có 0/410 BN params mở → Student phải nhất quán).
+        # FrozenBatchNorm2d trong __init__ đã xử lý việc này.
         return False
 
     def strip_inference_tensors(self):

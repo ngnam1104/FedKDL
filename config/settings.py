@@ -42,14 +42,17 @@ class AcousticChannelConfig:
 @dataclass
 class EnergyConfig:
     """Năng lượng — dùng bởi simulator 1D/2D, base_simulator, main_trainer*."""
-    E_INIT: float = 4000.0           # J — ngân sách năng lượng FL mỗi chu kỳ triển khai AUV (~72 vòng)
-    RELAY_E_INIT: float = 2000.0     # J — pin Relay (đủ cho >100 vòng)
-    E_MIN: float = 50.0              # J — ngưỡng dự trữ khẩn cấp (AUV)
-    RELAY_E_MIN: float = 50.0        # J — ngưỡng dự trữ khẩn cấp (Relay)
+    E_INIT: float = 250000.0         # J — pin AUV (tương đương ~70 Wh, đủ cho ~60 vòng)
+    RELAY_E_INIT: float = 200000.0   # J — pin Relay
+    E_MIN: float = 5000.0            # J — ngưỡng dự trữ khẩn cấp (AUV)
+    RELAY_E_MIN: float = 5000.0      # J — ngưỡng dự trữ khẩn cấp (Relay)
     EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-28, "2D": 1.0e-28})
-    F_CPU: float = 2.0e9             # Hz — CPU AUV (Gateway nhân ×5 trong main_trainer)
-    P_C_TX: float = 0.05             # W — mạch phát (e_tx)
-    P_C_RX: float = 0.03             # W — mạch thu (e_rx, chưa dùng trong FL loop)
+    F_CPU: float = 1.5e9             # Hz — CPU Max Freq. (Jetson Orin Nano Datasheet r4)
+    N_CORES: int = 6                 # Số lõi (Jetson Orin Nano Datasheet r4: 6-core ARM Cortex-A78AE)
+    FLOPS_PER_CYCLE: float = 4.0     # Số FLOPs/chu kỳ/lõi (ARM Cortex-A78AE NEON SIMD, ước tính)
+    # T_comp = FLOPs / (F_CPU × N_CORES × FLOPS_PER_CYCLE)
+    P_C_TX: float = 10.0             # W — mạch phát Acoustic Modem (VD: Evologics S2C)
+    P_C_RX: float = 1.0              # W — mạch thu
     ETA_EA: float = 0.25             # Hiệu suất điện-âm
 
 
@@ -69,12 +72,12 @@ class FedKDLConfig:
     MODEL_FLOPS_PER_SAMPLE: dict = field(
         default_factory=lambda: {"1D": 108000.0, "2D": 2.175e9}
     )
-    FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.2})
+    FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.5})
 
     # ── LoRA + INT8 payload ───────────────────────────────────────────────────
-    LORA_RANK: int = 8               # FlexLoRA gửi A+B → ~146KB INT8 @ rank 8
+    LORA_RANK: int = 8               # Phải khớp Teacher (rank=8); payload ~127KB INT8 @ adaptive
     QUANTIZATION_BITS: int = 8       # int8_quantization.py
-    TARGET_PAYLOAD_KB: float = 200.0
+    TARGET_PAYLOAD_KB: float = 300.0
     DELTA_SKIP: float = 0.01         # Lazy communication filter
 
     # ── HFL inter-relay (hfl_rules.should_cooperate) ────────────────────────
@@ -96,7 +99,7 @@ class FedKDLConfig:
     # ── Joint optimisation / latency budget (base_simulator logs) ───────────
     LAMBDA_E: float = 1e-3
     LAMBDA_TAU: float = 1e-3
-    TAU_MAX: float = 1800.0          # s — giới hạn độ trễ vòng FL
+    TAU_MAX: float = 1000.0          # s — giới hạn độ trễ vòng FL
 
 
 network_cfg = NetworkConfig()
