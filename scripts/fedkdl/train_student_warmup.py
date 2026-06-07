@@ -189,7 +189,11 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     )
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
-    # trainer.head_lr_multiplier = 1.0  # Commented out to use trainer.py default
+    # [CRITICAL] Centralized LoRA: LoRA phải học với full LR (×1.0), không kìm như FL (×0.25)
+    # lora_lr_multiplier=0.25 chỉ dành cho FL local SGD (2 epochs, chống divergence).
+    # Centralized train 150 epochs với AdamW + Cosine LR cần LoRA học đủ mạnh.
+    trainer.head_lr_multiplier = 1.0
+    trainer.lora_lr_multiplier = 1.0
 
     trainer.train()
     
