@@ -223,19 +223,30 @@ class CustomDetectionTrainer(DetectionTrainer):
         # ---------------------------------------------------------------
         # Differential LR: Head params học nhanh hơn, LoRA học chậm hơn.
         #
-        # Base lr0 theo từng context:
-        #   - Teacher (train_teacher_lora.py):   lr0 = 0.002  (AdamW, amp=True)
-        #   - Student Warmup/Centralized LoRA:   lr0 = 0.002  (AdamW, amp=False)
-        #   - Local SGD (AUV):                   lr0 = 5e-4   (SGD,   amp=False) → an toàn
-        #   - Gateway KD (KDDetectionTrainer):   lr0 = 1e-3   (SGD,   amp=False)
-        #                                        → override head_lr_multiplier=8.0 từ fed_cfg
+        # CẤU HÌNH ĐÃ CHỐT (xem train_student_warmup.py / local_sgd_od / train_teacher_lora.py):
         #
-        # Với lr0=0.002 (Teacher + Warmup):
-        #   head_lr_multiplier=1.0  → Head LR = 0.002 × 1.0 = 0.002
-        #   lora_lr_multiplier=0.25 → LoRA LR = 0.002 × 0.25 = 0.0005
+        #   [1] Centralized LoRA (150 epochs, AdamW, amp=False):
+        #       lr0 = 2e-3
+        #       head_lr_multiplier = 1.0  → Head LR = 2e-3  (đủ mạnh cho 4 class URPC mới)
+        #       lora_lr_multiplier = 0.5  → LoRA LR = 1e-3  (đủ học 150 ep, không NaN)
+        #       Đặt trong: train_student_warmup.py → run_centralized_lora()
+        #
+        #   [2] FL Local SGD (2 epochs/round, SGD, amp=False):
+        #       lr0 = 5e-4  (từ Global Cosine LR decay)
+        #       head_lr_multiplier = 3.0  → Head LR = ~1.5e-3 (hội tụ nhanh trong 2 epoch)
+        #       lora_lr_multiplier = 0.25 → LoRA LR = ~1.25e-4 (an toàn chống divergence)
+        #       Đặt trong: trainer.py → local_sgd_od()
+        #
+        #   [3] Teacher YOLO12l (300 epochs, AdamW, amp=True):
+        #       lr0 = 2e-4  (mạng dày ~43M params, LR phải thấp để không nổ FP16)
+        #       head_lr_multiplier = 1.0  → Head LR = 2e-4  (default, không ghi đè)
+        #       lora_lr_multiplier = 0.25 → LoRA LR = 5e-5  (default, đủ nhỏ cho Large)
+        #       Đặt trong: train_teacher_lora.py (lr0 override thủ công)
+        #
+        # DEFAULT (nếu không ghi đè): head×1.0, lora×0.25
         # ---------------------------------------------------------------
-        head_lr_multiplier = getattr(self, 'head_lr_multiplier', 1.0)   # Head LR = lr0 × 1.0 = 0.002
-        lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 0.25)  # LoRA LR = lr0 × 0.25 = 0.0005
+        head_lr_multiplier = getattr(self, 'head_lr_multiplier', 1.0)   # Default: Head LR = lr0 × 1.0
+        lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 0.25)  # Default: LoRA LR = lr0 × 0.25
         
         if head_lr_multiplier != 1.0 or lora_lr_multiplier != 1.0:
             id_to_name = {id(p): n for n, p in model.named_parameters()}
