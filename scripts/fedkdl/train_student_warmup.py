@@ -82,7 +82,7 @@ def run_warmup(epochs: int):
     trainer.model = student.yolo.model
     
     # [WARMUP] Tăng LR để học nhanh trên Proxy Data:
-    trainer.head_lr_multiplier = 2.0
+    trainer.head_lr_multiplier = 3.0
     trainer.lora_lr_multiplier = 0.5
 
     print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} (LoRA lr=1e-3 | Head lr=4e-3)")
