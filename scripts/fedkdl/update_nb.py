@@ -19,8 +19,9 @@ new_source = [
     "        config = yaml.safe_load(f)\n",
     "\n",
     "    # Theo cấu trúc của dataset URPC2020 trên Kaggle\n",
-    "    train_images_dir = Path(\"/kaggle/input/datasets/lywang777/urpc2020/URPC2020/train/images\")\n",
-    "    train_labels_dir = Path(\"/kaggle/input/datasets/lywang777/urpc2020/URPC2020/train/labels\")\n",
+    "    dataset_root = \"/kaggle/input/datasets/lywang777/urpc2020/URPC2020\"\n",
+    "    train_images_dir = Path(f\"{dataset_root}/train/images\")\n",
+    "    train_labels_dir = Path(f\"{dataset_root}/train/labels\")\n",
     "\n",
     "    if train_images_dir.exists() and train_labels_dir.exists():\n",
     "        all_imgs = sorted(list(train_images_dir.glob(\"*.jpg\")))\n",
@@ -74,7 +75,12 @@ new_source = [
     "            for img in proxy_imgs:\n",
     "                f.write(f\"{img.absolute()}\\n\")\n",
     "\n",
+    "        # Fix absolute paths from original data.yaml\n",
+    "        config[\"path\"] = dataset_root\n",
     "        config[\"train\"] = str(proxy_txt.absolute())\n",
+    "        config[\"val\"] = \"valid/images\"\n",
+    "        config[\"test\"] = \"test/images\"\n",
+    "\n",
     "        with open(proxy_yaml, \"w\") as f:\n",
     "            yaml.dump(config, f)\n",
     "        print(f\"\\n=> Đã tạo {proxy_yaml} với tổng {len(proxy_imgs)} ảnh proxy (15%).\")\n",
@@ -83,7 +89,7 @@ new_source = [
 ]
 
 for cell in nb['cells']:
-    if cell['cell_type'] == 'code' and any('orig_yaml = "datasets/URPC2020.yaml"' in line for line in cell['source']):
+    if cell['cell_type'] == 'code' and any('orig_yaml = "/kaggle/input/datasets/lywang777/urpc2020/URPC2020/data.yaml"' in line for line in cell['source']):
         cell['source'] = new_source
         break
 
