@@ -80,9 +80,12 @@ def run_warmup(epochs: int):
     )
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
-    # trainer.head_lr_multiplier = 1.0  # Commented out to use trainer.py default
+    
+    # [WARMUP] Tăng LR để học nhanh trên Proxy Data:
+    trainer.head_lr_multiplier = 2.0
+    trainer.lora_lr_multiplier = 0.5
 
-    print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} (LoRA lr=2e-3 | Head lr=2e-3)")
+    print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} (LoRA lr=1e-3 | Head lr=4e-3)")
     trainer.train()
 
     # Step 1: Lưu model GỐC (còn LoRAConv2d) để FL kế thừa warmup LoRA direction
