@@ -87,9 +87,9 @@ def main():
         warmup_pt = Path("yolo12n_warmup.pt")
         if args.baseline in ['fedkdl', 'fedkd']:
             if not warmup_pt.exists():
-                print(f"[Auto-Warmup] Không tìm thấy {warmup_pt}. Tiến hành tạo warmup model mới (3 epochs)...")
+                print(f"[Auto-Warmup] Không tìm thấy {warmup_pt}. Tiến hành tạo warmup model mới (5 epochs)...")
                 from scripts.fedkdl.train_student_warmup import run_warmup
-                run_warmup(epochs=3)
+                run_warmup(epochs=5)
                 if not warmup_pt.exists():
                     print(f"[Lỗi nghiêm trọng] Không tạo được {warmup_pt}. Hủy tiến trình.")
                     sys.exit(1)
