@@ -1,67 +1,93 @@
 import json
-import sys
-import copy
+import os
 
-with open('d:/Documents/HUST/2022-2026/Research_Thesis/FedKDL/Kaggle_FedKDL.ipynb', 'r', encoding='utf-8') as f:
+path = r'Kaggle_FedKDL.ipynb'
+with open(path, 'r', encoding='utf-8') as f:
     nb = json.load(f)
 
-# Find the index of the markdown cell for '4.1'
-insert_idx = -1
-for i, cell in enumerate(nb['cells']):
-    if cell['cell_type'] == 'markdown' and '### 4.1' in cell['source'][0]:
-        insert_idx = i
+new_source = [
+    "import os, random, yaml\n",
+    "from pathlib import Path\n",
+    "\n",
+    "orig_yaml = \"/kaggle/input/datasets/lywang777/urpc2020/URPC2020/data.yaml\"\n",
+    "proxy_yaml = \"datasets/URPC2020_proxy.yaml\"\n",
+    "\n",
+    "if not os.path.exists(orig_yaml):\n",
+    "    print(f\"Không tìm thấy {orig_yaml}\")\n",
+    "else:\n",
+    "    with open(orig_yaml, \"r\") as f:\n",
+    "        config = yaml.safe_load(f)\n",
+    "\n",
+    "    # Theo cấu trúc của dataset URPC2020 trên Kaggle\n",
+    "    train_images_dir = Path(\"/kaggle/input/datasets/lywang777/urpc2020/URPC2020/train/images\")\n",
+    "    train_labels_dir = Path(\"/kaggle/input/datasets/lywang777/urpc2020/URPC2020/train/labels\")\n",
+    "\n",
+    "    if train_images_dir.exists() and train_labels_dir.exists():\n",
+    "        all_imgs = sorted(list(train_images_dir.glob(\"*.jpg\")))\n",
+    "        HABITAT_TO_URPC = {0: 2, 1: 1, 2: 3, 3: 0}\n",
+    "        URPC_TO_HABITAT = {v: k for k, v in HABITAT_TO_URPC.items()}\n",
+    "\n",
+    "        imgs_by_habitat = {h: [] for h in range(4)}\n",
+    "        imgs_noclass = []\n",
+    "\n",
+    "        print(\"Đang phân loại ảnh theo Habitat...\")\n",
+    "        for img_path in all_imgs:\n",
+    "            lbl_path = train_labels_dir / (img_path.stem + \".txt\")\n",
+    "            counts = {c: 0 for c in range(4)}\n",
+    "            try:\n",
+    "                if lbl_path.exists():\n",
+    "                    with open(lbl_path, \"r\") as lf:\n",
+    "                        for line in lf:\n",
+    "                            parts = line.strip().split()\n",
+    "                            if parts:\n",
+    "                                cls_id = int(parts[0])\n",
+    "                                if cls_id in counts:\n",
+    "                                    counts[cls_id] += 1\n",
+    "                    if sum(counts.values()) == 0:\n",
+    "                        imgs_noclass.append(img_path)\n",
+    "                    else:\n",
+    "                        dominant = max(counts, key=counts.get)\n",
+    "                        habitat = URPC_TO_HABITAT.get(dominant, 0)\n",
+    "                        imgs_by_habitat[habitat].append(img_path)\n",
+    "                else:\n",
+    "                    imgs_noclass.append(img_path)\n",
+    "            except Exception:\n",
+    "                imgs_noclass.append(img_path)\n",
+    "\n",
+    "        for i, img_path in enumerate(imgs_noclass):\n",
+    "            imgs_by_habitat[i % 4].append(img_path)\n",
+    "\n",
+    "        random.seed(1104)\n",
+    "        proxy_imgs = []\n",
+    "        print(\"\\n[Data Partitioning] Tách 15% Proxy Data từ các Habitat:\")\n",
+    "        for h in range(4):\n",
+    "            pool = imgs_by_habitat[h]\n",
+    "            old_size = len(pool)\n",
+    "            proxy_for_h = int(old_size * 0.15)\n",
+    "            sampled = random.sample(pool, proxy_for_h)\n",
+    "            proxy_imgs.extend(sampled)\n",
+    "            print(f\"    - Habitat {h}: Tổng {old_size} ảnh -> Lấy {proxy_for_h} ảnh cho KD\")\n",
+    "\n",
+    "        proxy_txt = Path(\"datasets/URPC2020/proxy_train.txt\")\n",
+    "        proxy_txt.parent.mkdir(parents=True, exist_ok=True)\n",
+    "        with open(proxy_txt, \"w\") as f:\n",
+    "            for img in proxy_imgs:\n",
+    "                f.write(f\"{img.absolute()}\\n\")\n",
+    "\n",
+    "        config[\"train\"] = str(proxy_txt.absolute())\n",
+    "        with open(proxy_yaml, \"w\") as f:\n",
+    "            yaml.dump(config, f)\n",
+    "        print(f\"\\n=> Đã tạo {proxy_yaml} với tổng {len(proxy_imgs)} ảnh proxy (15%).\")\n",
+    "    else:\n",
+    "        print(\"Chưa tìm thấy thư mục ảnh hoặc nhãn. Hãy kiểm tra lại đường dẫn dataset.\")\n"
+]
+
+for cell in nb['cells']:
+    if cell['cell_type'] == 'code' and any('orig_yaml = "datasets/URPC2020.yaml"' in line for line in cell['source']):
+        cell['source'] = new_source
         break
 
-if insert_idx != -1:
-    md_cell = {
-        'cell_type': 'markdown',
-        'metadata': {},
-        'source': [
-            '### 3.5. Tạo Proxy Dataset (15% URPC)\n',
-            'Trích xuất 15% dữ liệu URPC để tạo tập proxy dùng cho việc Warmup (trước FL) và Knowledge Distillation (tại Gateway).'
-        ]
-    }
-    
-    code_cell = {
-        'cell_type': 'code',
-        'execution_count': None,
-        'metadata': {},
-        'outputs': [],
-        'source': [
-            'import os, random, yaml\n',
-            'from pathlib import Path\n',
-            '\n',
-            'orig_yaml = "datasets/URPC2020.yaml"\n',
-            'proxy_yaml = "datasets/URPC2020_proxy.yaml"\n',
-            '\n',
-            'with open(orig_yaml, "r") as f:\n',
-            '    config = yaml.safe_load(f)\n',
-            '\n',
-            'train_dir = Path("datasets/URPC2020/URPC2020/images/train")\n',
-            'if train_dir.exists():\n',
-            '    all_imgs = list(train_dir.glob("*.jpg"))\n',
-            '    random.seed(1104)\n',
-            '    proxy_imgs = random.sample(all_imgs, int(len(all_imgs) * 0.15))\n',
-            '    \n',
-            '    proxy_txt = Path("datasets/URPC2020/proxy_train.txt")\n',
-            '    with open(proxy_txt, "w") as f:\n',
-            '        for img in proxy_imgs:\n',
-            '            f.write(f"{img.absolute()}\\n")\n',
-            '            \n',
-            '    config["train"] = str(proxy_txt.absolute())\n',
-            '    with open(proxy_yaml, "w") as f:\n',
-            '        yaml.dump(config, f)\n',
-            '    print(f"Đã tạo {proxy_yaml} với {len(proxy_imgs)} ảnh proxy (15%).")\n',
-            'else:\n',
-            '    print("Chưa tìm thấy thư mục ảnh. Hãy đảm bảo mount dataset đúng cách.")'
-        ]
-    }
-    
-    nb['cells'].insert(insert_idx, md_cell)
-    nb['cells'].insert(insert_idx + 1, code_cell)
-    
-    with open('d:/Documents/HUST/2022-2026/Research_Thesis/FedKDL/Kaggle_FedKDL.ipynb', 'w', encoding='utf-8') as f:
-        json.dump(nb, f, indent=1, ensure_ascii=False)
-    print('Inserted cells successfully.')
-else:
-    print('Could not find insertion point.')
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(nb, f, indent=1)
+
+print("Kaggle_FedKDL.ipynb updated.")
