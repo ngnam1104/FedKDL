@@ -85,22 +85,31 @@ def run_warmup(epochs: int):
     print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} (LoRA lr=2e-3 | Head lr=2e-3)")
     trainer.train()
 
-    # Step 1: Bake LoRA vào backbone weights TRƯỚC khi lưu
-    # (Đảm bảo file .pt không chứa LoRAConv2d để Ultralytics fuse() hoạt động đúng)
-    print("\n[Bake LoRA] Gộp LoRA vào backbone trước khi lưu checkpoint...")
-    student.bake_lora()
-
-    # Step 2: Lưu model đã bake (FP32) - file sạch, không còn LoRAConv2d
+    # Step 1: Lưu model GỐC (còn LoRAConv2d) để FL kế thừa warmup LoRA direction
+    # Lý do: LoRA_A, LoRA_B đã học được low-rank direction phù hợp underwater domain.
+    # Nếu bake rồi inject lại (fresh), FL sẽ phải học lại từ đầu → tốn thêm vài vòng FL.
     student.yolo.model.float()  # Đảm bảo FP32
     ckpt = {"model": student.yolo.model, "epoch": epochs}
     torch.save(ckpt, save_path)
-    print(f"\n[Thành công] Đã lưu Student LoRA warmup (FP32, baked) tại: {save_path}")
+    print(f"\n[Thành công] Đã lưu Student LoRA warmup (FP32, có LoRA) tại: {save_path}")
 
-    # Step 3: Val trên file đã bake (load lại từ disk để đảm bảo khớp với file)
-    print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã bake LoRA vào weights)...")
+    # Step 2: Bake một bản COPY riêng chỉ để validate
+    # (Ultralytics fuse() không hiểu LoRAConv2d → phải bake copy trước khi val)
+    print("\n[Đánh giá] Bake bản copy để validate (không ảnh hưởng file warmup gốc)...")
+    import copy
+    student_copy = copy.deepcopy(student)
+    student_copy.bake_lora()
+
+    # Lưu bản baked tạm vào disk để YOLO load lại (tránh fuse() bug)
+    baked_tmp_path = save_path.parent / "yolo12n_warmup_baked_tmp.pt"
+    student_copy.yolo.model.float()
+    torch.save({"model": student_copy.yolo.model, "epoch": epochs}, baked_tmp_path)
+    del student_copy  # Giải phóng bộ nhớ
+
     from ultralytics import YOLO as _YOLO
-    val_model = _YOLO(str(save_path))
+    val_model = _YOLO(str(baked_tmp_path))
     full_yaml_test = REPO_ROOT / "datasets/URPC2020.yaml"
+    print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã bake LoRA vào weights)...")
     val_model.val(
         data=str(full_yaml_test),
         imgsz=640,
@@ -109,6 +118,7 @@ def run_warmup(epochs: int):
         verbose=True,
         split="val",
     )
+    baked_tmp_path.unlink(missing_ok=True)  # Xóa file tạm
 
 
 def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
