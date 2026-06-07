@@ -471,8 +471,13 @@ def local_sgd_od(
         trainer.head_lr_multiplier = 1.0
     else:
         # Diff LR:
-        trainer.head_lr_multiplier = 2.0
-        trainer.lora_lr_multiplier = 1.0
+        try:
+            from config.settings import fed_cfg
+            trainer.head_lr_multiplier = getattr(fed_cfg, 'LOCAL_HEAD_LR_MULT', 3.0)
+            trainer.lora_lr_multiplier = getattr(fed_cfg, 'LOCAL_LORA_LR_MULT', 1.5)
+        except Exception:
+            trainer.head_lr_multiplier = 3.0
+            trainer.lora_lr_multiplier = 1.5
 
     # HẠN ĐỊNH: Xác định các keys sẽ được truyền qua mạng (LoRA + Head) và coi
     # toàn bộ phần còn lại là "đóng băng"; sử dụng `trainable_state_dict()`
@@ -637,4 +642,3 @@ def evaluate_od_on_auv_train(student_model, auv_yaml: str, device: str = "cpu") 
             'local_Prec':     0.0,
             'local_Rec':      0.0,
         }
-

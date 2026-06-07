@@ -81,11 +81,16 @@ def run_warmup(epochs: int):
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
     
-    # [WARMUP] Tăng LR để học nhanh trên Proxy Data:
-    trainer.head_lr_multiplier = 3.0
-    trainer.lora_lr_multiplier = 0.5
+    # [WARMUP] Đồng nhất LR với centralized LoRA.
+    trainer.head_lr_multiplier = getattr(fed_cfg, 'WARMUP_HEAD_LR_MULT', 2.5)
+    trainer.lora_lr_multiplier = getattr(fed_cfg, 'WARMUP_LORA_LR_MULT', 0.5)
 
-    print(f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} (LoRA lr=1e-3 | Head lr=4e-3)")
+    warmup_lora_lr = overrides['lr0'] * trainer.lora_lr_multiplier
+    warmup_head_lr = overrides['lr0'] * trainer.head_lr_multiplier
+    print(
+        f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} "
+        f"(LoRA lr={warmup_lora_lr:.1e} | Head lr={warmup_head_lr:.1e})"
+    )
     trainer.train()
 
     # Step 1: Lưu model GỐC (còn LoRAConv2d) để FL kế thừa warmup LoRA direction
@@ -192,11 +197,9 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     )
     trainer._fl_injected_model = student.yolo.model
     trainer.model = student.yolo.model
-    # [CRITICAL] Centralized LoRA LR config:
-    # - head_lr_multiplier=1.0  → Head lr = 2e-3  (đủ mạnh cho 4 class URPC mới)
-    # - lora_lr_multiplier=0.25 → LoRA lr = 5e-4
-    trainer.head_lr_multiplier = 1.0
-    trainer.lora_lr_multiplier = 0.25
+    # [CRITICAL] Centralized LoRA LR config: keep aligned with warmup.
+    trainer.head_lr_multiplier = getattr(fed_cfg, 'CENTRAL_HEAD_LR_MULT', 2.5)
+    trainer.lora_lr_multiplier = getattr(fed_cfg, 'CENTRAL_LORA_LR_MULT', 0.5)
 
     trainer.train()
     

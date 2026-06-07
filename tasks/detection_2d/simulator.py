@@ -388,8 +388,14 @@ class Simulator2D(BaseSimulator):
         
         self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
         self._last_kd_metrics = {}
-        
-        self.relay_model_bits = sum(t.numel() for t in self.gateway.global_state_dict.values()) * 32
+
+        if cfg['use_int8']:
+            relay_payload_bytes, relay_payload_kb = pack_payload(self.gateway.global_state_dict)
+            self.relay_model_bits = len(relay_payload_bytes) * 8
+            print(f"[Simulator2D] Relay payload budget: {relay_payload_kb:.1f} KB INT8/FP16")
+        else:
+            self.relay_model_bits = sum(t.numel() for t in self.gateway.global_state_dict.values()) * 32
+            print(f"[Simulator2D] Relay payload budget: {self.relay_model_bits / 8.0 / 1024.0:.1f} KB Float32")
         
         self._init_network()
 
@@ -903,4 +909,3 @@ class Simulator2D(BaseSimulator):
         gc.collect()
         torch.cuda.empty_cache()
         return res
-

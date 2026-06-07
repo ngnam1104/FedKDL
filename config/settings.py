@@ -65,6 +65,8 @@ class FedKDLConfig:
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 16
     LOCAL_LR: float = 5e-4
+    LOCAL_HEAD_LR_MULT: float = 4.0   # FL Local SGD: Head LR = LOCAL_LR × multiplier
+    LOCAL_LORA_LR_MULT: float = 1.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
 
@@ -95,11 +97,15 @@ class FedKDLConfig:
     KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
     KD_STU_LAMBDA: float = 0.50     # Trọng số Supervised Loss trong KD (0.5 = cân bằng GT/KD)
     KD_HEAD_LR_MULT: float = 8.0    # Head LR = LoRA LR × multiplier trong Gateway KD
+    WARMUP_HEAD_LR_MULT: float = 2.5 # Warmup LoRA: Head LR = lr0 × multiplier
+    WARMUP_LORA_LR_MULT: float = 0.5 # Warmup LoRA: LoRA LR = lr0 × multiplier
+    CENTRAL_HEAD_LR_MULT: float = 2.5 # Centralized LoRA: Head LR = lr0 × multiplier
+    CENTRAL_LORA_LR_MULT: float = 0.5 # Centralized LoRA: LoRA LR = lr0 × multiplier
 
     # ── Joint optimisation / latency budget (base_simulator logs) ───────────
     LAMBDA_E: float = 1e-3
     LAMBDA_TAU: float = 1e-3
-    TAU_MAX: float = 1000.0          # s — giới hạn độ trễ vòng FL
+    TAU_MAX: float = 1800.0          # s — giới hạn độ trễ vòng FL
 
 
 network_cfg = NetworkConfig()
