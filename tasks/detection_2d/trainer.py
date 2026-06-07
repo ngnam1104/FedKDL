@@ -228,13 +228,13 @@ class CustomDetectionTrainer(DetectionTrainer):
         #   [1] Centralized LoRA (150 epochs, AdamW, amp=False):
         #       lr0 = 2e-3
         #       head_lr_multiplier = 1.0  → Head LR = 2e-3  (đủ mạnh cho 4 class URPC mới)
-        #       lora_lr_multiplier = 0.5  → LoRA LR = 1e-3  (đủ học 150 ep, không NaN)
+        #       lora_lr_multiplier = 0.25 → LoRA LR = 5e-4
         #       Đặt trong: train_student_warmup.py → run_centralized_lora()
         #
         #   [2] FL Local SGD (2 epochs/round, SGD, amp=False):
         #       lr0 = 5e-4  (từ Global Cosine LR decay)
-        #       head_lr_multiplier = 3.0  → Head LR = ~1.5e-3 (hội tụ nhanh trong 2 epoch)
-        #       lora_lr_multiplier = 0.25 → LoRA LR = ~1.25e-4 (an toàn chống divergence)
+        #       head_lr_multiplier = 2.0  → Head LR = ~1e-3
+        #       lora_lr_multiplier = 0.5  → LoRA LR = ~2.5e-4
         #       Đặt trong: trainer.py → local_sgd_od()
         #
         #   [3] Teacher YOLO12l (300 epochs, AdamW, amp=True):
@@ -470,8 +470,9 @@ def local_sgd_od(
     if getattr(student_model, 'full_param', False):
         trainer.head_lr_multiplier = 1.0
     else:
-        # Diff LR: Giảm multiplier để LoRA có LR tiệm cận hơn với Head
-        trainer.head_lr_multiplier = 3.0
+        # Diff LR:
+        trainer.head_lr_multiplier = 2.0
+        trainer.lora_lr_multiplier = 0.5
 
     # HẠN ĐỊNH: Xác định các keys sẽ được truyền qua mạng (LoRA + Head) và coi
     # toàn bộ phần còn lại là "đóng băng"; sử dụng `trainable_state_dict()`
