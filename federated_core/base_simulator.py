@@ -139,8 +139,8 @@ class BaseSimulator(ABC):
             self.current_round = t
             # Tính toán Cosine Annealing Learning Rate cho toàn bộ quá trình FL
             progress = (t - 1) / max(1, T_rounds - 1)
-            # LRF (Learning Rate Fraction) = 0.01 như mặc định của YOLO
-            self.current_lr = initial_lr * (0.01 + 0.99 * 0.5 * (1 + math.cos(math.pi * progress)))
+            # LRF (Learning Rate Fraction) = 0.1 (warm restart floor)
+            self.current_lr = initial_lr * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * progress)))
 
             gc.collect()
             if torch.cuda.is_available():

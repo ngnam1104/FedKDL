@@ -348,7 +348,8 @@ class KDDetectionTrainer(DetectionTrainer):
         # Set trainer.head_lr_multiplier = 5.0 → Head lr = lr * 5 (=1e-3 khi lr=2e-4).
         # ---------------------------------------------------------------
         head_lr_multiplier = getattr(self, 'head_lr_multiplier', 1.0)
-        if head_lr_multiplier != 1.0:
+        lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 1.0)
+        if head_lr_multiplier != 1.0 or lora_lr_multiplier != 1.0:
             id_to_name = {id(p): n for n, p in model.named_parameters()}
             head_patterns = ('model.21.', 'model.22.', 'model.23.')
             new_groups = []
@@ -357,7 +358,14 @@ class KDDetectionTrainer(DetectionTrainer):
                           if any(h in id_to_name.get(id(p), '') for h in head_patterns)
                           and 'lora_' not in id_to_name.get(id(p), '')]
                 head_p_ids = set(id(x) for x in head_p)
-                other_p = [p for p in group['params'] if id(p) not in head_p_ids]
+                
+                lora_p = [p for p in group['params']
+                          if 'lora_' in id_to_name.get(id(p), '') and id(p) not in head_p_ids]
+                lora_p_ids = set(id(x) for x in lora_p)
+
+                other_p = [p for p in group['params'] 
+                           if id(p) not in head_p_ids and id(p) not in lora_p_ids]
+                           
                 if other_p:
                     g = {k: v for k, v in group.items() if k != 'params'}
                     g['params'] = other_p
@@ -367,9 +375,14 @@ class KDDetectionTrainer(DetectionTrainer):
                     g['params'] = head_p
                     g['lr'] = group.get('lr', lr) * head_lr_multiplier
                     new_groups.append(g)
+                if lora_p:
+                    g = {k: v for k, v in group.items() if k != 'params'}
+                    g['params'] = lora_p
+                    g['lr'] = group.get('lr', lr) * lora_lr_multiplier
+                    new_groups.append(g)
             optimizer.param_groups = new_groups
-            print(f"[KD-DiffLR] Head LR boosted ×{head_lr_multiplier} → "
-                  f"LoRA lr={lr:.2e} | Head lr={lr * head_lr_multiplier:.2e}")
+            print(f"[KD-DiffLR] Multipliers: Head ×{head_lr_multiplier}, LoRA ×{lora_lr_multiplier} → "
+                  f"Base lr={lr:.2e} | LoRA lr={lr * lora_lr_multiplier:.2e} | Head lr={lr * head_lr_multiplier:.2e}")
 
         # Filter frozen parameters from optimizer to prevent errors
         for group in optimizer.param_groups:

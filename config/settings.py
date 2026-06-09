@@ -65,8 +65,8 @@ class FedKDLConfig:
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 16
     LOCAL_LR: float = 5e-4
-    LOCAL_HEAD_LR_MULT: float = 4.0   # FL Local SGD: Head LR = LOCAL_LR × multiplier
-    LOCAL_LORA_LR_MULT: float = 1.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
+    LOCAL_HEAD_LR_MULT: float = 6.0   # FL Local SGD: Head LR = LOCAL_LR × multiplier
+    LOCAL_LORA_LR_MULT: float = 2.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
 
@@ -97,6 +97,7 @@ class FedKDLConfig:
     KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
     KD_STU_LAMBDA: float = 0.50     # Trọng số Supervised Loss trong KD (0.5 = cân bằng GT/KD)
     KD_HEAD_LR_MULT: float = 8.0    # Head LR = LoRA LR × multiplier trong Gateway KD
+    KD_LORA_LR_MULT: float = 2.0    # LoRA LR multiplier in Gateway KD
     WARMUP_HEAD_LR_MULT: float = 2.5 # Warmup LoRA: Head LR = lr0 × multiplier
     WARMUP_LORA_LR_MULT: float = 0.5 # Warmup LoRA: LoRA LR = lr0 × multiplier
     CENTRAL_HEAD_LR_MULT: float = 2.5 # Centralized LoRA: Head LR = lr0 × multiplier

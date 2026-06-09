@@ -838,6 +838,7 @@ class Simulator2D(BaseSimulator):
         }
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.head_lr_multiplier = getattr(self.fed_cfg, 'KD_HEAD_LR_MULT', 8.0)  # Head LR boost trong Gateway KD
+        trainer.lora_lr_multiplier = getattr(self.fed_cfg, 'KD_LORA_LR_MULT', 2.0)  # LoRA LR boost trong Gateway KD
         trainer.student_wrapper = self.global_student
         
         # [CÂN BẰNG LOSS] stu_lambda được đọc từ config (mặc định 0.5 = cân bằng Supervised/KD)
