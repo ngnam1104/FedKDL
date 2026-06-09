@@ -75,11 +75,20 @@ def quantize_tensor(x: torch.Tensor, bits: int | None = None) -> QuantizedTensor
     x_min = x_flat.min().item()
     x_max = x_flat.max().item()
 
-    # Tránh chia cho 0 nếu tensor hằng số
+    # Tránh chia cho 0 nếu tensor hằng số — GIỮ NGUYÊN giá trị gốc (exact float)
     if abs(x_max - x_min) < 1e-8:
-        scale = 1.0
-        zero_point = 0
-        data_int8 = torch.zeros_like(x_flat, dtype=torch.int8)
+        constant_val = x_min
+        if constant_val == 0.0:
+            # Zero tensor: encode as zeros, scale = 0 → dequant = (0 - 0) * 0 = 0 ✅
+            scale = 0.0
+            zero_point = 0
+            data_int8 = torch.zeros_like(x_flat, dtype=torch.int8)
+        else:
+            # Non-zero constant: encode as ones, scale = constant_val
+            # → dequant = (1 - 0) * constant_val = constant_val ✅ exact float
+            scale = float(constant_val)
+            zero_point = 0
+            data_int8 = torch.ones_like(x_flat, dtype=torch.int8)
         return QuantizedTensor(data_int8, scale, zero_point, tuple(x.shape))
 
     # Tính scale Δ và zero point Z

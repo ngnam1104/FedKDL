@@ -27,14 +27,14 @@ def parse_log_file(input_file, output_file):
     
     header = physical_keys + pre_kd_keys + kd_keys + post_kd_keys
     
-    # Regex to match the round summary line
-    round_line_pattern = re.compile(r"^Round\s+(\d+)\s+\|(.*)")
+    # Regex to match the round summary line (ignoring prefixes like timestamps)
+    round_line_pattern = re.compile(r"Round\s+(\d+)\s+\|(.*)")
     
     rows = []
     
     with open(input_file, 'r', encoding='utf-8') as f:
         for line in f:
-            match = round_line_pattern.match(line.strip())
+            match = round_line_pattern.search(line.strip())
             if match:
                 round_num = match.group(1)
                 content = match.group(2)

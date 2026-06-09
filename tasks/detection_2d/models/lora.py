@@ -120,10 +120,10 @@ def inject_lora(module: nn.Module,
                     continue  # Skip backbone
             elif strategy == "adaptive":
                 if layer_idx != -1:
-                    if layer_idx < 4:
-                        continue  # Skip shallow (0-3)
-                    elif 4 <= layer_idx < 10:
-                        current_rank = 2  # Mid backbone -> rank 2
+                    if layer_idx < 10:
+                        current_rank = 4  # Mở full backbone với rank = 4
+                    else:
+                        current_rank = 8  # Neck với rank = 8 (mặc định)
             
             parent_name = '.'.join(parts[:-1])
             leaf_name = parts[-1]
