@@ -629,6 +629,62 @@ class Simulator2D(BaseSimulator):
         )
         return 0.0
 
+    def _pre_warm_dataset_cache(self):
+        """
+        [OPTION B] Pre-warm YOLO label cache cho tất cả AUV datasets TRƯỚC vòng FL đầu tiên.
+        Mục tiêu: loại bỏ chi phí scan/index labels lặp lại ở mỗi vòng (tiết kiệm ~15-25%).
+        
+        Cơ chế: Chạy Ultralytics scan labels + build .cache file song song bằng ThreadPoolExecutor.
+        Các vòng FL sau sẽ load trực tiếp từ file cache → không cần scan lại.
+        """
+        import concurrent.futures
+        from pathlib import Path
+
+        if not hasattr(self, 'auv_yamls') or not self.auv_yamls:
+            return
+
+        yamls = list(self.auv_yamls.values()) if isinstance(self.auv_yamls, dict) else list(self.auv_yamls)
+        print(f"\n[Option B] Pre-warming YOLO label cache cho {len(yamls)} AUV datasets (song song)...")
+
+        def _warm_one(yaml_path: str):
+            try:
+                import yaml as _yaml
+                from pathlib import Path as _P
+                from ultralytics.data import YOLODataset
+                with open(yaml_path, 'r') as f:
+                    cfg = _yaml.safe_load(f)
+                train_path = cfg.get('train', '')
+                if not train_path:
+                    return yaml_path, False
+                # Chạy scan để build label cache file (*.cache)
+                ds = YOLODataset(
+                    img_path=train_path,
+                    imgsz=640,
+                    augment=False,
+                    batch_size=1,
+                    data=cfg,
+                    task='detect',
+                )
+                # Trigger cache build nếu chưa có
+                _ = len(ds)
+                return yaml_path, True
+            except Exception as e:
+                return yaml_path, f"ERR:{e}"
+
+        max_w = min(len(yamls), 8)  # Tối đa 8 workers để không quá tải I/O
+        ok_count = 0
+        err_count = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as ex:
+            futures = [ex.submit(_warm_one, y) for y in yamls]
+            for fut in concurrent.futures.as_completed(futures):
+                _, status = fut.result()
+                if status is True:
+                    ok_count += 1
+                else:
+                    err_count += 1
+        print(f"[Option B] Cache pre-warm xong: {ok_count} OK, {err_count} skipped/error.\n")
+
+
     def _compute_payload_bits(self, payloads: Dict) -> float:
         if not payloads:
             return self.relay_model_bits

@@ -135,6 +135,11 @@ class BaseSimulator(ABC):
         import math
         initial_lr = self.fed_cfg.LOCAL_LR
 
+        # [OPTION B] Pre-warm YOLO label cache trước vòng FL đầu tiên
+        # Chỉ chạy 1 lần (không tốn thêm gì từ vòng 2 trở đi)
+        if self.task_key == "2D" and hasattr(self, '_pre_warm_dataset_cache'):
+            self._pre_warm_dataset_cache()
+
         for t in range(1, T_rounds + 1):
             self.current_round = t
             # Tính toán Cosine Annealing Learning Rate cho toàn bộ quá trình FL
@@ -288,23 +293,38 @@ class BaseSimulator(ABC):
             q1_dist = compute_q1_relay_distance(self.G)
 
             # Nội cụm (Intra-cluster) + deduct SVD energy from Relay battery
+            # [OPTION A] Song song hóa relay SVD aggregation bằng ThreadPoolExecutor
+            # Mỗi relay hoàn toàn độc lập → thread-safe.
             from physics_models.energy import e_tx, e_svd
             dead_relays = []
             e_svd_total = 0.0
-            for m, relay in self.relays.items():
+
+            def _intra_relay_job(args):
+                m, relay = args
                 if not relay.alive:
-                    dead_relays.append(m)
-                    print(f"[!] Relay {m} ĐÃ CHẾT (pin = {relay.battery:.1f} J). Cụm {relay.cluster_members} bỏ qua vòng này.")
-                    continue
-                e_r2r_total += self._aggregate_intra_relay(m, relay, payloads, auv_n_samples)
-                # Temp SVD + Final SVD energy (2 calls per round)
-                # Representative dimensions: Neck layers dominant (d_out~256, d_in~128)
-                e_svd_cost = e_svd(
+                    return m, 'dead', 0.0, 0.0
+                r2r_cost = self._aggregate_intra_relay(m, relay, payloads, auv_n_samples)
+                svd_cost = e_svd(
                     d_out=256, d_in=128, n_svd_calls=2,
                     epsilon_op=self.en_cfg.EPSILON_OP.get(self.task_key, 2.0e-12)
                 )
-                relay.deduct_battery(e_svd_cost, min_battery=self.en_cfg.RELAY_E_MIN)
-                e_svd_total += e_svd_cost
+                return m, 'ok', r2r_cost, svd_cost
+
+            relay_items = list(self.relays.items())
+            # Relay aggregation là CPU-bound (SVD thuần NumPy) → ThreadPoolExecutor phù hợp
+            _relay_workers = min(len(relay_items), 8)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=_relay_workers) as _relay_ex:
+                _relay_futures = [_relay_ex.submit(_intra_relay_job, item) for item in relay_items]
+                for fut in concurrent.futures.as_completed(_relay_futures):
+                    m, status, r2r_cost, svd_cost = fut.result()
+                    if status == 'dead':
+                        dead_relays.append(m)
+                        relay = self.relays[m]
+                        print(f"[!] Relay {m} ĐÃ CHẾT (pin = {relay.battery:.1f} J). Cụm {relay.cluster_members} bỏ qua vòng này.")
+                    else:
+                        e_r2r_total += r2r_cost
+                        self.relays[m].deduct_battery(svd_cost, min_battery=self.en_cfg.RELAY_E_MIN)
+                        e_svd_total += svd_cost
 
             # Liên cụm (Inter-cluster Cooperation)
             if 'selective' in self.baseline:
