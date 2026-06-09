@@ -4,14 +4,15 @@
 
 Phần này xác minh hiệu quả của cơ chế kết hợp tinh chỉnh LoRA và lượng tử hóa INT8 trong việc giải quyết bài toán nghẽn băng thông của kênh truyền thủy âm.
 
-* **Phương pháp đối chiếu:** FedAvg \cite{mcmahan2017communication}: Không có lớp trung gian, truyền toàn bộ weights, Top-K Sparsification \cite{lin2017deep}: Truyền toàn bộ weights sau khi nén top-k, FLORA \cite{wang2024flora}: , FedKDL: Truyền trọng số LoRA
+* **Phương pháp đối chiếu:** FedAvg \cite{mcmahan2017communication}: Không có lớp trung gian, truyền toàn bộ weights, Top-K Sparsification \cite{lin2017deep}: Truyền Top K Gradient thay đỏi nhiều nhất và vị trí của gradient đó trong toàn bộ tham số, FLORA \cite{wang2024flora}: Truyền chọn lọc tham số LoRA, FedKDL: Truyền trọng số LoRA bằng lượng tử hóa INT8
 * **Tác dụng chính:** Đánh giá trực tiếp khả năng **giảm dung lượng gói tin (payload), tối ưu độ trễ và tiết kiệm năng lượng** trung bình trên mỗi vòng giao tiếp, đồng thời kiểm tra chéo xem mức độ **duy trì độ chính xác (mAP@0.5)** có bị ảnh hưởng khi ép nén hay không.
+* Kết quả kì vọng: FedAvg đạt năng lượng cao nhất, độ trễ cao nhất, map thấp nhất do tốn tài nguyên tài nguyên để truyền toàn bộ weights và không đủ thiết bị truyền trọng số do nằm ngoài vùng phủ sóng. Top K tiêu hao năng lượng nhất
 
 ---
 
 ### 2. Tổng hợp cấp độ Relay xử lý Dữ liệu Non-IID
 
-Kiểm tra tính bền bỉ của hệ thống khi dữ liệu tại các AUV bị phân mảnh và mất cân bằng nghiêm trọng (do sinh vật phân bố theo độ sâu). Bao gồm một nghiên cứu cắt bỏ (ablation study) đánh giá 3 phiên bản: Không SVD, Không Relay và Full FedKDL.
+Kiểm tra tính ổn định  của hệ thống khi dữ liệu tại các AUV bị phân mảnh và mất cân bằng nghiêm trọng (do sinh vật phân bố theo độ sâu). Bao gồm một nghiên cứu cắt bỏ (ablation study) đánh giá 3 phiên bản: Không SVD, Không Relay và Full FedKDL.
 
 * **Phương pháp đối chiếu:** FedAvg \cite{mcmahan2017communication}, FedProx \cite{li2020federated}, FLORA \cite{wang2024flora}, FedKDL.
 * **Tác dụng chính:** Kiểm tra khả năng **duy trì độ chính xác hội tụ của mô hình**, theo dõi hàm loss và tỷ lệ tham gia (participation rate) để chứng minh trạm trung chuyển giúp hệ thống không bị "đứt gãy" khi gặp dữ liệu Non-IID khắt khe.
