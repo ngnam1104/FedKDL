@@ -80,10 +80,10 @@ else
 fi
 
 # =========================================================
-# BƯỚC 3: Warmup Full-Param (Detection Head, khong LoRA)
-# Dam bao cong bang voi LoRA baselines khi so sanh mAP
+# BƯỚC 3: Bake checkpoint warmup cho kiến trúc YOLO gốc
+# Không train thêm; mọi baseline dùng cùng một trạng thái warmup.
 # =========================================================
-echo "[KDL] Dang Warm-up Student (Full-Param, Head only)..."
+echo "[KDL] Dang tao ban warmup baked cho cac baseline khong LoRA..."
 if [[ -f "yolo12n_head_warmup.pt" ]]; then
   echo "[KDL] yolo12n_head_warmup.pt da ton tai, BO QUA."
 else
@@ -92,7 +92,7 @@ else
   FP_RC=$?
   set -e
   if [[ $FP_RC -ne 0 ]]; then
-    echo "[Warning] warmup_fullparam exit=$FP_RC."
+    echo "[Warning] bake warmup exit=$FP_RC."
     if [[ ! -f "yolo12n_head_warmup.pt" ]]; then
       exit 1
     fi

@@ -107,16 +107,17 @@ class FedKDLConfig:
     # ── Gateway Knowledge Distillation ──────────────────────────────────────
     KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
     KD_STU_LAMBDA: float = 0.50     # Trọng số Supervised Loss trong KD (0.5 = cân bằng GT/KD)
-    KD_HEAD_LR_MULT: float = 8.0    # Head LR = LoRA LR × multiplier trong Gateway KD
-    KD_LORA_LR_MULT: float = 2.0    # LoRA LR multiplier in Gateway KD
+    KD_HEAD_LR_MULT: float = 4.0    # Gateway KD Head LR = 4e-3 when KD_LR=1e-3
+    KD_LORA_LR_MULT: float = 1.0    # Gateway KD LoRA LR = KD_LR
     KD_EPOCHS: int = 1
-    KD_BATCH_SIZE: int = 16
+    KD_BATCH_SIZE: int = 4
     KD_WORKERS: int = 0
-    KD_AMP: bool = False
+    KD_AMP: bool = True
     KD_LR: float = 1e-3
-    KD_LAMBDA_START: float = 0.30
-    KD_LAMBDA_FLOOR: float = 0.08
-    KD_DECAY_START_FRAC: float = 0.65
+    KD_LAMBDA_START: float = 0.20
+    KD_LAMBDA_FLOOR: float = 0.03
+    KD_PHASE1_END_FRAC: float = 1.0 / 3.0  # KD every 2 rounds
+    KD_STOP_FRAC: float = 2.0 / 3.0        # Phase 2: every 4 rounds; then pure FL
     KD_ADAPTIVE_DROPOUT_ENABLED: bool = False
     KD_ADAPTIVE_DROP_THRESHOLD: int = 5
     LOCAL_KD_STU_LAMBDA: float = 0.20
@@ -128,6 +129,7 @@ class FedKDLConfig:
     PROXY_FT_LR: float = 1e-3
     WARMUP_HEAD_LR_MULT: float = 2.5 # Warmup LoRA: Head LR = lr0 × multiplier
     WARMUP_LORA_LR_MULT: float = 0.5 # Warmup LoRA: LoRA LR = lr0 × multiplier
+    STUDENT_WARMUP_EPOCHS: int = 5   # One shared warmup; non-LoRA baselines use its baked copy
     CENTRAL_HEAD_LR_MULT: float = 2.5 # Centralized LoRA: Head LR = lr0 × multiplier
     CENTRAL_LORA_LR_MULT: float = 0.5 # Centralized LoRA: LoRA LR = lr0 × multiplier
 

@@ -59,7 +59,8 @@ def _count_inference_tensors(module: torch.nn.Module) -> tuple[int, list[str]]:
 
 class CustomDetectionTrainer(DetectionTrainer):
     def __init__(self, overrides=None, _callbacks=None, student_wrapper=None,
-                 cached_optimizer_state: dict = None, global_c: dict = None, local_c: dict = None):
+                 cached_optimizer_state: dict = None, global_c: dict = None, local_c: dict = None,
+                 cached_train_loader=None, cached_val_loader=None):
         super().__init__(overrides=overrides, _callbacks=_callbacks)
         self.student_wrapper = student_wrapper
         # State dict bởi tên tham số từ round trước (None = round đầu tiên)
@@ -69,6 +70,17 @@ class CustomDetectionTrainer(DetectionTrainer):
         # SCAFFOLD
         self.global_c = global_c
         self.local_c = local_c
+        self.cached_train_loader = cached_train_loader
+        self.cached_val_loader = cached_val_loader
+
+    def get_dataloader(self, dataset_path: str, batch_size: int = 16, rank: int = 0, mode: str = "train"):
+        """Reuse the AUV loader so image RAM cache survives across FL rounds."""
+        cached = self.cached_train_loader if mode == "train" else self.cached_val_loader
+        if cached is not None:
+            if hasattr(cached, "reset"):
+                cached.reset()
+            return cached
+        return super().get_dataloader(dataset_path, batch_size, rank, mode)
 
     def validate(self):
         """
@@ -382,6 +394,8 @@ def local_sgd_od(
     cached_optimizer_state: dict = None,
     global_c: dict = None,
     local_c: dict = None,
+    cached_train_loader=None,
+    cached_val_loader=None,
 ) -> tuple:
     """
     Thực hiện Local SGD cho OD tại AUV (Tier 1).
@@ -511,6 +525,8 @@ def local_sgd_od(
             cached_optimizer_state=cached_optimizer_state,
             global_c=global_c,
             local_c=local_c,
+            cached_train_loader=cached_train_loader,
+            cached_val_loader=cached_val_loader,
         )
 
     trainer._fl_injected_model = student_model.yolo.model
@@ -619,6 +635,8 @@ def local_sgd_od(
     except Exception as e:
         print(f"[Trainer] Không thể đọc results.csv để lấy loss: {e}")
 
+    student_model._cached_train_loader = getattr(trainer, "train_loader", None)
+    student_model._cached_val_loader = getattr(trainer, "test_loader", None)
     return state_after, delta_norm, train_loss, new_optimizer_state
 
 

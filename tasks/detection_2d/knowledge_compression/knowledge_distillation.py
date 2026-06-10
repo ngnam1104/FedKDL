@@ -37,9 +37,10 @@ from ultralytics.models.yolo.detect.train import DetectionTrainer
 class _LoRAProjectionHook:
     """Lightweight forward hook để thu LoRA projections (h = Ax)."""
 
-    def __init__(self):
+    def __init__(self, spatial_size: int = 8):
         # Lưu projection theo từng stage (layer_idx)
         self.outputs = {}
+        self.spatial_size = spatial_size
 
     def hook_fn(self, module, input, output, layer_idx):
         # input[0] có shape (B, C, H, W)
@@ -61,7 +62,12 @@ class _LoRAProjectionHook:
             A_pooled = A_pooled.repeat(1, module.groups)
             h_pool = F.linear(x_pooled, A_pooled)
             h = h_pool.unsqueeze(-1).unsqueeze(-1)
-            
+
+        # Projection KD only needs the low-rank response pattern. Retaining all
+        # 95 full-resolution maps can consume many GB and defeats small batches.
+        if h.shape[-2] > self.spatial_size or h.shape[-1] > self.spatial_size:
+            h = F.adaptive_avg_pool2d(h, (self.spatial_size, self.spatial_size))
+
         if layer_idx not in self.outputs:
             self.outputs[layer_idx] = []
         self.outputs[layer_idx].append(h)
@@ -331,6 +337,29 @@ class KDDetectionTrainer(DetectionTrainer):
                 dev = torch.device(dev)
             self.teacher_model.to(dev)
 
+        # Register hooks before the first training forward. Previously the
+        # criterion performed a second Student forward on batch 1 to seed them,
+        # which nearly doubled peak VRAM and broke Ultralytics OOM retries.
+        if not getattr(self, 'logit_kd_only', False):
+            if getattr(self, '_s_hooks_registered', False) or getattr(self, '_t_hooks_registered', False):
+                self.cleanup_kd_hooks()
+            self._s_hook, self._s_handles = _register_lora_hooks(self.model)
+            self._s_hooks_registered = True
+            if self.teacher_model is not None:
+                self._t_hook, self._t_handles = _register_lora_hooks(self.teacher_model)
+                self._t_hooks_registered = True
+
+    def cleanup_kd_hooks(self):
+        """Remove KD hooks and release any feature tensors they still own."""
+        for prefix in ("_s", "_t"):
+            hook = getattr(self, f"{prefix}_hook", None)
+            if hook is not None:
+                hook.clear()
+            handles = getattr(self, f"{prefix}_handles", [])
+            _remove_hooks(handles)
+            setattr(self, f"{prefix}_handles", [])
+            setattr(self, f"{prefix}_hooks_registered", False)
+
     def build_optimizer(self, model, name='auto', lr=0.001, momentum=0.9, decay=1e-5, iterations=1e5):
         optimizer = super().build_optimizer(model, name, lr, momentum, decay, iterations)
         
@@ -408,6 +437,7 @@ class KDDetectionTrainer(DetectionTrainer):
         model_unwrapped = unwrap_model(self.model)
         if hasattr(self, 'original_criterion'):
             model_unwrapped.criterion = self.original_criterion
+        self.cleanup_kd_hooks()
             
         model = self.best if self.best.exists() else None
         if self.last.exists():
@@ -442,9 +472,7 @@ class KDDetectionTrainer(DetectionTrainer):
             if not getattr(self, '_s_hooks_registered', False):
                 self._s_hook, self._s_handles = _register_lora_hooks(self.model)
                 self._s_hooks_registered = True
-                print(f"\n[KD] Đã gắn Hook vĩnh viễn cho Student ({self.model.__class__.__name__}) để tối ưu loại bỏ 1 lần Forward Pass thừa!")
-                # Phải forward mồi 1 lần duy nhất cho batch ĐẦU TIÊN vì batch này bị lỡ mất hook lúc nó tính `preds`
-                _ = self.model(imgs)
+                raise RuntimeError("Student KD hooks were registered too late for the current batch")
             
             student_projs = dict(self._s_hook.outputs)
             self._s_hook.clear()

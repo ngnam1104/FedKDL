@@ -22,6 +22,8 @@ class AUVWorker2D(BaseWorker):
         # Cache optimizer state (exp_avg / exp_avg_sq) giữa các FL round.
         # None = chưa có (round đầu tiên, optimizer khởi đầu lạnh).
         self._optimizer_state: dict = None
+        self._train_loader = None
+        self._val_loader = None
         # TopK Compressor - lazy init khi biết số params (sau lần train đầu tiên)
         self._topk_compressor = None
 
@@ -103,10 +105,20 @@ class AUVWorker2D(BaseWorker):
             fedprox_mu=fedprox_mu,
             global_weights=global_weights,
             local_teacher=local_teacher,
-            cached_optimizer_state=None,  # Bỏ cache optimizer giữa các vòng để tránh AdamW nổ gradient do sai lệch trọng số
+            cached_optimizer_state=self._optimizer_state,  # Phục hồi cache optimizer để SGD giữ đà Momentum
             global_c=global_c,
             local_c=local_c,
+            cached_train_loader=self._train_loader,
+            cached_val_loader=self._val_loader,
         )
+
+        # Keep Ultralytics' dataset, label metadata, decoded/resized RAM images,
+        # and InfiniteDataLoader alive for this AUV across subsequent rounds.
+        if self._train_loader is None:
+            self._train_loader = getattr(local_student, "_cached_train_loader", None)
+            self._val_loader = getattr(local_student, "_cached_val_loader", None)
+            if self._train_loader is not None:
+                print(f"[AUV {self.auv_id}] Persistent RAM dataloader cache initialized.")
 
         if use_int8 and isinstance(new_state, dict) and '__scaffold_delta_c__' in new_state:
             # INT8 model payloads are shape-driven byte streams. Control variates
@@ -121,8 +133,8 @@ class AUVWorker2D(BaseWorker):
             if 'bn' in k or 'running' in k or 'tracked' in k
         }
 
-        # Bỏ qua lưu optimizer state để đảm bảo local training ổn định
-        self._optimizer_state = None
+        # Lưu optimizer state cho vòng sau
+        self._optimizer_state = new_opt_state
 
         # [TỐI ƯU HÓA] Bỏ qua đánh giá local model trên tập train của auv
         # Việc này tiết kiệm 30% tổng thời gian huấn luyện mà không ảnh hưởng kết quả Global
@@ -846,6 +858,42 @@ class Simulator2D(BaseSimulator):
             }
             return self._last_kd_metrics
 
+        current_r = getattr(self, 'current_round', 1)
+        total_r = self.fed_cfg.GLOBAL_ROUNDS.get("2D", 60)
+        phase1_end = max(1, round(total_r * self.fed_cfg.KD_PHASE1_END_FRAC))
+        stop_round = max(phase1_end, round(total_r * self.fed_cfg.KD_STOP_FRAC))
+
+        # Preserve KD coverage for very short smoke tests. Normal experiments
+        # use every 2 rounds in phase 1, every 4 in phase 2, then pure FL.
+        if total_r < 6:
+            kd_interval = 1
+        elif current_r <= phase1_end:
+            kd_interval = 2
+        else:
+            kd_interval = 4
+
+        skip_reason = None
+        if current_r > stop_round:
+            skip_reason = "stopped"
+        elif current_r % kd_interval != 0:
+            skip_reason = f"interval_{kd_interval}"
+
+        if skip_reason is not None:
+            print(
+                f"[Gateway KD] Skip round {current_r}/{total_r}: {skip_reason}. "
+                f"Schedule phase1<=R{phase1_end}, stop after R{stop_round}."
+            )
+            self._last_kd_metrics = {
+                'kd_active': False,
+                'kd_epochs': 0,
+                'kd_box': 0.0,
+                'kd_kl': 0.0,
+                'kd_lora': 0.0,
+                'kd_weighted': 0.0,
+                'kd_skip_reason': skip_reason,
+            }
+            return self._last_kd_metrics
+
         kd_adaptive_dropout = getattr(self.fed_cfg, 'KD_ADAPTIVE_DROPOUT_ENABLED', False)
         consec_drop_threshold = getattr(self.fed_cfg, 'KD_ADAPTIVE_DROP_THRESHOLD', 5)
         if not hasattr(self, '_kd_disabled'):
@@ -907,26 +955,24 @@ class Simulator2D(BaseSimulator):
             'warmup_bias_lr': self.fed_cfg.KD_LR,
         }
         trainer = KDDetectionTrainer(overrides=overrides)
-        trainer.head_lr_multiplier = getattr(self.fed_cfg, 'KD_HEAD_LR_MULT', 8.0)  # Head LR boost trong Gateway KD
-        trainer.lora_lr_multiplier = getattr(self.fed_cfg, 'KD_LORA_LR_MULT', 2.0)  # LoRA LR boost trong Gateway KD
+        trainer.head_lr_multiplier = getattr(self.fed_cfg, 'KD_HEAD_LR_MULT', 4.0)
+        trainer.lora_lr_multiplier = getattr(self.fed_cfg, 'KD_LORA_LR_MULT', 1.0)
         trainer.student_wrapper = self.global_student
         trainer.logit_kd_only = cfg.logit_kd_only
         
         # [CÂN BẰNG LOSS] stu_lambda được đọc từ config (mặc định 0.5 = cân bằng Supervised/KD)
         trainer.stu_lambda = getattr(self.fed_cfg, 'KD_STU_LAMBDA', 0.50)
         
-        current_r = getattr(self, 'current_round', 1)
-        total_r = getattr(self.fed_cfg, 'T_ROUNDS', self.fed_cfg.GLOBAL_ROUNDS.get("2D", 100))
         kd_lambda_start = self.fed_cfg.KD_LAMBDA_START
         kd_lambda_floor = self.fed_cfg.KD_LAMBDA_FLOOR
-        decay_start_r = int(total_r * self.fed_cfg.KD_DECAY_START_FRAC)
-        if current_r <= decay_start_r:
-            kd_lambda = kd_lambda_start
-        else:
-            progress = (current_r - decay_start_r) / max(total_r - decay_start_r, 1)
-            kd_lambda = max(kd_lambda_floor, kd_lambda_start * (1.0 - progress))
+        progress = (current_r - 1) / max(stop_round - 1, 1)
+        kd_lambda = kd_lambda_start + progress * (kd_lambda_floor - kd_lambda_start)
+        kd_lambda = max(kd_lambda_floor, min(kd_lambda_start, kd_lambda))
         trainer.kd_lambda = kd_lambda
-        print(f"[Gateway KD] Round {current_r}/{total_r} | kd_lambda={kd_lambda:.3f} | stu_lambda={trainer.stu_lambda:.2f}")
+        print(
+            f"[Gateway KD] Round {current_r}/{total_r} | interval={kd_interval} | "
+            f"kd_lambda={kd_lambda:.3f} | stu_lambda={trainer.stu_lambda:.2f}"
+        )
         
         trainer.set_teacher(self.teacher.yolo.model)
         
@@ -940,7 +986,11 @@ class Simulator2D(BaseSimulator):
         trainer._fl_injected_model = self.global_student.yolo.model
         trainer.model = self.global_student.yolo.model
         print(f"[Gateway KD] Distilling global model with Teacher on proxy data...")
-        trainer.train()
+        try:
+            trainer.train()
+        finally:
+            if hasattr(trainer, 'cleanup_kd_hooks'):
+                trainer.cleanup_kd_hooks()
 
         kd_metrics = trainer.get_kd_summary() if hasattr(trainer, 'get_kd_summary') else {
             'kd_active': True,

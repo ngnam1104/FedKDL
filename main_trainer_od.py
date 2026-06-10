@@ -93,42 +93,24 @@ def main():
 
     def _train():
         baseline_cfg = parse_baseline_config(args.baseline)
-        # [AUTO WARMUP CHECK] - Đảm bảo cả hai loại warmup checkpoint đều tồn tại
-        # trước khi FL bắt đầu, để so sánh công bằng giữa LoRA và Full-Param baselines.
-        warmup_pt      = Path("yolo12n_warmup.pt")       # LoRA baselines
-        head_warmup_pt = Path("yolo12n_head_warmup.pt")  # Full-Param baselines
-        uses_warmup_student = baseline_cfg.use_lora
-
-        if uses_warmup_student:
-            if not warmup_pt.exists():
-                print(f"[Auto-Warmup] Không tìm thấy {warmup_pt}. Tiến hành tạo warmup model mới (5 epochs)...")
-                from scripts.fedkdl.train_student_warmup import run_warmup
-                run_warmup(epochs=5)
-                if not warmup_pt.exists():
-                    print(f"[Lỗi nghiêm trọng] Không tạo được {warmup_pt}. Hủy tiến trình.")
-                    sys.exit(1)
-            else:
-                print(f"[Auto-Warmup] Tìm thấy {warmup_pt}, sử dụng model này cho Simulator.")
+        # Train warmup once, then expose two architecture views of the same
+        # function: LoRAConv2d for LoRA methods and baked YOLO modules for all
+        # full-model, Top-K, and SCAFFOLD methods.
+        from scripts.fedkdl.train_student_warmup import ensure_warmup_checkpoints
+        warmup_pt, head_warmup_pt = ensure_warmup_checkpoints(
+            epochs=getattr(fed_cfg, "STUDENT_WARMUP_EPOCHS", 5)
+        )
+        if not warmup_pt.exists() or not head_warmup_pt.exists():
+            raise RuntimeError(
+                "Warmup preparation failed: both yolo12n_warmup.pt and "
+                "yolo12n_head_warmup.pt are required before training."
+            )
+        if baseline_cfg.use_lora:
+            chosen_student_ckpt = str(warmup_pt)
+            print(f"[Auto-Warmup] {args.baseline}: dùng checkpoint LoRA {warmup_pt.name}.")
         else:
-            # Full-param baselines (fedavg, fedprox, scaffold, topk_grad...) cũng cần warmup
-            # Detection Head để đảm bảo điều kiện xuất phát công bằng với LoRA baselines.
-            if not head_warmup_pt.exists():
-                print(f"[Auto-Warmup][Full-Param] Không tìm thấy {head_warmup_pt}. Tiến hành tạo (5 epochs)...")
-                from scripts.fedkdl.train_student_warmup import run_warmup_fullparam
-                run_warmup_fullparam(epochs=5)
-                if not head_warmup_pt.exists():
-                    print(f"[Lỗi nghiêm trọng] Không tạo được {head_warmup_pt}. Hủy tiến trình.")
-                    sys.exit(1)
-            else:
-                print(f"[Auto-Warmup][Full-Param] Tìm thấy {head_warmup_pt}, sử dụng model này cho Simulator.")
-
-        # Chọn checkpoint phù hợp với loại baseline
-        if uses_warmup_student:
-            chosen_student_ckpt = "yolo12n_warmup.pt"
-        elif head_warmup_pt.exists():
-            chosen_student_ckpt = "yolo12n_head_warmup.pt"
-        else:
-            chosen_student_ckpt = "yolo12n.pt"
+            chosen_student_ckpt = str(head_warmup_pt)
+            print(f"[Auto-Warmup] {args.baseline}: dùng checkpoint đã bake {head_warmup_pt.name}.")
 
         # Initialize Simulator first to get total_samples and network info
         sim = Simulator2D(
