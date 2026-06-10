@@ -438,7 +438,7 @@ def local_sgd_od(
         'save': False,     # Không lưu weight cục bộ
         'val': False,      # Không đánh giá cục bộ
         'plots': False,    # Không vẽ đồ thị cục bộ
-        'workers': 0,      # Dùng luồng chính để tránh sinh thread thừa
+        'workers': 4,      # Tăng lên 4 luồng để load và augment ảnh nhanh hơn, giảm thời gian train batch.
     }
 
     # 3. Khởi tạo Trainer phù hợp
