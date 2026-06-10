@@ -418,7 +418,7 @@ def local_sgd_od(
     overrides = {
         'model': "yolo12n.pt", # Dummy, will be overwritten by _fl_injected_model
         'data': auv_yaml,
-        'cache': False,    # [FIX] Đổi thành False để nạp trực tiếp từ ổ cứng (Stream), bỏ qua bước nạp vào RAM (Caching images) ở đầu mỗi epoch.
+        'cache': 'disk',   # [BEST FIX] Nạp mảng NumPy từ ổ đĩa. Nhanh gần bằng RAM mà không tốn thời gian "Caching images" ở đầu vòng.
         'epochs': epochs,
         'batch': batch_size,
         'close_mosaic': 0,
