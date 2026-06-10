@@ -1,14 +1,7 @@
 import os
 import sys
 
-# Giới hạn số luồng tối đa của các thư viện tính toán để tránh quá tải CPU (Context Switch Overhead) khi server đang đầy (Load 59+)
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-import cv2
-cv2.setNumThreads(0) # Tắt đa luồng ẩn của OpenCV (cực kỳ quan trọng để tăng tốc độ resize ảnh khi CPU đang đói)
+
 
 if not hasattr(sys.stdout, 'encoding'):
     sys.stdout.encoding = 'utf-8'
