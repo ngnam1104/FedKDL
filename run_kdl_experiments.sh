@@ -106,8 +106,8 @@ RQ2_BASELINES=("fedavg" "topk_grad" "flora")
 # RQ3: Non-IID + Relay Cooperation (HFL + fedavg flat ref)
 RQ3_BASELINES=("fedavg" "scaffold" "flora" "fedkdl_nocoop")
 
-# RQ4: KD ablation (HFL + centralized flat)
-RQ4_BASELINES=("fedkdl_nokd" "logit_kd" "centralized")
+# RQ4: KD ablation (HFL)
+RQ4_BASELINES=("fedkdl_nokd" "logit_kd")
 
 # Ablation extras
 ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedavg_hfl" "fedprox_hfl")
