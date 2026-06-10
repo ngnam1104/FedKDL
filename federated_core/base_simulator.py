@@ -8,8 +8,12 @@ from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
 from federated_core.metrics import EnergyTracker, LatencyTracker, MetricsLogger
 from federated_core.hfl_rules import compute_mean_cluster_size, compute_q1_relay_distance
 try:
-    from tasks.detection_2d.baselines import parse_baseline_config as parse_2d_baseline_config
+    from tasks.detection_2d.baselines import (
+        BASELINE_CONFIGS as DETECTION_BASELINE_CONFIGS,
+        parse_baseline_config as parse_2d_baseline_config,
+    )
 except Exception:
+    DETECTION_BASELINE_CONFIGS = {}
     parse_2d_baseline_config = None
 
 class BaseSimulator(ABC):
@@ -69,7 +73,7 @@ class BaseSimulator(ABC):
         self.gateway_position = self.topology.gateway_position
         self.G = EnvironmentManager.restore_graph(topo)
         
-        if parse_2d_baseline_config is not None:
+        if self.baseline in DETECTION_BASELINE_CONFIGS:
             self.is_flat = not parse_2d_baseline_config(self.baseline).hfl
         else:
             self.is_flat = self.baseline in ['fedavg', 'fedprox', 'fedkd', 'centralized']
@@ -232,9 +236,13 @@ class BaseSimulator(ABC):
                                 f.write(f"Relay {r_id:2d}: X={pos[0]:.0f}, Y={pos[1]:.0f}, Z={pos[2]:.0f}{counts_str}\n")
                     f.write("\n")
             # --- Phase 1: AUV Tier ---
-            alive_auvs = [s.auv_id for s in self.auvs.values() if s.alive]
+            alive_auvs = [
+                s.auv_id
+                for s in self.auvs.values()
+                if s.alive and s.auv_id in self.association
+            ]
             dead_auvs = [s.auv_id for s in self.auvs.values() if not s.alive]
-            missing_auvs = [i for i in range(self.N_actual) if i not in self.auvs]
+            missing_auvs = [i for i in range(self.N_actual) if i not in self.association]
 
             if self.task_key == "2D":
                 if missing_auvs:
@@ -302,7 +310,10 @@ class BaseSimulator(ABC):
             e_r2g_total = 0.0
             cooperation_partners = {}
 
-            cluster_sizes = {m: relay.cluster_size for m, relay in self.relays.items()}
+            cluster_sizes = {
+                m: sum(1 for sid in relay.cluster_members if sid in payloads)
+                for m, relay in self.relays.items()
+            }
             mean_c = compute_mean_cluster_size(cluster_sizes)
             q1_dist = compute_q1_relay_distance(self.G)
 
@@ -318,10 +329,17 @@ class BaseSimulator(ABC):
                 if not relay.alive:
                     return m, 'dead', 0.0, 0.0
                 r2r_cost = self._aggregate_intra_relay(m, relay, payloads, auv_n_samples)
-                svd_cost = e_svd(
-                    d_out=256, d_in=128, n_svd_calls=2,
-                    epsilon_op=self.en_cfg.EPSILON_OP.get(self.task_key, 2.0e-12)
-                )
+                has_updates = any(sid in payloads for sid in relay.cluster_members)
+                uses_relay_svd = not self.is_flat
+                if self.baseline in DETECTION_BASELINE_CONFIGS:
+                    cfg = parse_2d_baseline_config(self.baseline)
+                    uses_relay_svd = cfg.use_lora and cfg.lora_aggregation == "svd"
+                svd_cost = 0.0
+                if uses_relay_svd and has_updates:
+                    svd_cost = e_svd(
+                        d_out=256, d_in=128, n_svd_calls=2,
+                        epsilon_op=self.en_cfg.EPSILON_OP.get(self.task_key, 2.0e-12)
+                    )
                 return m, 'ok', r2r_cost, svd_cost
 
             relay_items = list(self.relays.items())
@@ -340,20 +358,28 @@ class BaseSimulator(ABC):
                         self.relays[m].deduct_battery(svd_cost, min_battery=self.en_cfg.RELAY_E_MIN)
                         e_svd_total += svd_cost
 
-            if parse_2d_baseline_config is not None:
+            if self.baseline in DETECTION_BASELINE_CONFIGS:
                 coop_rule = parse_2d_baseline_config(self.baseline).coop_rule
-            else:
+            elif 'nocoop' in self.baseline:
                 coop_rule = 'nocoop'
+            elif 'selective' in self.baseline:
+                coop_rule = 'selective'
+            else:
+                coop_rule = 'nearest'
             
             # Chỉ lấy state dict của relay còn sống
             all_intra = {
                 m: relay.intra_state_dict
                 for m, relay in self.relays.items()
-                if relay.alive and relay.intra_state_dict is not None
+                if relay.alive
+                and relay.intra_state_dict is not None
+                and cluster_sizes.get(m, 0) > 0
             }
             
             for m, relay in self.relays.items():
                 if not relay.alive or relay.intra_state_dict is None:
+                    continue
+                if not any(sid in payloads for sid in relay.cluster_members):
                     continue
                 did_coop, partner_id = relay.cooperate(
                     rule=coop_rule,
@@ -382,6 +408,8 @@ class BaseSimulator(ABC):
                 for m, relay in self.relays.items():
                     if not relay.alive or relay.final_state_dict is None:
                         continue
+                    if not any(sid in payloads for sid in relay.cluster_members):
+                        continue
                     link_key = ('relay', m, 'gateway', 0)
                     if link_key in self.G:
                         link = self.G[link_key]
@@ -393,14 +421,26 @@ class BaseSimulator(ABC):
                         relay.deduct_battery(e_r2g_cost, min_battery=self.en_cfg.RELAY_E_MIN)
 
             # --- Phase 3: Global Aggregation ---
-            relay_final = {m: relay.final_state_dict for m, relay in self.relays.items() if relay.final_state_dict is not None}
+            relay_final = {
+                m: relay.final_state_dict
+                for m, relay in self.relays.items()
+                if relay.final_state_dict is not None
+                and any(sid in payloads for sid in relay.cluster_members)
+            }
             cluster_samples = {m: sum(auv_n_samples.get(s_id, 0) for s_id in relay.cluster_members) for m, relay in self.relays.items()}
-            self.gateway.aggregate_global(relay_final, cluster_samples)
+            lora_aggregation = "svd"
+            if self.baseline in DETECTION_BASELINE_CONFIGS:
+                lora_aggregation = parse_2d_baseline_config(self.baseline).lora_aggregation
+            self.gateway.aggregate_global(
+                relay_final,
+                cluster_samples,
+                lora_aggregation=lora_aggregation,
+            )
 
             # --- [SCAFFOLD] Cập nhật Global Control Variates ---
             if hasattr(self, 'global_c') and '__scaffold_delta_c__' in self.gateway.global_state_dict:
                 delta_c_agg = self.gateway.global_state_dict.pop('__scaffold_delta_c__')
-                ratio = len(alive_auvs) / self.net_cfg.N_AUVS
+                ratio = len(payloads) / self.net_cfg.N_AUVS
                 for k in self.global_c:
                     if k in delta_c_agg:
                         self.global_c[k] += delta_c_agg[k].to(self.global_c[k].device) * ratio
@@ -408,7 +448,14 @@ class BaseSimulator(ABC):
             # KD sẽ được gọi SAU evaluate() để Adaptive Dropout Gate có metrics của vòng này
 
             # --- Phase 4: Logging ---
-            self.energy_tracker.add_round(t, e_a2r_total, e_r2r_total, e_r2g_total, e_comp_total)
+            self.energy_tracker.add_round(
+                t,
+                e_a2r_total,
+                e_r2r_total,
+                e_r2g_total,
+                e_comp_total,
+                e_svd_total,
+            )
             
             avg_payload_bits = self._compute_payload_bits(payloads)
             relay_model_bits = self._compute_relay_model_bits()
@@ -430,15 +477,21 @@ class BaseSimulator(ABC):
             )
             # Độ trễ điện toán tại Relay — τ_comp,m (physics_models/latency.py)
             from physics_models.latency import relay_comp_delay
-            tau_svd = relay_comp_delay(
-                f_cpu=self.en_cfg.F_CPU,
-                n_cores=getattr(self.en_cfg, 'N_CORES', 6),
-                flops_per_cycle=getattr(self.en_cfg, 'FLOPS_PER_CYCLE', 4.0)
-            )
+            uses_relay_svd = not self.is_flat
+            if self.baseline in DETECTION_BASELINE_CONFIGS:
+                cfg = parse_2d_baseline_config(self.baseline)
+                uses_relay_svd = cfg.use_lora and cfg.lora_aggregation == "svd"
+            tau_svd = 0.0
+            if uses_relay_svd and payloads:
+                tau_svd = relay_comp_delay(
+                    f_cpu=self.en_cfg.F_CPU,
+                    n_cores=getattr(self.en_cfg, 'N_CORES', 6),
+                    flops_per_cycle=getattr(self.en_cfg, 'FLOPS_PER_CYCLE', 4.0)
+                )
 
             latency_info = self.latency_tracker.compute_round_latency(
                 G=self.G,
-                association={s: self.association[s] for s in alive_auvs if s in self.association},
+                association={s: self.association[s] for s in payloads if s in self.association},
                 cooperation_partners=cooperation_partners,
                 tau_comp=tau_comp,
                 tau_svd=tau_svd,
@@ -494,7 +547,7 @@ class BaseSimulator(ABC):
             metrics = {
                 # ── Task Loss ─────────────────────────────────────────────────────
                 'loss': round_loss,
-                'alive': len(alive_auvs),
+                'alive': len(payloads),
                 'min_battery': min([s.battery for s in self.auvs.values() if s.alive]) if any(s.alive for s in self.auvs.values()) else 0.0,
 
                 # ── Latency (raw, seconds) — bóc tách từng chặng ─────────────────
@@ -504,6 +557,7 @@ class BaseSimulator(ABC):
                 'tau_r2r':     latency_info['tau_r2r'],   # max Relay↔Relay cooperation
                 'tau_r2g':     latency_info['tau_r2g'],   # max Relay→Gateway bottleneck
                 'tau_comp':    latency_info['tau_comp'],  # max local computation
+                'tau_svd':     latency_info['tau_svd'],
                 'tau_cumul_s': self.latency_tracker.cumulative_latency,
 
                 # ── Payload ───────────────────────────────────────────────────────
@@ -587,11 +641,15 @@ class BaseSimulator(ABC):
                         
                 self.association = new_assoc
                     
-                self.clusters = build_clusters(self.association, self.topology.M)
+                if self.is_flat:
+                    self.clusters = {0: sorted(self.association)}
+                else:
+                    self.clusters = build_clusters(self.association, self.topology.M)
                 
                 # Cập nhật danh sách quản lý vào đối tượng Relay và AUV
                 for relay_id, relay in self.relays.items():
                     relay.cluster_members = self.clusters.get(relay_id, [])
+                    relay.cluster_size = len(relay.cluster_members)
                 for auv_id, auv in self.auvs.items():
                     if auv_id in self.association:
                         auv.associated_relay = self.association[auv_id]

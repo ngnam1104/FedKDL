@@ -157,9 +157,17 @@ class EnergyTracker:
         self.history = []
         self.cumulative_energy = 0.0
 
-    def add_round(self, round_idx: int, e_a2r: float, e_r2r: float, e_r2g: float, e_comp: float):
+    def add_round(
+        self,
+        round_idx: int,
+        e_a2r: float,
+        e_r2r: float,
+        e_r2g: float,
+        e_comp: float,
+        e_svd: float = 0.0,
+    ):
         """Ghi nhận hóa đơn năng lượng của 1 round."""
-        round_total = e_a2r + e_r2r + e_r2g + e_comp
+        round_total = e_a2r + e_r2r + e_r2g + e_comp + e_svd
         self.cumulative_energy += round_total
         
         self.history.append({
@@ -168,6 +176,7 @@ class EnergyTracker:
             'e_r2r': e_r2r,
             'e_r2g': e_r2g,
             'e_comp': e_comp,
+            'e_svd': e_svd,
             'round_total': round_total,
             'cumulative_total': self.cumulative_energy,
         })

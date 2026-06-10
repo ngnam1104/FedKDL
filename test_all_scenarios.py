@@ -19,9 +19,18 @@ from typing import Dict, List
 
 import torch
 
-from federated_core.aggregator import fedavg_global, svd_lora_aggregate
+from federated_core.aggregator import (
+    svd_lora_aggregate,
+    weighted_state_dict_average,
+)
 from federated_core.hfl_rules import blend_state_dicts
-from tasks.detection_2d.baselines import BASELINE_CONFIGS, BaselineConfig
+from federated_core.workers import BaseGateway
+from tasks.detection_2d.baselines import (
+    BASELINE_CONFIGS,
+    OPTIONAL_BASELINES,
+    STANDARD_BASELINES,
+    BaselineConfig,
+)
 from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload, unpack_payload
 from tasks.detection_2d.knowledge_compression.topk_sparsification import (
     SparseFloatPayload,
@@ -113,8 +122,31 @@ def topk_roundtrip(global_state: Dict[str, torch.Tensor], state: Dict[str, torch
     return recovered, payload.payload_bytes / 1024.0
 
 
-def aggregate_cluster(states: List[Dict[str, torch.Tensor]], samples: List[int]) -> Dict[str, torch.Tensor]:
-    return svd_lora_aggregate(states, samples)
+def aggregate_cluster(
+    states: List[Dict[str, torch.Tensor]],
+    samples: List[int],
+    lora_aggregation: str,
+) -> Dict[str, torch.Tensor]:
+    delta_c_updates = [
+        state["__scaffold_delta_c__"]
+        for state in states
+        if "__scaffold_delta_c__" in state
+    ]
+    model_states = [
+        {key: value for key, value in state.items() if key != "__scaffold_delta_c__"}
+        for state in states
+    ]
+    if lora_aggregation == "svd":
+        result = svd_lora_aggregate(model_states, samples)
+    else:
+        result = weighted_state_dict_average(model_states, samples)
+    if len(delta_c_updates) == len(states):
+        result["__scaffold_delta_c__"] = {
+            key: sum(delta[key] for delta in delta_c_updates) / len(delta_c_updates)
+            for key in delta_c_updates[0]
+        }
+        result["__scaffold_client_count__"] = len(delta_c_updates)
+    return result
 
 
 def run_dummy_pipeline(baseline: str) -> DummyResult:
@@ -135,14 +167,26 @@ def run_dummy_pipeline(baseline: str) -> DummyResult:
         client_states.append(state)
 
     if not cfg.hfl:
-        gateway_state = aggregate_cluster(client_states, client_samples)
+        gateway = BaseGateway(global_state)
+        gateway.aggregate_global(
+            dict(enumerate(client_states)),
+            dict(enumerate(client_samples)),
+            lora_aggregation=cfg.lora_aggregation,
+        )
+        gateway_state = gateway.global_state_dict
     else:
-        relay0 = aggregate_cluster(client_states[:2], client_samples[:2])
-        relay1 = aggregate_cluster(client_states[2:], client_samples[2:])
+        relay0 = aggregate_cluster(client_states[:2], client_samples[:2], cfg.lora_aggregation)
+        relay1 = aggregate_cluster(client_states[2:], client_samples[2:], cfg.lora_aggregation)
         if cfg.coop:
             alpha = 0.8 if cfg.coop_rule == 'selective' else 0.7
             relay0 = blend_state_dicts(relay0, relay1, alpha=alpha)
-        gateway_state = fedavg_global([relay0, relay1], [sum(client_samples[:2]), sum(client_samples[2:])])
+        gateway = BaseGateway(global_state)
+        gateway.aggregate_global(
+            {0: relay0, 1: relay1},
+            {0: sum(client_samples[:2]), 1: sum(client_samples[2:])},
+            lora_aggregation=cfg.lora_aggregation,
+        )
+        gateway_state = gateway.global_state_dict
 
     map50 = 0.50
     if has_kd(cfg):
@@ -224,7 +268,7 @@ def expected_for(baseline: str) -> DummyResult:
     if cfg.topk_grad:
         map50 -= 0.03
 
-    scaffold_c = torch.tensor([0.029, 0.029]) if cfg.scaffold else None
+    scaffold_c = torch.tensor([0.025, 0.025]) if cfg.scaffold else None
     return DummyResult(expected_head, expected_lora, payload_kb=0.0, map50=map50, scaffold_c=scaffold_c)
 
 
@@ -247,6 +291,85 @@ def test_topk_expected_values() -> None:
     pairs = sorted(zip(idx.tolist(), values.tolist()))
     if pairs != [(1, -4.0), (2, 2.0)]:
         raise AssertionError(f"TopK expected [(1, -4.0), (2, 2.0)], got {pairs}")
+
+
+def test_lora_aggregation_strategies() -> None:
+    states = [
+        {
+            "layer.lora_B": torch.tensor([[1.0], [0.0]]),
+            "layer.lora_A": torch.tensor([[1.0, 0.0]]),
+        },
+        {
+            "layer.lora_B": torch.tensor([[0.0], [1.0]]),
+            "layer.lora_A": torch.tensor([[0.0, 1.0]]),
+        },
+    ]
+    naive = weighted_state_dict_average(states, [3, 1])
+    svd = svd_lora_aggregate(states, [3, 1])
+    naive_product = naive["layer.lora_B"] @ naive["layer.lora_A"]
+    svd_product = svd["layer.lora_B"] @ svd["layer.lora_A"]
+
+    assert_close(
+        naive_product,
+        torch.tensor([[0.5625, 0.1875], [0.1875, 0.0625]]),
+        "naive LoRA A/B average",
+    )
+    assert_close(
+        svd_product,
+        torch.tensor([[0.75, 0.0], [0.0, 0.0]]),
+        "SVD LoRA effective-weight average",
+    )
+    if torch.allclose(naive_product, svd_product):
+        raise AssertionError("Naive FLORA and SVD-LoRA aggregation must remain distinct")
+
+
+def test_baseline_contracts() -> None:
+    expected = {
+        'fedavg': dict(hfl=False, full_param=True, fedprox=False),
+        'fedprox': dict(hfl=False, full_param=True, fedprox=True),
+        'fedavg_hfl': dict(hfl=True, full_param=True, coop_rule='nocoop'),
+        'fedprox_hfl': dict(hfl=True, full_param=True, fedprox=True, coop_rule='nocoop'),
+        'flora': dict(
+            hfl=True,
+            use_lora=True,
+            use_int8=False,
+            use_gateway_kd=False,
+            coop_rule='nocoop',
+            lora_aggregation='svd',
+        ),
+        'naive_lora': dict(
+            hfl=True,
+            use_lora=True,
+            use_int8=False,
+            use_gateway_kd=False,
+            coop_rule='nocoop',
+            lora_aggregation='naive',
+        ),
+        'scaffold': dict(hfl=True, full_param=True, scaffold=True, coop_rule='nocoop'),
+        'topk_grad': dict(hfl=True, full_param=True, topk_grad=True, coop_rule='nocoop'),
+        'fedkdl': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='nearest'),
+        'fedkdl_selective': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='selective'),
+        'fedkdl_nocoop': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='nocoop'),
+        'fedkdl_nokd': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=False, coop_rule='nearest'),
+        'logit_kd': dict(hfl=True, use_gateway_kd=True, logit_kd_only=True, coop_rule='nearest'),
+        'fedprox_kdl': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, fedprox=True),
+        'fedkdl_nolora': dict(hfl=True, full_param=True, use_lora=False, use_gateway_kd=True),
+        'fedkd': dict(hfl=False, full_param=True, use_gateway_kd=True, local_kd=False),
+        'centralized': dict(hfl=False, use_lora=True, full_param=False, use_gateway_kd=False),
+    }
+    if len(STANDARD_BASELINES) != 17:
+        raise AssertionError(f"Expected 17 standard baselines, got {len(STANDARD_BASELINES)}")
+    if set(expected) != set(STANDARD_BASELINES):
+        raise AssertionError("STANDARD_BASELINES does not match the experiment contract table")
+    if set(STANDARD_BASELINES) & set(OPTIONAL_BASELINES):
+        raise AssertionError("Standard and optional baseline lists must be disjoint")
+
+    for baseline, fields in expected.items():
+        cfg = BASELINE_CONFIGS[baseline]
+        for field, value in fields.items():
+            actual = getattr(cfg, field)
+            if actual != value:
+                raise AssertionError(f"{baseline}.{field}: expected {value!r}, got {actual!r}")
 
 
 def test_baseline(baseline: str) -> bool:
@@ -274,11 +397,22 @@ def test_baseline(baseline: str) -> bool:
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser("Deterministic FedKDL baseline tests")
+    parser.add_argument("--include-optional", action="store_true")
+    args = parser.parse_args()
+
+    test_baseline_contracts()
     test_quantization_roundtrip()
     test_topk_expected_values()
+    test_lora_aggregation_strategies()
 
     results = {}
-    for baseline in BASELINE_CONFIGS:
+    baselines = list(STANDARD_BASELINES)
+    if args.include_optional:
+        baselines.extend(OPTIONAL_BASELINES)
+    for baseline in baselines:
         try:
             results[baseline] = test_baseline(baseline)
         except Exception as exc:

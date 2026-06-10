@@ -62,6 +62,7 @@ def fedavg_intra_cluster(
 def fedavg_global(
     relay_state_dicts: List[Dict[str, torch.Tensor]],
     cluster_total_samples: List[int],
+    lora_aggregation: str = "svd",
 ) -> Dict[str, torch.Tensor]:
     """
     FedAvg toàn cục tại Gateway  —  Eq. 43.
@@ -85,9 +86,13 @@ def fedavg_global(
     else:
         weights = [n / N for n in cluster_total_samples]
 
-    # Nếu là mô hình có LoRA, bắt buộc dùng SVD để tránh cross-terms phá hủy kiến thức
-    # Hàm svd_lora_aggregate tự động áp dụng FedAvg chuẩn cho các layer không phải LoRA (ví dụ Detection Head)
-    return svd_lora_aggregate(relay_state_dicts, weights)
+    # FedKDL aggregates effective LoRA weights through SVD. The naive-LoRA
+    # control intentionally averages A/B independently to expose cross-terms.
+    if lora_aggregation == "svd":
+        return svd_lora_aggregate(relay_state_dicts, weights)
+    if lora_aggregation == "naive":
+        return weighted_state_dict_average(relay_state_dicts, weights)
+    raise ValueError(f"Unknown LoRA aggregation strategy: {lora_aggregation}")
 
 
 def _weighted_fedavg_tensors(tensors: List[torch.Tensor], weights: List[float]) -> torch.Tensor:
@@ -118,6 +123,42 @@ def _weighted_fedavg_control_dicts(dicts: List[Dict[str, torch.Tensor]], weights
         key_weights = [w / weight_sum for w in key_weights] if weight_sum > 0 else [1.0 / len(tensors)] * len(tensors)
         out[key] = _weighted_fedavg_tensors(tensors, key_weights).to(tensors[0].dtype)
     return out
+
+
+def weighted_state_dict_average(
+    state_dicts: List[Dict[str, torch.Tensor]],
+    weights: List[float],
+) -> Dict[str, torch.Tensor]:
+    """Ordinary weighted FedAvg, including independent LoRA A/B averaging."""
+    if not state_dicts:
+        return {}
+    if len(state_dicts) != len(weights):
+        raise ValueError(f"Expected one weight per state, got {len(state_dicts)} states and {len(weights)} weights.")
+
+    total_weight = float(sum(weights))
+    if total_weight <= 0.0:
+        weights = [1.0 / len(state_dicts)] * len(state_dicts)
+    else:
+        weights = [float(weight) / total_weight for weight in weights]
+
+    aggregated: Dict[str, torch.Tensor] = {}
+    all_keys = set().union(*(state.keys() for state in state_dicts))
+    for key in sorted(all_keys):
+        values = [state[key] for state in state_dicts if key in state]
+        key_weights = [weight for state, weight in zip(state_dicts, weights) if key in state]
+        if not values:
+            continue
+        weight_sum = sum(key_weights)
+        key_weights = (
+            [weight / weight_sum for weight in key_weights]
+            if weight_sum > 0
+            else [1.0 / len(values)] * len(values)
+        )
+        if isinstance(values[0], dict):
+            aggregated[key] = _weighted_fedavg_control_dicts(values, key_weights)
+        else:
+            aggregated[key] = _weighted_fedavg_tensors(values, key_weights).to(values[0].dtype)
+    return aggregated
 
 
 def svd_lora_aggregate(

@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--m-relays', type=int, help="Override so luong relay nodes khi sinh topology")
     parser.add_argument('--force-topo', action='store_true', help="Ghi de topology da ton tai")
     parser.add_argument('--alphas', nargs='+', type=float, help="Danh sach cac gia tri alpha, vi du: --alphas 0.5 1.0")
+    parser.add_argument('--seeds', nargs='+', type=int, help="Danh sach random seed")
     args = parser.parse_args()
 
     # Chỉ chạy 2D (URPC) giống cấu hình trong run_kdl_experiments.sh
@@ -30,7 +31,7 @@ def main():
     DATASETS = ['URPC']
     N_LIST = [50]
     ALPHAS = args.alphas if args.alphas is not None else [0.5]
-    SEEDS = [1104]
+    SEEDS = args.seeds if args.seeds is not None else [1104]
     task_type = '2d'
     # else:
     #     DATASETS = ['SMD', 'SMAP', 'MSL'] if not args.dataset else [args.dataset]

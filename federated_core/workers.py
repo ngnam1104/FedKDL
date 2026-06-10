@@ -52,7 +52,8 @@ class BaseRelayNode:
         if rule == 'nocoop':
             return False, None
 
-        if rule == 'selective' and not should_cooperate(self.cluster_size, mean_cluster_size):
+        effective_cluster_size = cluster_sizes.get(self.relay_id, self.cluster_size)
+        if rule == 'selective' and not should_cooperate(effective_cluster_size, mean_cluster_size):
             return False, None
 
         alpha = 0.7 if rule == 'nearest' else 0.8
@@ -85,25 +86,41 @@ class BaseGateway:
         import copy
         self.global_state_dict = copy.deepcopy(initial_state)
 
-    def aggregate_global(self, relay_final_states: Dict[int, Any], cluster_total_samples: Dict[int, int]):
+    def aggregate_global(
+        self,
+        relay_final_states: Dict[int, Any],
+        cluster_total_samples: Dict[int, int],
+        lora_aggregation: str = "svd",
+    ):
         """fedavg_global"""
         from federated_core.aggregator import fedavg_global
         states_list = []
         samples_list = []
         delta_c_list = []
+        scaffold_client_counts = []
         
         for relay_id, state in relay_final_states.items():
             if isinstance(state, dict) and '__scaffold_delta_c__' in state:
-                delta_c_list.append(state.pop('__scaffold_delta_c__'))
+                delta_c_list.append(state['__scaffold_delta_c__'])
+                scaffold_client_counts.append(int(state.get('__scaffold_client_count__', 1)))
+                state = {
+                    key: value
+                    for key, value in state.items()
+                    if key not in {'__scaffold_delta_c__', '__scaffold_client_count__'}
+                }
             states_list.append(state)
             samples_list.append(cluster_total_samples[relay_id])
 
         if states_list:
-            self.global_state_dict = fedavg_global(states_list, samples_list)
+            self.global_state_dict = fedavg_global(
+                states_list,
+                samples_list,
+                lora_aggregation=lora_aggregation,
+            )
             
-        if len(delta_c_list) == len(states_list) and len(states_list) > 0:
-            total_samples = sum(samples_list)
-            weights = [s / total_samples for s in samples_list]
+        if delta_c_list:
+            total_clients = sum(scaffold_client_counts)
+            weights = [count / total_clients for count in scaffold_client_counts]
             delta_c_agg = {}
             for k in delta_c_list[0].keys():
                 delta_c_agg[k] = sum(d[k] * w for d, w in zip(delta_c_list, weights))

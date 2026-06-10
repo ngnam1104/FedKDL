@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Scenario 2/3 (2D OD): grid train + plot.
-# Phase 5: N=30, M=5, Non-IID alpha=1.0, seed=1104
+# Phase 5 defaults: N=30, M=5, Non-IID alpha=1.0, seed=1104
 # Baseline groups follow experiment_design.md (4 RQs).
 set -euo pipefail
 
@@ -28,16 +28,18 @@ export PYTHONIOENCODING=utf-8
 # =========================================================
 # Cấu hình thử nghiệm cố định (Phase 5)
 # =========================================================
-ROUNDS=50
-SEED=1104
+ROUNDS="${ROUNDS:-60}"
 DS="URPC"
 M_RELAYS_2D=5
 N_AUVS=30
-ALPHA="1.0"
+read -r -a ALPHA_VALUES <<< "${ALPHAS:-${ALPHA:-1.0}}"
+read -r -a SEED_VALUES <<< "${SEEDS:-${SEED:-1104}}"
 # =========================================================
 
 echo "[KDL] Generating topologies and data partitions..."
-"$PYTHON" utils/generate_all_envs.py --n "$N_AUVS" --dataset "$DS" --m-relays "$M_RELAYS_2D" --alphas "$ALPHA"
+"$PYTHON" utils/generate_all_envs.py \
+  --n "$N_AUVS" --dataset "$DS" --m-relays "$M_RELAYS_2D" \
+  --alphas "${ALPHA_VALUES[@]}" --seeds "${SEED_VALUES[@]}"
 
 # =========================================================
 # BƯỚC 1: Pre-train Teacher LoRA
@@ -81,8 +83,8 @@ fi
 # Dinh nghia cac nhom baseline theo tung RQ
 # experiment_design.md:
 #   RQ1 - Ket noi va on dinh:  fedavg (flat), fedprox (flat) vs. fedkdl (HFL)
-#   RQ2 - Nen truyen thong:    fedavg (flat ref), topk_grad (HFL), flora (HFL), fedkdl (HFL)
-#   RQ3 - Non-IID va Relay:    fedavg (flat ref), scaffold (HFL), flora (HFL),
+#   RQ2 - Nen truyen thong:    fedavg_hfl, topk_grad, flora, fedkdl (all HFL)
+#   RQ3 - Non-IID va Relay:    fedavg_hfl, scaffold, flora,
 #                              fedkdl_nocoop (HFL), fedkdl (HFL)
 #   RQ4 - Gateway KD ablation: fedkdl_nokd (HFL), logit_kd (HFL), fedkdl (HFL),
 #                              centralized (flat)
@@ -97,9 +99,6 @@ fi
 # NGUYEN TAC: RQ1 = Flat topology; RQ2/3/4 = HFL topology.
 # Do do: RQ1 dung "fedavg" (flat), RQ2/3 dung "fedavg_hfl" (HFL).
 # =========================================================
-
-# Primary - chay dau tien, dung lam reference moi RQ
-FEDKDL_FIRST=("fedkdl")
 
 # RQ1: So sanh ket noi/on dinh - TAT CA FLAT (flat vs. fedkdl HFL)
 RQ1_BASELINES=("fedavg" "fedprox")
@@ -117,7 +116,10 @@ RQ2_BASELINES=("fedavg_hfl" "topk_grad" "flora")
 # flora       = HFL + LoRA (da chay RQ2, skip neu co log)
 # fedkdl_nocoop = HFL + LoRA INT8 + KD, khong relay coop
 # fedkdl      = HFL + LoRA INT8 + KD + relay coop (da chay)
-RQ3_BASELINES=("fedavg_hfl" "scaffold" "flora" "fedkdl_nocoop")
+RQ3_BASELINES=("fedavg_hfl" "scaffold" "flora" "fedkdl_nocoop" "fedkdl_selective")
+
+# Ablation extras (neu con thoi gian)
+ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedprox_hfl" "naive_lora")
 
 # RQ4: Gateway KD Ablation - TAT CA HFL
 # fedkdl_nokd = HFL + LoRA INT8, khong KD
@@ -125,26 +127,53 @@ RQ3_BASELINES=("fedavg_hfl" "scaffold" "flora" "fedkdl_nocoop")
 # fedkdl      = HFL + LoRA INT8 + Projection KD (da chay)
 RQ4_BASELINES=("fedkdl_nokd" "logit_kd")
 
-# Ablation extras (neu con thoi gian)
-ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedprox_hfl")
+# Reference and component ablations.
+REFERENCE_BASELINES=("centralized" "fedkd" "fedprox_kdl" "fedkdl_nolora" "fedprox_hfl")
 
-total_tasks=20
+# Unique default suite: 16 baselines. fedkdl_proxy_ft is optional because it is
+# an auxiliary supervised proxy experiment, not a required experiment_gaps RQ.
+RUN_BASELINES=(
+  "fedkdl"
+  "fedavg"
+  "fedprox"
+  "fedavg_hfl"
+  "topk_grad"
+  "flora"
+  "scaffold"
+  "fedkdl_nocoop"
+  "fedkdl_selective"
+  "fedkdl_nokd"
+  "logit_kd"
+  "centralized"
+  "fedprox_kdl"
+  "fedkdl_nolora"
+  "fedkd"
+  "fedprox_hfl"
+)
+
+if [[ "${INCLUDE_PROXY_FT:-0}" == "1" ]]; then
+  RUN_BASELINES+=("fedkdl_proxy_ft")
+fi
+
+total_tasks=$((${#RUN_BASELINES[@]} * ${#ALPHA_VALUES[@]} * ${#SEED_VALUES[@]}))
 current_task=0
 
 run_baseline() {
   local baseline=$1
+  local alpha=$2
+  local seed=$3
   current_task=$((current_task + 1))
 
-  local topo="${ENVS_DIR}/2d/topo/N_${N_AUVS}/topo_N${N_AUVS}_seed${SEED}.pkl"
-  local alpha_str="${ALPHA//./p}"
-  local data="${ENVS_DIR}/2d/data/${DS}/N_${N_AUVS}/data_N${N_AUVS}_${DS}_a${alpha_str}_seed${SEED}.pkl"
+  local topo="${ENVS_DIR}/2d/topo/N_${N_AUVS}/topo_N${N_AUVS}_seed${seed}.pkl"
+  local alpha_str="${alpha//./p}"
+  local data="${ENVS_DIR}/2d/data/${DS}/N_${N_AUVS}/data_N${N_AUVS}_${DS}_a${alpha_str}_seed${seed}.pkl"
 
   if [[ ! -f "$topo" || ! -f "$data" ]]; then
-    echo "[Warning] Missing env: N=$N_AUVS DS=$DS alpha=$ALPHA seed=$SEED"
+    echo "[Warning] Missing env: N=$N_AUVS DS=$DS alpha=$alpha seed=$seed"
     return
   fi
 
-  local log_json="${OUT_DIR}/log_N${N_AUVS}_${DS}_a${alpha_str}_${baseline}_seed${SEED}.json"
+  local log_json="${OUT_DIR}/log_N${N_AUVS}_${DS}_a${alpha_str}_${baseline}_seed${seed}.json"
   if [[ -s "$log_json" ]] && [[ $(stat -c%s "$log_json" 2>/dev/null || echo 0) -gt 1024 ]]; then
     echo "[$current_task/$total_tasks] SKIP (complete log exists): $log_json"
     return 0
@@ -153,11 +182,11 @@ run_baseline() {
     rm -f "$log_json"
   fi
 
-  echo "[$current_task/$total_tasks] OD | N=$N_AUVS | alpha=$ALPHA | baseline=$baseline"
+  echo "[$current_task/$total_tasks] OD | N=$N_AUVS | alpha=$alpha | seed=$seed | baseline=$baseline"
   set +eo pipefail
 
   local TS=$(date +"%Y%m%d_%H%M%S")
-  local log_file="$STDOUT_DIR/raw_bash_output_${baseline}_${N_AUVS}_${alpha_str}_${TS}.log"
+  local log_file="$STDOUT_DIR/raw_bash_output_${baseline}_${N_AUVS}_${alpha_str}_seed${seed}_${TS}.log"
 
   "$PYTHON" main_trainer_od.py \
     --topo "$topo" --data "$data" \
@@ -174,39 +203,20 @@ run_baseline() {
 }
 
 echo ""
-echo "=== PRIMARY: FedKDL (reference baseline cho moi RQ) ==="
-for b in "${FEDKDL_FIRST[@]}"; do
-  run_baseline "$b"
-done
-
+echo "=== Experiment design ==="
+echo "RQ1 flat:         ${RQ1_BASELINES[*]}"
+echo "RQ2 hierarchical: ${RQ2_BASELINES[*]} fedkdl"
+echo "RQ3 hierarchical: ${RQ3_BASELINES[*]} fedkdl"
+echo "RQ4 hierarchical: ${RQ4_BASELINES[*]} fedkdl"
+echo "References:       ${REFERENCE_BASELINES[*]}"
 echo ""
-echo "=== RQ1: Ket noi va On dinh (Flat baselines) ==="
-for b in "${RQ1_BASELINES[@]}"; do
-  run_baseline "$b"
-done
-
-echo ""
-echo "=== RQ2: Nen Truyen Thong (HFL) ==="
-for b in "${RQ2_BASELINES[@]}"; do
-  run_baseline "$b"
-done
-
-echo ""
-echo "=== RQ3: Non-IID va Relay Cooperation (HFL) ==="
-for b in "${RQ3_BASELINES[@]}"; do
-  run_baseline "$b"
-done
-
-echo ""
-echo "=== RQ4: Gateway KD Ablation ==="
-for b in "${RQ4_BASELINES[@]}"; do
-  run_baseline "$b"
-done
-
-echo ""
-echo "=== ABLATION EXTRAS ==="
-for b in "${ABLATION_BASELINES[@]}"; do
-  run_baseline "$b"
+echo "=== Running ${total_tasks} experiment jobs ==="
+for b in "${RUN_BASELINES[@]}"; do
+  for alpha in "${ALPHA_VALUES[@]}"; do
+    for seed in "${SEED_VALUES[@]}"; do
+      run_baseline "$b" "$alpha" "$seed"
+    done
+  done
 done
 
 echo ""

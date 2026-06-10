@@ -129,15 +129,24 @@ def run_warmup(epochs: int):
     baked_tmp_path.unlink(missing_ok=True)  # Xóa file tạm
 
 
-def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
+def run_centralized_lora(
+    epochs: int,
+    patience: int = 30,
+    resume: bool = False,
+    data_yaml: str | Path | None = None,
+    project: str | Path | None = None,
+    name: str = "lora_finetune",
+    device: str | None = None,
+):
     print("\n" + "="*50)
     print(f"[Centralized LoRA] Train LoRA + Head trong {epochs} epochs (Upper Bound)")
     if resume: print("[Resume] Tiếp tục train từ last.pt...")
     print("="*50)
     
-    full_yaml = REPO_ROOT / "datasets/URPC2020.yaml"
+    full_yaml = Path(data_yaml) if data_yaml is not None else REPO_ROOT / "datasets/URPC2020.yaml"
     rank = fed_cfg.LORA_RANK
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    project = Path(project) if project is not None else REPO_ROOT / "runs" / "centralized"
     
     warmup_pt = REPO_ROOT / "yolo12n_warmup.pt"
     ckpt_path = str(warmup_pt)
@@ -166,8 +175,8 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
         'model': ckpt_path,
         'data': str(full_yaml),
         'epochs': epochs,
-        'batch': 16,
-        'workers': 4,
+        'batch': getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
+        'workers': getattr(fed_cfg, 'DATALOADER_WORKERS', 4),
         # [OPTIMIZATION] LoRA cần LR lớn hơn Full Finetune khoảng 5-10 lần để hội tụ cùng tốc độ.
         # Ở Full FT ta dùng 1e-3, nên LoRA nên dùng 2e-3.
         'lr0': 2e-3,  
@@ -178,8 +187,8 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
         'cos_lr': True,
         'device': device,
         'amp': False,
-        'project': str(REPO_ROOT / "runs" / "centralized"),
-        'name': 'lora_finetune',
+        'project': str(project),
+        'name': name,
         'exist_ok': True,
         'verbose': True,
         'save': True,
@@ -207,6 +216,11 @@ def run_centralized_lora(epochs: int, patience: int = 30, resume: bool = False):
     ckpt = {"model": student.yolo.model.half(), "epoch": epochs}
     torch.save(ckpt, save_path)
     print(f"[Thành công] Đã lưu mô hình LoRA Centralized tại: {save_path}")
+    return {
+        "save_dir": Path(trainer.save_dir),
+        "results_csv": Path(trainer.save_dir) / "results.csv",
+        "checkpoint": save_path,
+    }
 
 
 def run_centralized_full(epochs: int, patience: int = 30, resume: bool = False):

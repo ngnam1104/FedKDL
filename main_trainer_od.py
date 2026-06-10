@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
-from tasks.detection_2d.baselines import parse_baseline_config
+from tasks.detection_2d.baselines import BASELINE_CONFIGS, parse_baseline_config
 from tasks.detection_2d.simulator import Simulator2D
 from utils.log_export import build_experiment_bundle
 from utils.train_io import build_experiment_paths, run_trainer_with_artifacts
@@ -31,7 +31,13 @@ def parse_args():
     parser = argparse.ArgumentParser("FedKDL OD Trainer")
     parser.add_argument("--topo", type=str, required=True, help="Đường dẫn file topo (.pkl)")
     parser.add_argument("--data", type=str, required=True, help="Đường dẫn file data partition (.pkl)")
-    parser.add_argument("--baseline", type=str, required=True, help="fedkdl hoặc baseline_od")
+    parser.add_argument(
+        "--baseline",
+        type=str,
+        required=True,
+        choices=tuple(BASELINE_CONFIGS),
+        help="2D experiment baseline",
+    )
     parser.add_argument("--rounds", type=int, default=None, help="Ghi đè số vòng (GLOBAL_ROUNDS)")
     parser.add_argument("--out-dir", type=str, default="results/logs_kdl",
                         help="Thư mục JSON metrics (scripts/fedkdl đọc từ đây)")
@@ -87,7 +93,7 @@ def main():
         # [AUTO WARMUP CHECK]
         # Đảm bảo pre-train model mới nhất luôn được tạo ra nếu chưa có
         warmup_pt = Path("yolo12n_warmup.pt")
-        uses_warmup_student = baseline_cfg.use_lora or baseline_cfg.local_kd or baseline_cfg.use_gateway_kd
+        uses_warmup_student = baseline_cfg.use_lora
         if uses_warmup_student:
             if not warmup_pt.exists():
                 print(f"[Auto-Warmup] Không tìm thấy {warmup_pt}. Tiến hành tạo warmup model mới (5 epochs)...")
@@ -132,7 +138,7 @@ def main():
             
             e_comp_gw = e_comp(
                 n_samples=total_samples,
-                local_epochs=fed_cfg.LOCAL_EPOCHS,
+                local_epochs=1,
                 flops_per_sample=fed_cfg.MODEL_FLOPS_PER_SAMPLE["2D"],
                 epsilon_op=en_cfg.EPSILON_OP["2D"],
                 flop_multiplier=fed_cfg.FLOP_MULTIPLIER["2D"],
@@ -159,81 +165,95 @@ def main():
                 if tau_tx_s > tau_tx_raw_max:
                     tau_tx_raw_max = tau_tx_s
 
-            from ultralytics import YOLO
+            from scripts.fedkdl.train_student_warmup import run_centralized_lora
             
-            # Khởi tạo mô hình dựa trên config full_param, LORA, v.v.
-            # Centralized thường train full params hoặc có thể test LoRA. Ở đây giả định train full params.
-            model = YOLO("yolo12n_warmup.pt")
-            
-            # Train trực tiếp trên dataset yaml tương ứng
+            # Centralized upper bound uses the same LoRA+Head parameterization
+            # and differential LR policy configured for the warmup/student path.
             test_yaml = "datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml"
-            results = model.train(
-                data=test_yaml,
-                cache=getattr(fed_cfg, 'CACHE_DATASET', True),
+            centralized_result = run_centralized_lora(
                 epochs=T_rounds,
-                imgsz=640,
-                batch=getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
-                workers=getattr(fed_cfg, 'DATALOADER_WORKERS', 4),
-                device=device,
+                data_yaml=test_yaml,
                 project=args.out_dir,
                 name=f"centralized_{stem}",
-                verbose=True
+                device=device,
             )
             
-            map50_95 = float(results.box.map)
-            map50 = float(results.box.map50)
-            mp = float(np.mean(results.box.mp)) if hasattr(results.box, 'mp') else 0.0
-            mr = float(np.mean(results.box.mr)) if hasattr(results.box, 'mr') else 0.0
-            
-            # Ultralytics results.results_dict contains detailed losses
-            val_box_loss = 0.0
-            val_cls_loss = 0.0
-            val_dfl_loss = 0.0
-            train_box_loss = 0.0
-            train_cls_loss = 0.0
-            train_dfl_loss = 0.0
-            
-            if hasattr(results, 'results_dict'):
-                val_box_loss = results.results_dict.get('val/box_loss', 0.0)
-                val_cls_loss = results.results_dict.get('val/cls_loss', 0.0)
-                val_dfl_loss = results.results_dict.get('val/dfl_loss', 0.0)
-                
-                train_box_loss = results.results_dict.get('train/box_loss', 0.0)
-                train_cls_loss = results.results_dict.get('train/cls_loss', 0.0)
-                train_dfl_loss = results.results_dict.get('train/dfl_loss', 0.0)
-                
-            total_val_loss = val_box_loss + val_cls_loss + val_dfl_loss
-            total_train_loss = train_box_loss + train_cls_loss + train_dfl_loss
-                
-            print(f"[Centralized] mAP50-95: {map50_95:.4f} | mAP50: {map50:.4f}")
-            
-            tau_round_s_arr = [tau_tx_raw_max + tau_comp_gw] + [tau_comp_gw] * (T_rounds - 1) if T_rounds > 0 else []
-            tau_cumul_s = [tau_tx_raw_max + tau_comp_gw * t for t in range(1, T_rounds + 1)]
-            e_cumul = [e_tx_raw_total + e_comp_gw * t for t in range(1, T_rounds + 1)]
-            avg_payload_kb_arr = [raw_payload_kb] + [0] * (T_rounds - 1) if T_rounds > 0 else []
-            e_total_arr = [e_tx_raw_total + e_comp_gw] + [e_comp_gw] * (T_rounds - 1) if T_rounds > 0 else []
+            import pandas as pd
+            results_csv = centralized_result["results_csv"]
+            if not results_csv.exists():
+                raise FileNotFoundError(f"Centralized results were not written: {results_csv}")
+            results_df = pd.read_csv(results_csv)
+            results_df.columns = [str(column).strip() for column in results_df.columns]
+
+            def _metric_series(*names: str) -> list[float]:
+                for name in names:
+                    if name in results_df:
+                        return results_df[name].fillna(0.0).astype(float).tolist()
+                return [0.0] * len(results_df)
+
+            map50_95_arr = _metric_series("metrics/mAP50-95(B)", "metrics/mAP50-95")
+            map50_arr = _metric_series("metrics/mAP50(B)", "metrics/mAP50")
+            precision_arr = _metric_series("metrics/precision(B)", "metrics/precision")
+            recall_arr = _metric_series("metrics/recall(B)", "metrics/recall")
+            train_box_arr = _metric_series("train/box_loss")
+            train_cls_arr = _metric_series("train/cls_loss")
+            train_dfl_arr = _metric_series("train/dfl_loss")
+            val_box_arr = _metric_series("val/box_loss")
+            val_cls_arr = _metric_series("val/cls_loss")
+            val_dfl_arr = _metric_series("val/dfl_loss")
+            train_loss_arr = [
+                box + cls + dfl
+                for box, cls, dfl in zip(train_box_arr, train_cls_arr, train_dfl_arr)
+            ]
+            val_loss_arr = [
+                box + cls + dfl
+                for box, cls, dfl in zip(val_box_arr, val_cls_arr, val_dfl_arr)
+            ]
+
+            epochs_done = len(results_df)
+            if epochs_done == 0:
+                raise RuntimeError("Centralized training produced an empty results.csv")
+            print(
+                f"[Centralized] mAP50-95: {map50_95_arr[-1]:.4f} | "
+                f"mAP50: {map50_arr[-1]:.4f}"
+            )
+
+            tau_round_s_arr = [tau_tx_raw_max + tau_comp_gw] + [tau_comp_gw] * (epochs_done - 1)
+            tau_cumul_s = [tau_tx_raw_max + tau_comp_gw * t for t in range(1, epochs_done + 1)]
+            e_cumul = [e_tx_raw_total + e_comp_gw * t for t in range(1, epochs_done + 1)]
+            avg_payload_kb_arr = [raw_payload_kb] + [0] * (epochs_done - 1)
+            e_total_arr = [e_tx_raw_total + e_comp_gw] + [e_comp_gw] * (epochs_done - 1)
             
             history = {
-                'round': list(range(1, T_rounds + 1)),
-                'mAP50-95': [map50_95] * T_rounds,
-                'mAP50': [map50] * T_rounds,
-                'Prec': [mp] * T_rounds,
-                'Rec': [mr] * T_rounds,
-                'val_box_loss': [val_box_loss] * T_rounds,
-                'val_cls_loss': [val_cls_loss] * T_rounds,
-                'val_dfl_loss': [val_dfl_loss] * T_rounds,
-                'loss': [total_train_loss] * T_rounds,
-                'val_loss': [total_val_loss] * T_rounds,
-                'alive': [N] * T_rounds,
+                'round': list(range(1, epochs_done + 1)),
+                'mAP50-95': map50_95_arr,
+                'mAP50': map50_arr,
+                'Prec': precision_arr,
+                'Rec': recall_arr,
+                'val_box_loss': val_box_arr,
+                'val_cls_loss': val_cls_arr,
+                'val_dfl_loss': val_dfl_arr,
+                'loss': train_loss_arr,
+                'val_loss': val_loss_arr,
+                'alive': [N] * epochs_done,
                 'tau_round_s': tau_round_s_arr,
+                'tau_a2r': [tau_tx_raw_max] + [0.0] * (epochs_done - 1),
+                'tau_r2r': [0.0] * epochs_done,
+                'tau_r2g': [0.0] * epochs_done,
+                'tau_comp': [tau_comp_gw] * epochs_done,
+                'tau_svd': [0.0] * epochs_done,
                 'tau_cumul_s': tau_cumul_s,
                 'avg_payload_kb': avg_payload_kb_arr,
-                'payload_cumul_kb': [raw_payload_kb] * T_rounds,
+                'payload_cumul_kb': [raw_payload_kb] * epochs_done,
                 'e_total': e_total_arr,
+                'e_a2r': [e_tx_raw_total] + [0.0] * (epochs_done - 1),
+                'e_r2r': [0.0] * epochs_done,
+                'e_r2g': [0.0] * epochs_done,
+                'e_comp': [e_comp_gw] * epochs_done,
+                'e_svd': [0.0] * epochs_done,
                 'e_cumul': e_cumul,
             }
             
-            del model
             del sim
             import gc
             gc.collect()

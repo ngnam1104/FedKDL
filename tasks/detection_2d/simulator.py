@@ -191,11 +191,18 @@ class AUVWorker2D(BaseWorker):
 
 
 class RelayNode2D(BaseRelayNode):
-    def aggregate_intra_cluster(self, global_state_dict, payloads, auv_n_samples, use_kd_lora_int8=True):
+    def aggregate_intra_cluster(
+        self,
+        global_state_dict,
+        payloads,
+        auv_n_samples,
+        use_kd_lora_int8=True,
+        lora_aggregation="svd",
+    ):
         import torch
         import copy
         from tasks.detection_2d.knowledge_compression.int8_quantization import unpack_payload
-        from federated_core.aggregator import svd_lora_aggregate
+        from federated_core.aggregator import svd_lora_aggregate, weighted_state_dict_average
         
         c_updates = []
         delta_c_updates = []
@@ -208,7 +215,8 @@ class RelayNode2D(BaseRelayNode):
             # --- Extract SCAFFOLD delta_c if present ---
             delta_c = None
             if isinstance(payload, dict) and '__scaffold_delta_c__' in payload:
-                delta_c = payload.pop('__scaffold_delta_c__')
+                delta_c = payload['__scaffold_delta_c__']
+                payload = {key: value for key, value in payload.items() if key != '__scaffold_delta_c__'}
             
             # --- Phân biệt loại payload ---
             from tasks.detection_2d.knowledge_compression.topk_sparsification import (
@@ -247,13 +255,19 @@ class RelayNode2D(BaseRelayNode):
 
         weights = [auv_n_samples.get(sid, 0) / total_samples for sid in valid_sids]
         
-        self.intra_state_dict = svd_lora_aggregate(c_updates, weights)
+        if lora_aggregation == "svd":
+            self.intra_state_dict = svd_lora_aggregate(c_updates, weights)
+        elif lora_aggregation == "naive":
+            self.intra_state_dict = weighted_state_dict_average(c_updates, weights)
+        else:
+            raise ValueError(f"Unknown LoRA aggregation strategy: {lora_aggregation}")
         
         if len(delta_c_updates) == len(c_updates):
             delta_c_agg = {}
             for k in delta_c_updates[0].keys():
-                delta_c_agg[k] = sum(d[k] * w for d, w in zip(delta_c_updates, weights))
+                delta_c_agg[k] = sum(d[k] for d in delta_c_updates) / len(delta_c_updates)
             self.intra_state_dict['__scaffold_delta_c__'] = delta_c_agg
+            self.intra_state_dict['__scaffold_client_count__'] = len(delta_c_updates)
             
         self.final_state_dict = copy.deepcopy(self.intra_state_dict)
 
@@ -273,6 +287,7 @@ class Simulator2D(BaseSimulator):
         self.test_yaml = test_yaml
         self.task_key = "2D"
         self.student_ckpt = student_ckpt
+        self.baseline_cfg = parse_baseline_config(self.baseline)
         
         # Load Data Partition
         from utils.env_manager import EnvironmentManager
@@ -381,24 +396,27 @@ class Simulator2D(BaseSimulator):
 
         # Models
         nc = base_cfg.get('nc', 80) if 'base_cfg' in locals() else 80
-        cfg = parse_baseline_config(self.baseline)
+        cfg = self.baseline_cfg
         full_param = cfg.full_param
         use_lora = cfg.use_lora
         rank = self.fed_cfg.LORA_R4_RANK if 'r4' in self.baseline else self.fed_cfg.LORA_RANK
         
-        self.teacher = TeacherModel(teacher_ckpt)
-        self.teacher.yolo.to(self.device)
+        self.teacher = None
+        if cfg.use_gateway_kd or cfg.local_kd:
+            self.teacher = TeacherModel(teacher_ckpt)
+            self.teacher.yolo.to(self.device)
         self.global_student = StudentModel(student_ckpt, rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         
         self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
 
         # [SCAFFOLD] Khởi tạo control variates
-        if 'scaffold' in self.baseline:
+        if cfg.scaffold:
             import torch
             self.global_c = {k: torch.zeros_like(v) for k, v in self.gateway.global_state_dict.items()}
+            auv_ids = self.auv_yamls.keys() if isinstance(self.auv_yamls, dict) else range(len(self.auv_yamls))
             self.local_c_states = {
                 auv_id: {k: torch.zeros_like(v) for k, v in self.gateway.global_state_dict.items()}
-                for auv_id in self.auv_yamls.keys()
+                for auv_id in auv_ids
             }
         
         self._last_kd_metrics = {}
@@ -417,7 +435,15 @@ class Simulator2D(BaseSimulator):
         import os
         import yaml
         import numpy as np
-        
+        cfg = self.baseline_cfg
+
+        def auv_yaml_for(s_id):
+            if isinstance(self.auv_yamls, dict):
+                return self.auv_yamls.get(s_id)
+            if 0 <= s_id < len(self.auv_yamls):
+                return self.auv_yamls[s_id]
+            return None
+
         # 1. Hàm phụ trợ parse label histogram từ YOLO txt
         def get_label_histogram(auv_yaml_path, num_classes):
             hist = np.zeros(num_classes, dtype=np.float32)
@@ -475,8 +501,9 @@ class Simulator2D(BaseSimulator):
             self.auv_label_hists = np.zeros((N, nc), dtype=np.float32)
             self.auv_label_counts = np.zeros((N, nc), dtype=np.float32)
             for s_id in range(N):
-                if s_id in getattr(self, 'auv_yamls', {}):
-                    n_hist, c_hist = get_label_histogram(self.auv_yamls[s_id], nc)
+                auv_yaml = auv_yaml_for(s_id)
+                if auv_yaml is not None:
+                    n_hist, c_hist = get_label_histogram(auv_yaml, nc)
                     self.auv_label_hists[s_id] = n_hist
                     self.auv_label_counts[s_id] = c_hist
             
@@ -517,36 +544,40 @@ class Simulator2D(BaseSimulator):
                     print(log)
             
             self.association = new_association
-        else:
+        elif cfg.hfl:
             print("\n[Simulator2D] Knowledge-aware association disabled; using physical association.")
 
-        self.clusters = {m: [] for m in range(M)}
-        for s, f in self.association.items():
-            if f in self.clusters:
-                self.clusters[f].append(s)
+        if cfg.hfl:
+            self.clusters = {m: [] for m in range(M)}
+            for s, f in self.association.items():
+                if f in self.clusters:
+                    self.clusters[f].append(s)
+        else:
+            # Flat AUV->Gateway still needs one virtual aggregation group so the
+            # common gateway FedAvg path can aggregate all directly connected AUVs.
+            self.clusters = {0: sorted(self.association)}
 
         # 3. Tiến hành cấp phát Worker/Node như bình thường
         for s_id in range(self.net_cfg.N_AUVS):
-            if s_id in getattr(self, 'auv_yamls', {}):
-                if s_id in self.association:
-                    self.auvs[s_id] = AUVWorker2D(
-                        auv_id=s_id,
-                        auv_yaml=self.auv_yamls[s_id],
-                        battery_init=self.en_cfg.E_INIT,
-                    )
-                else:
+            auv_yaml = auv_yaml_for(s_id)
+            if auv_yaml is not None:
+                self.auvs[s_id] = AUVWorker2D(
+                    auv_id=s_id,
+                    auv_yaml=auv_yaml,
+                    battery_init=self.en_cfg.E_INIT,
+                )
+                if s_id not in self.association:
                     print(f"\n[{'='*40}]\n[AUV {s_id}] BỎ QUA VÌ KHÔNG THỎA MÃN KHOẢNG CÁCH (Out of Range)\n[{'='*40}]\n")
 
         for m, members in self.clusters.items():
-            if len(members) > 0:
-                self.relays[m] = RelayNode2D(
-                    relay_id=m,
-                    cluster_members=members,
-                    battery_init=self.en_cfg.RELAY_E_INIT,
-                )
+            self.relays[m] = RelayNode2D(
+                relay_id=m,
+                cluster_members=members,
+                battery_init=self.en_cfg.RELAY_E_INIT,
+            )
 
     def get_flop_multiplier(self) -> float:
-        cfg = parse_baseline_config(self.baseline)
+        cfg = self.baseline_cfg
         if cfg.local_kd:
             # FedKD chạy Teacher (YOLOv12l) Forward pass + Student (YOLOv12n) Full pass.
             # Tỷ lệ FLOPs của YOLOv12l so với YOLOv12n là ~30 lần. Cộng thêm 3 lần cho Student.
@@ -559,7 +590,7 @@ class Simulator2D(BaseSimulator):
 
     def _process_auv(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
         auv = self.auvs[s_id]
-        cfg = parse_baseline_config(self.baseline)
+        cfg = self.baseline_cfg
 
         if s_id == 0 and getattr(self, '_fedprox_mu_override', 0.0) > 0.0:
             print(f"    [!] Adaptive Dropout Active: AUVs are training with FedProx (mu={self._fedprox_mu_override})")
@@ -622,13 +653,14 @@ class Simulator2D(BaseSimulator):
 
 
     def _aggregate_intra_relay(self, m: int, relay, payloads, auv_n_samples) -> float:
-        cfg = parse_baseline_config(self.baseline)
+        cfg = self.baseline_cfg
         use_int8 = cfg.use_int8
         relay.aggregate_intra_cluster(
             global_state_dict=self.gateway.global_state_dict,
             payloads=payloads,
             auv_n_samples=auv_n_samples,
-            use_kd_lora_int8=use_int8
+            use_kd_lora_int8=use_int8,
+            lora_aggregation=cfg.lora_aggregation,
         )
         return 0.0
 
@@ -692,6 +724,13 @@ class Simulator2D(BaseSimulator):
         if not payloads:
             return self.relay_model_bits
         
+        def _tensor_bits(value) -> float:
+            if torch.is_tensor(value):
+                return float(value.numel() * value.element_size() * 8)
+            if isinstance(value, dict):
+                return sum(_tensor_bits(item) for item in value.values())
+            return 0.0
+
         bits_list = []
         for p in payloads.values():
             if hasattr(p, 'payload_bits'):
@@ -699,12 +738,13 @@ class Simulator2D(BaseSimulator):
             elif isinstance(p, bytes):
                 bits_list.append(len(p) * 8)
             elif isinstance(p, dict):
-                bits_list.append(sum(t.numel() for t in p.values()) * 32)
+                bits_list.append(_tensor_bits(p))
         
         return np.mean(bits_list) if bits_list else 0.0
 
     def _compute_relay_model_bits(self) -> float:
-        return self.relay_model_bits
+        multiplier = 2 if self.baseline_cfg.scaffold else 1
+        return self.relay_model_bits * multiplier
 
     def _build_gateway_proxy_yaml(self) -> str:
         proxy_yaml = getattr(self, 'test_yaml', "coco8.yaml")
@@ -789,7 +829,7 @@ class Simulator2D(BaseSimulator):
         Adaptive KD Dropout: Nếu Prec/Rec/mAP liên tiếp giảm CONSEC_DROP_THRESHOLD vòng
         thì tự động tắt KD vĩnh viễn cho phần còn lại (thuần FL).
         """
-        cfg = parse_baseline_config(self.baseline)
+        cfg = self.baseline_cfg
         if cfg.use_gateway_proxy_ft:
             return self._gateway_supervised_finetune()
 
