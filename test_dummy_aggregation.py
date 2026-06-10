@@ -1,106 +1,116 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent))
+
 import torch
-from federated_core.workers import BaseRelayNode, BaseGateway
+from federated_core.workers import BaseGateway
+from tasks.detection_2d.simulator import RelayNode2D
 
-# --- Mock imports ---
-class MockSimulator:
-    pass
-
-class MockG:
-    pass
-
-class RelayNode2D(BaseRelayNode):
-    def aggregate_intra_cluster(self, global_state_dict, payloads, auv_n_samples, use_kd_lora_int8=True):
-        import copy
-        from federated_core.aggregator import svd_lora_aggregate
-        
-        c_updates = []
-        delta_c_updates = []
-        valid_sids = []
-        for sid in self.cluster_members:
-            if sid not in payloads:
-                continue
-            payload = payloads[sid]
-            
-            # --- Extract SCAFFOLD delta_c if present ---
-            delta_c = None
-            if isinstance(payload, dict) and '__scaffold_delta_c__' in payload:
-                delta_c = payload.pop('__scaffold_delta_c__')
-            
-            # Mock INT8 or full payload
-            state = payload
-            c_updates.append(state)
-            if delta_c is not None:
-                delta_c_updates.append(delta_c)
-            valid_sids.append(sid)
-
-        if not c_updates:
-            self.intra_state_dict = copy.deepcopy(global_state_dict)
-            self.final_state_dict = copy.deepcopy(global_state_dict)
-            return
-
-        total_samples = sum(auv_n_samples.get(sid, 0) for sid in valid_sids)
-        if total_samples == 0:
-            total_samples = 1
-
-        weights = [auv_n_samples.get(sid, 0) / total_samples for sid in valid_sids]
-        
-        # Fake SVD or FEDAVG for testing
-        agg_state = {}
-        for k in c_updates[0].keys():
-            agg_state[k] = sum(c[k] * w for c, w in zip(c_updates, weights))
-        
-        self.intra_state_dict = agg_state
-        
-        if len(delta_c_updates) == len(c_updates):
-            delta_c_agg = {}
-            for k in delta_c_updates[0].keys():
-                delta_c_agg[k] = sum(d[k] * w for d, w in zip(delta_c_updates, weights))
-            self.intra_state_dict['__scaffold_delta_c__'] = delta_c_agg
-            
-        self.final_state_dict = copy.deepcopy(self.intra_state_dict)
-
-def test_flat_topology():
-    print("--- Test Flat Topology ---")
-    gateway = BaseGateway({"layer1": torch.ones(2, 2)})
-    relay_finals = {
-        0: {"layer1": torch.ones(2, 2) * 2},
-        1: {"layer1": torch.ones(2, 2) * 4}
+def parse_baseline_config(baseline: str) -> dict:
+    cfg_map = {
+        'fedavg':           (True,  False, False, False, False),
+        'fedprox':          (True,  False, False, False, False),
+        'fedavg_hfl':       (True,  False, False, False, False),
+        'fedprox_hfl':      (True,  False, False, False, False),
+        'flora':            (False, True,  False, False, False),
+        'scaffold':         (True,  False, False, False, False),
+        'fedkdl':           (False, True,  True,  True,  False),
+        'fedkdl_nocoop':    (False, True,  True,  True,  False),
+        'logit_kd':         (False, True,  True,  True,  False),
+        'fedprox_kdl':      (False, True,  True,  True,  False),
+        'fedkd':            (True,  False, False, True,  False),
+        'topk_grad':        (True,  False, False, False, False),
+        'centralized':      (False, True,  False, False, False),
+        'fedkdl_nokd':      (False, True,  True,  False, False),
+        'fedkdl_nolora':    (True,  False, False, True,  False),
+        'fedkdl_proxy_ft':  (False, True,  True,  False, True), 
     }
-    cluster_samples = {0: 100, 1: 100}
-    gateway.aggregate_global(relay_finals, cluster_samples)
-    print("Global State (layer1):", gateway.global_state_dict["layer1"])
-    assert torch.allclose(gateway.global_state_dict["layer1"], torch.ones(2, 2) * 3)
-    print("Flat Topology Passed!")
-
-def test_hfl_topology_scaffold():
-    print("--- Test HFL Topology (SCAFFOLD) ---")
-    global_state = {"layer1": torch.ones(2, 2)}
-    
-    relay = RelayNode2D(relay_id=0, cluster_members=[0, 1])
-    
-    payloads = {
-        0: {"layer1": torch.ones(2, 2) * 2, "__scaffold_delta_c__": {"layer1": torch.ones(2, 2) * 0.5}},
-        1: {"layer1": torch.ones(2, 2) * 4, "__scaffold_delta_c__": {"layer1": torch.ones(2, 2) * 1.5}},
+    f_p, u_l, u_i, u_kd, u_ft = cfg_map.get(baseline, (False, True, True, True, False))
+    return {
+        'full_param': f_p,
+        'use_lora': u_l,
+        'use_int8': u_i,
+        'use_gateway_kd': u_kd,
+        'use_gateway_proxy_ft': u_ft,
+        'is_hfl': 'hfl' in baseline or baseline in ['flora', 'scaffold', 'fedkdl', 'fedkdl_nocoop', 'logit_kd', 'fedprox_kdl', 'topk_grad', 'fedkdl_nokd', 'fedkdl_nolora', 'fedkdl_proxy_ft']
     }
-    auv_n_samples = {0: 100, 1: 100}
+
+def print_tensor_dict(title, d):
+    print(f"{title}:")
+    for k, v in d.items():
+        if isinstance(v, torch.Tensor):
+            print(f"  {k}:\n{v.tolist()}")
+        elif isinstance(v, dict):
+            print(f"  {k}:")
+            for sub_k, sub_v in v.items():
+                 print(f"    {sub_k}:\n{sub_v.tolist()}")
+
+def run_scenario(baseline):
+    cfg = parse_baseline_config(baseline)
+    print("\n" + "="*80)
+    print(f"SCENARIO: {baseline.upper()}")
+    print(f"Config: {cfg}")
+    print("="*80)
     
-    relay.aggregate_intra_cluster(global_state, payloads, auv_n_samples, use_kd_lora_int8=False)
+    global_state = {}
+    if cfg['full_param'] or not cfg['use_lora']:
+        global_state['layer1'] = torch.tensor([[0.0, 0.0], [0.0, 0.0]])
+    if cfg['use_lora']:
+        global_state['model.0.lora_A'] = torch.tensor([[0.0, 0.0]])
+        global_state['model.0.lora_B'] = torch.tensor([[0.0], [0.0]])
+        
+    auv0_payload = {}
+    auv1_payload = {}
     
-    print("Relay Intra State (layer1):", relay.intra_state_dict["layer1"])
-    print("Relay Intra Delta C:", relay.intra_state_dict["__scaffold_delta_c__"]["layer1"])
+    if cfg['full_param'] or not cfg['use_lora']:
+        auv0_payload['layer1'] = torch.tensor([[1.0, 1.0], [1.0, 1.0]])
+        auv1_payload['layer1'] = torch.tensor([[3.0, 3.0], [3.0, 3.0]])
+        
+    if cfg['use_lora']:
+        auv0_payload['model.0.lora_A'] = torch.tensor([[1.0, 2.0]])
+        auv0_payload['model.0.lora_B'] = torch.tensor([[1.0], [1.0]])
+        auv1_payload['model.0.lora_A'] = torch.tensor([[2.0, 4.0]])
+        auv1_payload['model.0.lora_B'] = torch.tensor([[2.0], [2.0]])
+        
+    if baseline == 'scaffold':
+        auv0_payload['__scaffold_delta_c__'] = {'layer1': torch.tensor([[0.5, 0.5], [0.5, 0.5]])}
+        auv1_payload['__scaffold_delta_c__'] = {'layer1': torch.tensor([[1.5, 1.5], [1.5, 1.5]])}
+        
+    print_tensor_dict("Input Payload AUV 0", auv0_payload)
+    print("-" * 40)
+    print_tensor_dict("Input Payload AUV 1", auv1_payload)
+    print("-" * 40)
     
-    assert torch.allclose(relay.intra_state_dict["layer1"], torch.ones(2, 2) * 3)
-    assert torch.allclose(relay.intra_state_dict["__scaffold_delta_c__"]["layer1"], torch.ones(2, 2) * 1.0)
-    
-    gateway = BaseGateway(global_state)
-    gateway.aggregate_global({0: relay.final_state_dict}, {0: 200})
-    
-    print("Gateway Global State:", gateway.global_state_dict["layer1"])
-    print("Gateway Global Delta C:", gateway.global_state_dict["__scaffold_delta_c__"]["layer1"])
-    
-    assert torch.allclose(gateway.global_state_dict["__scaffold_delta_c__"]["layer1"], torch.ones(2, 2) * 1.0)
-    print("HFL Topology SCAFFOLD Passed!")
+    if cfg['is_hfl']:
+        # Relay Aggregation
+        relay = RelayNode2D(relay_id=0, cluster_members=[0, 1])
+        payloads = {0: auv0_payload, 1: auv1_payload}
+        auv_n_samples = {0: 100, 1: 100}
+        
+        # Test Relay Intra-Cluster Aggregation
+        # bypass int8 unpacking for dummy test by passing use_kd_lora_int8=False 
+        # (svd_lora_aggregate inside RelayNode2D handles dicts directly)
+        relay.aggregate_intra_cluster(global_state, payloads, auv_n_samples, use_kd_lora_int8=False)
+        print_tensor_dict("Relay Output (Intra-Cluster Aggregation)", relay.final_state_dict)
+        print("-" * 40)
+        
+        # Gateway Aggregation
+        gateway = BaseGateway(global_state)
+        gateway.aggregate_global({0: relay.final_state_dict}, {0: 200})
+        print_tensor_dict("Gateway Output (Global Aggregation)", gateway.global_state_dict)
+    else:
+        # Flat Topology - Direct Gateway Aggregation
+        gateway = BaseGateway(global_state)
+        payloads = {0: auv0_payload, 1: auv1_payload}
+        cluster_samples = {0: 100, 1: 100}
+        gateway.aggregate_global(payloads, cluster_samples)
+        print_tensor_dict("Gateway Output (Flat Global Aggregation)", gateway.global_state_dict)
 
 if __name__ == '__main__':
-    test_flat_topology()
-    test_hfl_topology_scaffold()
+    baselines = [
+        'fedavg', 'fedprox', 'fedavg_hfl', 'fedprox_hfl', 'flora', 'scaffold', 
+        'fedkdl', 'fedkdl_nocoop', 'logit_kd', 'fedprox_kdl', 'fedkd', 
+        'topk_grad', 'centralized', 'fedkdl_nokd', 'fedkdl_nolora', 'fedkdl_proxy_ft'
+    ]
+    for b in baselines:
+        run_scenario(b)

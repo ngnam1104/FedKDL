@@ -65,7 +65,8 @@ class AUVWorker2D(BaseWorker):
     def train_and_get_payload(
         self, global_state, epochs: int, lr: float, device: str,
         baseline: str, global_weights: dict = None, fedprox_mu_override: float = 0.0,
-        nc: int = 4, student_ckpt: str = "yolo12n_warmup.pt"
+        nc: int = 4, student_ckpt: str = "yolo12n_warmup.pt",
+        global_c: dict = None, local_c: dict = None,
     ):
         """
         Train local SGD (Tier 1, KHÔNG dùng KD) và đóng gói payload INT8.
@@ -135,7 +136,13 @@ class AUVWorker2D(BaseWorker):
             global_weights=global_weights,
             local_teacher=local_teacher,
             cached_optimizer_state=None,  # Bỏ cache optimizer giữa các vòng để tránh AdamW nổ gradient do sai lệch trọng số
+            global_c=global_c,
+            local_c=local_c,
         )
+
+        scaffold_delta_c = None
+        if isinstance(new_state, dict) and '__scaffold_delta_c__' in new_state:
+            scaffold_delta_c = new_state.pop('__scaffold_delta_c__')
         
         # [FedBN FIX] Save local BN parameters for the next round
         current_sd = local_student.yolo.model.state_dict()

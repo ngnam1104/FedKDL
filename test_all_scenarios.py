@@ -41,7 +41,7 @@ def test_baseline(baseline, m1, m2, m3, m4):
             baseline=baseline,
             yaml_config="config/urpc2020_env.yaml",
             dataset_yaml="datasets/urpc_data.yaml",
-            student_ckpt="yolo12n_warmup.pt",
+            student_ckpt="yolo12n.pt",
             teacher_ckpt="yolo12l.pt" if 'kd' in baseline or baseline in ['flora', 'centralized'] else None,
             experiment_name=f"test_{baseline}"
         )
@@ -61,7 +61,11 @@ def test_baseline(baseline, m1, m2, m3, m4):
         return False
 
 if __name__ == "__main__":
-    baselines = ['fedavg', 'fedprox', 'fedavg_hfl', 'fedprox_hfl', 'flora', 'scaffold', 'fedkdl', 'fedkdl_nocoop', 'logit_kd']
+    baselines = [
+        'fedavg', 'fedprox', 'fedavg_hfl', 'fedprox_hfl', 'flora', 'scaffold', 
+        'fedkdl', 'fedkdl_nocoop', 'logit_kd', 'fedprox_kdl', 'fedkd', 
+        'topk_grad', 'centralized', 'fedkdl_nokd', 'fedkdl_nolora', 'fedkdl_proxy_ft'
+    ]
     results = {}
     for b in baselines:
         results[b] = test_baseline(b)
