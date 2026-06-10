@@ -76,7 +76,7 @@ class FedKDLConfig:
     CLEAR_CUDA_CACHE_PER_AUV: bool = False
     LOG_ROUND_TOPOLOGY: bool = False
     LOG_TRAJECTORIES: bool = False
-    PREWARM_YOLO_LABEL_CACHE: bool = True
+    PREWARM_YOLO_LABEL_CACHE: bool = False # Tắt tính năng tự động tạo cache song song lúc đầu để tránh rác màn hình
 
     # ── FLOPs / năng lượng tính toán ────────────────────────────────────────
     MODEL_FLOPS_PER_SAMPLE: dict = field(
