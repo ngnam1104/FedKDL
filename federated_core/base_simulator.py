@@ -65,11 +65,17 @@ class BaseSimulator(ABC):
         self.gateway_position = self.topology.gateway_position
         self.G = EnvironmentManager.restore_graph(topo)
         
-        # [CRITICAL FIX] Theo yêu cầu của user: KHÔNG CÓ baseline nào là "flat". 
-        # Tất cả đều phải chạy trên topology phân cấp (Hierarchical).
-        self.is_flat = False
-        self.association = topo.hfl_association
-        self.clusters = topo.clusters
+        # [CRITICAL FIX] Dựa theo đính chính của user: 
+        # TẤT CẢ các baseline đều là phân cấp (Hierarchical) TRỪ fedavg, fedprox (Case 1), fedkd (reference), centralized.
+        flat_baselines = ['fedavg', 'fedprox', 'fedkd', 'centralized']
+        self.is_flat = self.baseline in flat_baselines
+        
+        if self.is_flat:
+            self.association = topo.flat_association
+            self.clusters = {0: list(range(topo.N))}
+        else:
+            self.association = topo.hfl_association
+            self.clusters = topo.clusters
 
     def get_flop_multiplier(self) -> float:
         """Cho phép các lớp con (ví dụ 2D Simulator) định nghĩa lại Flop Multiplier dựa theo logic của Local KD hay LoRA."""
@@ -136,10 +142,8 @@ class BaseSimulator(ABC):
         import math
         initial_lr = self.fed_cfg.LOCAL_LR
 
-        # [OPTION B] Pre-warm YOLO label cache trước vòng FL đầu tiên
-        # Chỉ chạy 1 lần (không tốn thêm gì từ vòng 2 trở đi)
-        if self.task_key == "2D" and hasattr(self, '_pre_warm_dataset_cache'):
-            self._pre_warm_dataset_cache()
+        # [OPTION B] (Đã bị loại bỏ) Không pre-warm YOLO cache trước vòng FL đầu tiên nữa,
+        # để mỗi AUV tự cache khi đến lượt train của nó (tránh block hệ thống lâu ở đầu).
 
         for t in range(1, T_rounds + 1):
             self.current_round = t
@@ -532,7 +536,7 @@ class BaseSimulator(ABC):
                 self.G = build_feasibility_graph(self.topology, self.ac_cfg)
                 
                 # Tái phân cụm
-                flat_baselines = ['fedprox_kdl', 'fedkd', 'centralized']
+                flat_baselines = ['fedavg', 'fedprox', 'fedkd', 'centralized']
                 if self.baseline in flat_baselines:
                     from physics_models.topology import flat_topology_association
                     new_assoc = flat_topology_association(self.topology, self.G)
