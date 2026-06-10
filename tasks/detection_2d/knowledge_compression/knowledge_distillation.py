@@ -208,7 +208,7 @@ class KDDetectionTrainer(DetectionTrainer):
         self.teacher_model: Optional[nn.Module] = None
         self.student_wrapper = None
         self.kd_temperature: float = 4.0
-        self.kd_lambda: float = 1.0
+        self.kd_lambda: float = 0.5
         
         # Accumulators for logging KD loss
         self.epoch_box_loss = 0.0
@@ -614,7 +614,9 @@ class KDDetectionTrainer(DetectionTrainer):
                     valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
                     
                     loss_box_unreduced = F.mse_loss(s_box, t_box.detach(), reduction='none')
-                    loss_box_kd = (loss_box_unreduced * fg_mask).sum() / (valid_anchors * s_box.shape[1])
+                    # [CRITICAL FIX] Box logits MSE thường rất lớn (~20.0) do scale của DFL layer.
+                    # Nhân với 0.02 để kéo về cùng hệ quy chiếu với KL loss (~0.4)
+                    loss_box_kd = ((loss_box_unreduced * fg_mask).sum() / (valid_anchors * s_box.shape[1])) * 0.02
                 else:
                     if self.batch_count == 0:
                         s_shape = s_box.shape if s_box is not None else None
@@ -637,7 +639,9 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_dist_adaptive = loss_kl + loss_box_kd + loss_lora_proj
         
         # Mở lại Supervised Loss để giữ mỏ neo Ground Truth
-        stu_weight = getattr(self, 'stu_lambda', 0.20)
+        # [CRITICAL FIX] Tăng stu_weight từ 0.2 lên 1.0 để Student không bị chững lại (learn chậm)
+        # [CRITICAL FIX] Cân bằng 50-50 giữa Teacher và Ground Truth
+        stu_weight = getattr(self, 'stu_lambda', 0.5)
         total_loss = loss_stu.clone() * stu_weight
         
         if total_loss.ndim == 0:

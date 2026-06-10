@@ -42,8 +42,9 @@ class AcousticChannelConfig:
 @dataclass
 class EnergyConfig:
     """Năng lượng — dùng bởi simulator 1D/2D, base_simulator, main_trainer*."""
-    E_INIT: float = 250000.0         # J — pin AUV (tương đương ~70 Wh, đủ cho ~60 vòng)
-    RELAY_E_INIT: float = 200000.0   # J — pin Relay
+    E_INIT: float = float('inf')     # Bài toán P1 nới lỏng giới hạn (chạy đủ vòng)
+    E_INIT_REF: float = 250000.0     # J — Ngưỡng dung lượng tham chiếu (Lớp 3)
+    RELAY_E_INIT: float = float('inf')
     E_MIN: float = 5000.0            # J — ngưỡng dự trữ khẩn cấp (AUV)
     RELAY_E_MIN: float = 5000.0      # J — ngưỡng dự trữ khẩn cấp (Relay)
     EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-28, "2D": 1.0e-28})
@@ -136,7 +137,8 @@ class FedKDLConfig:
     # ── Joint optimisation / latency budget (base_simulator logs) ───────────
     LAMBDA_E: float = 1e-3
     LAMBDA_TAU: float = 1e-3
-    TAU_MAX: float = 1800.0          # s — giới hạn độ trễ vòng FL
+    TAU_MAX: float = float('inf')    # Bài toán P1 nới lỏng giới hạn
+    TAU_MAX_REF: float = 1800.0      # s — Ngưỡng tham chiếu (Lớp 3)
 
 
 network_cfg = NetworkConfig()

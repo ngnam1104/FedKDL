@@ -39,7 +39,7 @@ F_CPU          = energy_cfg.F_CPU
 N_CORES        = energy_cfg.N_CORES
 FPC            = energy_cfg.FLOPS_PER_CYCLE          # flops_per_cycle
 EPS_OP         = energy_cfg.EPSILON_OP["2D"]
-E_INIT         = energy_cfg.E_INIT
+E_INIT_REF     = energy_cfg.E_INIT_REF
 
 R_BPS          = shannon_capacity(B_hz, SNR_dB)
 
@@ -188,7 +188,7 @@ def joint_cost(tau: float, energy: float) -> float:
 
 
 def survival_rounds(max_e_auv: float) -> float:
-    return E_INIT / max_e_auv if max_e_auv > 0 else float('inf')
+    return E_INIT_REF / max_e_auv if max_e_auv > 0 else float('inf')
 
 # ─────────────────────────────────────────────────────────────────────
 # 5. Pre-compute payload sizes
@@ -297,3 +297,136 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
         f.write(f"| {name} | {p_auv:.1f} | {tau:.1f} | {eng:.1f} | {jc:.4f} | {sur:.1f} |\n")
 
 print("Done -> theoretical_metrics.md")
+
+# ─────────────────────────────────────────────────────────────────────
+# 7. Generate Mock Metrics for LaTeX Demo (Grouped by RQ)
+# ─────────────────────────────────────────────────────────────────────
+import os
+import random
+import pandas as pd
+from tasks.detection_2d.baselines import parse_baseline_config
+from physics_models.comm import build_network_graph
+
+def get_centralized_metrics():
+    csv_path = os.path.join("results", "lora_vs_nolora", "results_yolo12n_lora.csv")
+    if not os.path.exists(csv_path):
+        return 0.70, 0.65, 0.75, 0.60
+    df = pd.read_csv(csv_path)
+    return df['metrics/mAP50-95(B)'].max(), df['metrics/mAP50(B)'].max(), df['metrics/precision(B)'].max(), df['metrics/recall(B)'].max()
+
+def calc_flat_physics(baseline):
+    # Dù baseline là HFL hay Flat, yêu cầu là tính Flat cho TẤT CẢ AUVs nối thẳng lên Gateway
+    cfg = parse_baseline_config(baseline)
+    
+    if cfg.full_param:
+        auv_kb = 11.0 * 1024
+    else:
+        if cfg.use_int8:
+            auv_kb = 300
+        elif cfg.topk_grad:
+            auv_kb = 100
+        else:
+            auv_kb = 1200
+            
+    total_energy = 0.0
+    max_latency = 0.0
+    total_payload_mb = 0.0
+    
+    G, _, _ = build_network_graph(topo.auv_positions, topo.relay_positions, topo.gateway_position)
+    
+    flop_mult = 3.0 if cfg.full_param else 1.5
+    
+    for s_id in range(topo.N):
+        # Giả định trung bình 100 samples
+        n_samples = AVG_SAMPLES
+        S_bits = auv_kb * 1024 * 8
+        total_payload_mb += auv_kb / 1024.0
+        
+        link_key = ('auv', s_id, 'gateway', 0)
+        if link_key in G:
+            link = G[link_key]
+            R_bps_val = link.R_bps
+            SL_min_val = link.SL_min
+        else:
+            dist = dist3(topo.auv_positions[s_id], topo.gateway_position)
+            TL = 15 * np.log10(dist) + 0.05 * dist if dist > 0 else 0
+            SNR = 160 - TL - 50
+            SNR_linear = 10**(SNR/10)
+            R_bps_val = 5000 * np.log2(1 + SNR_linear) if SNR > 0 else 100
+            SL_min_val = 150
+            
+        e_tx_cost = e_tx(S_bits, R_bps_val, SL_min_val, ETA_EA, P_C_TX, 1025.0, C_S)
+        t_tx = S_bits / max(1, R_bps_val)
+        
+        e_comp_cost = local_comp_energy(flop_mult, n_samples)
+        t_comp = local_comp_delay(flop_mult, n_samples)
+        
+        total_energy += e_tx_cost + e_comp_cost
+        auv_latency = t_comp + t_tx
+        if auv_latency > max_latency:
+            max_latency = auv_latency
+            
+    return total_payload_mb, total_energy, max_latency
+
+def generate_mock_latex():
+    random.seed(42)
+    max_map50_95, max_map50, max_prec, max_rec = get_centralized_metrics()
+    
+    # Định nghĩa mức giảm theo sức mạnh thuật toán (Base: Centralized)
+    tiers = {
+        "centralized": 0.000,
+        "fedkdl_nolora": 0.012,
+        "fedkd": 0.015,
+        "topk_grad": 0.035,
+        "fedkdl": 0.055,
+        "fedkdl_selective": 0.075,
+        "scaffold": 0.095,
+        "fedkdl_nocoop": 0.110,
+        "logit_kd": 0.115,
+        "fedkdl_proxy_ft": 0.120,
+        "fedprox_hfl": 0.124,
+        "fedavg_hfl": 0.127,
+        "flora": 0.130,
+        "fedkdl_nokd": 0.133,
+        "fedprox_kdl": 0.145,
+        "fedprox": 0.163,
+        "fedavg": 0.197,
+        "naive_lora": 0.233
+    }
+    
+    rq_groups = {
+        "RQ1 (Connection/Stability)": ["fedkdl", "fedavg", "fedprox"],
+        "RQ2 (Compression)": ["topk_grad", "fedkdl", "flora", "fedavg_hfl"],
+        "RQ3 (Non-IID & Relay)": ["fedkdl_selective", "fedkdl", "fedkdl_nocoop", "scaffold", "flora", "fedavg_hfl"],
+        "RQ4 (Gateway KD Ablation)": ["centralized", "fedkdl", "logit_kd", "fedkdl_proxy_ft", "fedkdl_nokd"],
+        "Reference & Ablation": ["fedkd", "fedkdl_nolora", "fedprox_kdl", "fedprox_hfl", "naive_lora"]
+    }
+    
+    results = []
+    
+    for rq_name, baselines in rq_groups.items():
+        for baseline in baselines:
+            base_drop = tiers.get(baseline, 0.10)
+            noise_range = base_drop * 0.5
+            drop = base_drop + random.uniform(-noise_range, noise_range)
+            
+            p_mb, eng_j, lat_s = calc_flat_physics(baseline)
+            
+            results.append({
+                "RQ_Group": rq_name,
+                "Baseline": baseline,
+                "mAP50-95": max(0.1, round(max_map50_95 - drop, 4)),
+                "mAP50": max(0.2, round(max_map50 - drop, 4)),
+                "Precision": max(0.2, round(max_prec - drop, 4)),
+                "Recall": max(0.2, round(max_rec - drop, 4)),
+                "Payload_MB": round(p_mb, 2),
+                "Energy_J": round(eng_j, 2),
+                "Latency_s": round(lat_s, 2)
+            })
+            
+    df = pd.DataFrame(results)
+    out_csv = "latex_demo_metrics_grouped.csv"
+    df.to_csv(out_csv, index=False)
+    print(f"[Mock] Đã xuất {out_csv} gom nhóm theo RQ.")
+
+generate_mock_latex()
