@@ -302,23 +302,36 @@ class CustomDetectionTrainer(DetectionTrainer):
 
 
     def optimizer_step(self):
+        # 1. Cache Named Parameters and GPU Tensors (Thực hiện 1 lần duy nhất)
+        if not hasattr(self, '_cached_named_params'):
+            # Lọc sẵn các tham số đang được train (có requires_grad = True)
+            self._cached_named_params = [(name, param) for name, param in self.model.named_parameters() if param.requires_grad]
+            
+            # Đưa toàn bộ FedProx weights lên GPU một lần (tránh chuyển đổi mỗi batch gây nghẽn PCIe)
+            if getattr(self, 'fedprox_mu', 0.0) > 0.0 and getattr(self, 'global_weights', None) is not None:
+                device = self._cached_named_params[0][1].device if self._cached_named_params else "cpu"
+                self._gpu_global_weights = {k: v.to(device) for k, v in self.global_weights.items()}
+            
+            # Đưa toàn bộ SCAFFOLD control variates lên GPU một lần
+            if getattr(self, 'global_c', None) is not None and getattr(self, 'local_c', None) is not None:
+                device = self._cached_named_params[0][1].device if self._cached_named_params else "cpu"
+                self._gpu_global_c = {k: v.to(device) for k, v in self.global_c.items()}
+                self._gpu_local_c = {k: v.to(device) for k, v in self.local_c.items()}
+
         # Apply Proximal term to gradients before step (FedProx)
-        if getattr(self, 'fedprox_mu', 0.0) > 0.0 and getattr(self, 'global_weights', None) is not None:
-            for name, param in self.model.named_parameters():
-                if param.requires_grad and param.grad is not None and name in self.global_weights:
-                    prox_term = param.data - self.global_weights[name].to(param.device)
+        if getattr(self, 'fedprox_mu', 0.0) > 0.0 and hasattr(self, '_gpu_global_weights'):
+            for name, param in self._cached_named_params:
+                if param.grad is not None and name in self._gpu_global_weights:
+                    prox_term = param.data - self._gpu_global_weights[name]
                     param.grad.data.add_(prox_term, alpha=self.fedprox_mu)
 
         # [SCAFFOLD] Inject Control Variates
-        if getattr(self, 'global_c', None) is not None and getattr(self, 'local_c', None) is not None:
-            id_to_name = {id(p): n for n, p in self.model.named_parameters()}
-            for p in self.model.parameters():
-                if p.grad is not None:
-                    name = id_to_name.get(id(p))
-                    if name and name in self.global_c and name in self.local_c:
-                        gc_tensor = self.global_c[name].to(p.device)
-                        lc_tensor = self.local_c[name].to(p.device)
-                        p.grad.data.add_(gc_tensor - lc_tensor)
+        if hasattr(self, '_gpu_global_c') and hasattr(self, '_gpu_local_c'):
+            for name, param in self._cached_named_params:
+                if param.grad is not None and name in self._gpu_global_c and name in self._gpu_local_c:
+                    gc_tensor = self._gpu_global_c[name]
+                    lc_tensor = self._gpu_local_c[name]
+                    param.grad.data.add_(gc_tensor - lc_tensor)
 
         # [CRITICAL FIX] Gradient Clipping to prevent explosion
         import torch
