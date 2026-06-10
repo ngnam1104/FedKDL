@@ -63,7 +63,7 @@ class FedKDLConfig:
     # ── Vòng FL & local training ────────────────────────────────────────────
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60})
     LOCAL_EPOCHS: int = 3
-    LOCAL_BATCH_SIZE: int = 16       # Trả về 16 để tránh tràn VRAM
+    LOCAL_BATCH_SIZE: int = 8        # Trả về 8 theo yêu cầu để giảm tải GPU/VRAM cho AUV
     LOCAL_LR: float = 5e-4
     LOCAL_HEAD_LR_MULT: float = 4.0   # FL Local SGD: Head LR = LOCAL_LR × multiplier
     LOCAL_LORA_LR_MULT: float = 1.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
@@ -110,7 +110,7 @@ class FedKDLConfig:
     KD_HEAD_LR_MULT: float = 8.0    # Head LR = LoRA LR × multiplier trong Gateway KD
     KD_LORA_LR_MULT: float = 2.0    # LoRA LR multiplier in Gateway KD
     KD_EPOCHS: int = 2
-    KD_BATCH_SIZE: int = 8
+    KD_BATCH_SIZE: int = 16
     KD_WORKERS: int = 0
     KD_AMP: bool = False
     KD_LR: float = 1e-3
