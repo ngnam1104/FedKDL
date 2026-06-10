@@ -15,9 +15,6 @@ from physics_models.topology import (
     Topology3D, build_feasibility_graph,
     nearest_feasible_association, flat_topology_association, build_clusters
 )
-from tasks.anomaly_1d.dataloader import (
-    load_dataset, SlidingWindowDataset, non_iid_partition
-)
 
 
 @dataclass
@@ -115,34 +112,6 @@ class EnvironmentManager:
             return pickle.load(f)
 
     # --- DATA PARTITION ---
-    @classmethod
-    def generate_data_partition(
-        cls, net_cfg, dataset_name: str, alpha: float, seed: int,
-        window_size: int = 10, val_ratio: float = 0.3
-    ) -> DataPartitionSnapshot:
-        
-        train_data, train_labels, val_data, val_labels, test_data, test_labels = load_dataset(dataset_name, seed=seed)
-        
-        train_ds = SlidingWindowDataset(train_data, train_labels, window_size=window_size)
-        val_ds   = SlidingWindowDataset(val_data,   val_labels,   window_size=window_size)
-
-        auv_indices = non_iid_partition(
-            train_ds, net_cfg.N_AUVS, alpha=alpha, seed=seed
-        )
-        # Note: Khong filter valid_auvs o day de data_partition hoan toan doc lap voi Topology!
-        
-        val_indices = list(range(len(val_ds)))
-
-        return DataPartitionSnapshot(
-            dataset_name=dataset_name,
-            N=net_cfg.N_AUVS,
-            alpha=alpha,
-            seed=seed,
-            auv_data_indices={int(k): list(v) for k, v in auv_indices.items()},
-            val_indices=val_indices,
-            input_dim=train_ds.D,
-            n_train_samples=len(train_ds),
-        )
 
     @classmethod
     def save_data_partition(cls, data_part: DataPartitionSnapshot, task_type: str):
