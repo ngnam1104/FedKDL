@@ -122,8 +122,8 @@ RQ3_BASELINES=("fedavg_hfl" "scaffold" "flora" "fedkdl_nocoop" "fedkdl_selective
 ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedprox_hfl" "naive_lora")
 
 # RQ4: Gateway KD Ablation - TAT CA HFL
-# fedkdl_proxy_ft = HFL + LoRA INT8, thay KD bang Gateway Finetune
 # fedkdl_nokd = HFL + LoRA INT8, khong KD
+# fedkdl_proxy_ft = HFL + LoRA INT8, thay KD bang Gateway Finetune
 # logit_kd    = HFL + LoRA INT8 + Logit KD (KL-divergence)
 # fedkdl      = HFL + LoRA INT8 + Projection KD (da chay)
 RQ4_BASELINES=("fedkdl_proxy_ft" "fedkdl_nokd" "logit_kd")
