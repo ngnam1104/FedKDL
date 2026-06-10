@@ -122,10 +122,11 @@ RQ3_BASELINES=("fedavg_hfl" "scaffold" "flora" "fedkdl_nocoop" "fedkdl_selective
 ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedprox_hfl" "naive_lora")
 
 # RQ4: Gateway KD Ablation - TAT CA HFL
+# fedkdl_proxy_ft = HFL + LoRA INT8, thay KD bang Gateway Finetune
 # fedkdl_nokd = HFL + LoRA INT8, khong KD
 # logit_kd    = HFL + LoRA INT8 + Logit KD (KL-divergence)
 # fedkdl      = HFL + LoRA INT8 + Projection KD (da chay)
-RQ4_BASELINES=("fedkdl_nokd" "logit_kd")
+RQ4_BASELINES=("fedkdl_proxy_ft" "fedkdl_nokd" "logit_kd")
 
 # Reference and component ablations.
 REFERENCE_BASELINES=("centralized" "fedkd" "fedprox_kdl" "fedkdl_nolora" "fedprox_hfl")
@@ -143,6 +144,7 @@ RUN_BASELINES=(
   "scaffold"
   "fedkdl_nocoop"
   "fedkdl_selective"
+  "fedkdl_proxy_ft"
   "fedkdl_nokd"
   "logit_kd"
   "centralized"
@@ -151,10 +153,6 @@ RUN_BASELINES=(
   "fedkd"
   "fedprox_hfl"
 )
-
-if [[ "${INCLUDE_PROXY_FT:-0}" == "1" ]]; then
-  RUN_BASELINES+=("fedkdl_proxy_ft")
-fi
 
 total_tasks=$((${#RUN_BASELINES[@]} * ${#ALPHA_VALUES[@]} * ${#SEED_VALUES[@]}))
 current_task=0

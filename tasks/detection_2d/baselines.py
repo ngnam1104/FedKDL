@@ -74,6 +74,7 @@ STANDARD_BASELINES = (
     'fedkdl_nocoop',
     'fedkdl_selective',
     'fedkdl_nokd',
+    'fedkdl_proxy_ft',
     'logit_kd',
     'centralized',
     'fedprox_kdl',
@@ -82,7 +83,7 @@ STANDARD_BASELINES = (
     'fedprox_hfl',
 )
 
-OPTIONAL_BASELINES = ('fedkdl_proxy_ft',)
+OPTIONAL_BASELINES = ()
 
 
 def parse_baseline_config(baseline: str) -> BaselineConfig:
