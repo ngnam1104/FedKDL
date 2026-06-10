@@ -438,7 +438,7 @@ def local_sgd_od(
         'save': False,     # Không lưu weight cục bộ
         'val': False,      # Không đánh giá cục bộ
         'plots': False,    # Không vẽ đồ thị cục bộ
-        'workers': 0,      # Dùng luồng chính để tránh sinh thread thừa
+        'workers': 8,      # YOLO augment (Mosaic) cực kỳ nặng CPU, phải dùng đa luồng (8) để Dataloader đẩy kịp dữ liệu cho GPU.
     }
 
     # 3. Khởi tạo Trainer phù hợp
