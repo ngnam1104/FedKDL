@@ -68,9 +68,9 @@ class FedKDLConfig:
     LOCAL_HEAD_LR_MULT: float = 4.0   # FL Local SGD: Head LR = LOCAL_LR × multiplier
     LOCAL_LORA_LR_MULT: float = 1.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
-    LOCAL_DATALOADER_WORKERS: int = 8 # FL local YOLO dataloader workers
+    LOCAL_DATALOADER_WORKERS: int = 0 # FL local YOLO dataloader workers (0 để tránh overhead spawn process chậm 20s)
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
-    LOCAL_CACHE_DATASET: bool = False # FL local trainers are recreated per AUV; RAM image cache is often repeated overhead
+    LOCAL_CACHE_DATASET: bool = True # Bật cache RAM cho AUV để tăng tốc đọc đĩa
     LOCAL_AMP: bool = True           # Keep AMP on after lowering FL LR; set False if non-finite grads persist
     GRAD_DIAGNOSTICS: bool = False   # Expensive per-batch GPU sync; enable only when debugging NaN/Inf
     CLEAR_CUDA_CACHE_PER_AUV: bool = False
