@@ -333,8 +333,39 @@ class CustomDetectionTrainer(DetectionTrainer):
                     lc_tensor = self._gpu_local_c[name]
                     param.grad.data.add_(gc_tensor - lc_tensor)
 
-        # [CRITICAL FIX] Gradient Clipping to prevent explosion
+        # ── [GRAD EXPLOSION DETECTOR] ──────────────────────────────────────
+        # Đo gradient norm TRƯỚC khi clip để biết liệu có nổ gradient không.
+        # Khi AMP=True, GradScaler sẽ "skip" step nếu grad có Inf/NaN (do overflow FP16).
+        # Đây là chỉ báo chính xác nhất để phát hiện nổ gradient.
         import torch
+        raw_grad_norm = 0.0
+        _grad_inf_nan = False
+        for _, param in self._cached_named_params:
+            if param.grad is not None:
+                g = param.grad.detach()
+                if not torch.isfinite(g).all():
+                    _grad_inf_nan = True
+                    break
+                raw_grad_norm += g.norm().item() ** 2
+        raw_grad_norm = raw_grad_norm ** 0.5
+
+        if _grad_inf_nan:
+            print(
+                f"\n[⚠️ GRAD EXPLOSION] Batch #{getattr(self, '_batch_count', '?')} | "
+                f"NaN/Inf trong gradient! AMP GradScaler sẽ SKIP optimizer.step() này. "
+                f"Nếu điều này xảy ra liên tục → đặt amp=False trong trainer.py:L462."
+            )
+        elif raw_grad_norm > 100.0:
+            print(
+                f"\n[⚠️ GRAD HIGH NORM] Batch #{getattr(self, '_batch_count', '?')} | "
+                f"Grad norm = {raw_grad_norm:.1f} (>100). Clip sẽ cắt xuống max_norm=10. "
+                f"Nếu Loss không hội tụ sau 2+ epoch → đặt amp=False trong trainer.py:L462."
+            )
+
+        # Tăng bộ đếm batch nội bộ để log có ngữ cảnh
+        self._batch_count = getattr(self, '_batch_count', 0) + 1
+
+        # ── Gradient Clipping (sau khi đã log) ─────────────────────────────
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
 
         topk_ratio = getattr(self, "topk_grad_ratio", None)
@@ -359,6 +390,7 @@ class CustomDetectionTrainer(DetectionTrainer):
                 self.ema.update(self.model)
         else:
             super().optimizer_step()
+
 
 
 def local_sgd_od(
@@ -459,7 +491,7 @@ def local_sgd_od(
         'lrf': 1.0,
         'cos_lr': False,
         'device': device,
-        'amp': False,  # Vô hiệu hóa FP16 để tránh overflow (Inf/NaN) khi train LoRA/KD
+        'amp': True,   # [TỐI ƯU] Bật FP16 AMP (vì đã chuyển sang SGD an toàn, không còn sợ nổ Loss)
         'project': 'runs/fl_auvs',
         'name': f'auv_{auv_id}',
         'exist_ok': True,
