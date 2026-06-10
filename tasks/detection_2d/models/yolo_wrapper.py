@@ -117,11 +117,12 @@ class StudentModel:
               f"({100*trainable/total:.1f}%)")
 
     def _is_payload_key(self, k: str) -> bool:
-        # [FedBN] KHÔNG gửi bất kỳ tham số BatchNorm nào qua mạng.
-        # Tất cả tham số liên quan đến BatchNorm (weight, bias, running_mean, running_var...)
-        # sẽ được giữ lại hoàn toàn ở máy local để đóng vai trò bộ lọc cá nhân hóa cho từng AUV.
+        # [CRITICAL FIX] ĐÃ BỎ FedBN: Bắt buộc gửi toàn bộ tham số BatchNorm 
+        # (weight, bias, running_mean, running_var) qua mạng để tổng hợp. 
+        # Nếu không, Global Model sẽ dùng BN stats cũ rích từ Round 0 để đánh giá 
+        # Conv weights mới, gây hiện tượng FL không hội tụ (mAP giảm) ở các vòng lẻ!
         if 'bn' in k or 'running' in k or 'tracked' in k:
-            return False
+            return True
         # FlexLoRA gửi lora_A và lora_B lên Server để phân rã SVD
         if ('lora_B' in k or 'lora_A' in k) and self.use_lora:
             return True

@@ -63,7 +63,7 @@ class FedKDLConfig:
     # ── Vòng FL & local training ────────────────────────────────────────────
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60})
     LOCAL_EPOCHS: int = 3
-    LOCAL_BATCH_SIZE: int = 32       # Tăng từ 16 lên 32 để đẩy nhanh tốc độ (VRAM 10GB+)
+    LOCAL_BATCH_SIZE: int = 16       # Trả về 16 để tránh tràn VRAM
     LOCAL_LR: float = 2e-3
     LOCAL_HEAD_LR_MULT: float = 4.0   # FL Local SGD: Head LR = LOCAL_LR × multiplier
     LOCAL_LORA_LR_MULT: float = 2.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
