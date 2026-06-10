@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Scenario 2/3 (2D OD): grid train + plot.
-# Tái cấu trúc Phase 5: Cố định N=50, M=10, Non-IID.
+# Phase 5: N=30, M=5, Non-IID alpha=1.0, seed=1104
+# Baseline groups follow experiment_design.md (4 RQs).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,9 +42,9 @@ echo "[KDL] Generating topologies and data partitions..."
 # =========================================================
 # BƯỚC 1: Pre-train Teacher LoRA
 # =========================================================
-echo "[KDL] Bắt đầu huấn luyện Teacher LoRA (YOLO12l)..."
+echo "[KDL] Bat dau huan luyen Teacher LoRA (YOLO12l)..."
 if [[ -f "yolo12l_lora_pretrained.pt" ]]; then
-  echo "[KDL] yolo12l_lora_pretrained.pt đã tồn tại, BỎ QUA bước này."
+  echo "[KDL] yolo12l_lora_pretrained.pt da ton tai, BO QUA buoc nay."
 else
   set +e
   "$PYTHON" scripts/fedkdl/train_teacher_lora.py
@@ -60,9 +61,9 @@ fi
 # =========================================================
 # BƯỚC 2: Warmup Student LoRA
 # =========================================================
-echo "[KDL] Đang Warm-up Student với LoRA..."
+echo "[KDL] Dang Warm-up Student voi LoRA..."
 if [[ -f "yolo12n_warmup.pt" ]]; then
-  echo "[KDL] yolo12n_warmup.pt đã tồn tại, BỎ QUA bước Warm-up."
+  echo "[KDL] yolo12n_warmup.pt da ton tai, BO QUA buoc Warm-up."
 else
   set +e
   "$PYTHON" scripts/fedkdl/train_student_warmup.py --mode warmup --epochs-warmup 3
@@ -77,19 +78,47 @@ else
 fi
 
 # =========================================================
-# Định nghĩa các mảng Task (Mô-đun hóa dễ mở rộng)
+# Dinh nghia cac nhom baseline theo tung RQ
+# experiment_design.md:
+#   RQ1 - Ket noi va on dinh:  fedavg (flat), fedprox (flat) vs. fedkdl (HFL)
+#   RQ2 - Nen truyen thong:    fedavg (flat ref), topk_grad (HFL), flora (HFL), fedkdl (HFL)
+#   RQ3 - Non-IID va Relay:    fedavg (flat ref), scaffold (HFL), flora (HFL),
+#                              fedkdl_nocoop (HFL), fedkdl (HFL)
+#   RQ4 - Gateway KD ablation: fedkdl_nokd (HFL), logit_kd (HFL), fedkdl (HFL),
+#                              centralized (flat)
+#
+# fedkdl xuat hien o moi RQ -> chay truoc, dung chung log (idempotent skip).
+#
+# Topology:
+#   Flat (hfl=False): fedavg, fedprox, fedkd, centralized
+#   HFL  (hfl=True):  tat ca con lai
 # =========================================================
-MAIN_BASELINES=("fedkdl" "fedkdl_selective" "fedprox_kdl" "fedkd")
-SOTA_LORA_BASELINES=("fedkdl_nolora") # Thêm các phương pháp LoRA mới vào đây sau này
-SOTA_KD_BASELINES=("fedkdl_nokd" "fedkdl_proxy_ft")     # Thêm các phương pháp KD mới vào đây sau này
 
-total_tasks=$(( ${#MAIN_BASELINES[@]} + ${#SOTA_LORA_BASELINES[@]} + ${#SOTA_KD_BASELINES[@]} ))
+# Primary - chay dau tien, dung lam reference moi RQ
+FEDKDL_FIRST=("fedkdl")
+
+# RQ1: Flat baselines
+RQ1_BASELINES=("fedavg" "fedprox")
+
+# RQ2: Compression baselines (HFL + fedavg flat ref)
+RQ2_BASELINES=("fedavg" "topk_grad" "flora")
+
+# RQ3: Non-IID + Relay Cooperation (HFL + fedavg flat ref)
+RQ3_BASELINES=("fedavg" "scaffold" "flora" "fedkdl_nocoop")
+
+# RQ4: KD ablation (HFL + centralized flat)
+RQ4_BASELINES=("fedkdl_nokd" "logit_kd" "centralized")
+
+# Ablation extras
+ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedavg_hfl" "fedprox_hfl")
+
+total_tasks=20
 current_task=0
 
 run_baseline() {
   local baseline=$1
   current_task=$((current_task + 1))
-  
+
   local topo="${ENVS_DIR}/2d/topo/N_${N_AUVS}/topo_N${N_AUVS}_seed${SEED}.pkl"
   local alpha_str="${ALPHA//./p}"
   local data="${ENVS_DIR}/2d/data/${DS}/N_${N_AUVS}/data_N${N_AUVS}_${DS}_a${alpha_str}_seed${SEED}.pkl"
@@ -119,7 +148,7 @@ run_baseline() {
     --baseline "$baseline" --rounds "$ROUNDS" \
     --out-dir "$OUT_DIR" --log-dir "$STDOUT_DIR" \
     2>&1 | tee -a "$log_file"
-  
+
   local rc=${PIPESTATUS[0]}
   set -eo pipefail
   if [[ $rc -ne 0 ]]; then
@@ -129,23 +158,40 @@ run_baseline() {
 }
 
 echo ""
-echo "=== GROUP 1: Main Baselines ==="
-for b in "${MAIN_BASELINES[@]}"; do
+echo "=== PRIMARY: FedKDL (reference baseline cho moi RQ) ==="
+for b in "${FEDKDL_FIRST[@]}"; do
   run_baseline "$b"
 done
 
 echo ""
-echo "=== GROUP 2: SOTA LoRA Propagation & Ablation ==="
-for b in "${SOTA_LORA_BASELINES[@]}"; do
+echo "=== RQ1: Ket noi va On dinh (Flat baselines) ==="
+for b in "${RQ1_BASELINES[@]}"; do
   run_baseline "$b"
 done
 
 echo ""
-echo "=== GROUP 3: SOTA Knowledge Distillation & Ablation ==="
-for b in "${SOTA_KD_BASELINES[@]}"; do
+echo "=== RQ2: Nen Truyen Thong (HFL) ==="
+for b in "${RQ2_BASELINES[@]}"; do
   run_baseline "$b"
 done
 
 echo ""
-echo "[KDL] Training done. All experiments completed for Phase 5 setup."
-# Vẽ biểu đồ sẽ được thiết lập ở 1 module độc lập (do cấu trúc JSON có thể thay đổi sau đợt tái cấu trúc)
+echo "=== RQ3: Non-IID va Relay Cooperation (HFL) ==="
+for b in "${RQ3_BASELINES[@]}"; do
+  run_baseline "$b"
+done
+
+echo ""
+echo "=== RQ4: Gateway KD Ablation ==="
+for b in "${RQ4_BASELINES[@]}"; do
+  run_baseline "$b"
+done
+
+echo ""
+echo "=== ABLATION EXTRAS ==="
+for b in "${ABLATION_BASELINES[@]}"; do
+  run_baseline "$b"
+done
+
+echo ""
+echo "[KDL] All experiments completed."
