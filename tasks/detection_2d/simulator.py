@@ -214,11 +214,17 @@ class RelayNode2D(BaseRelayNode):
         from federated_core.aggregator import svd_lora_aggregate
         
         c_updates = []
+        delta_c_updates = []
         valid_sids = []
         for sid in self.cluster_members:
             if sid not in payloads:
                 continue
             payload = payloads[sid]
+            
+            # --- Extract SCAFFOLD delta_c if present ---
+            delta_c = None
+            if isinstance(payload, dict) and '__scaffold_delta_c__' in payload:
+                delta_c = payload.pop('__scaffold_delta_c__')
             
             # --- Phân biệt loại payload ---
             from tasks.detection_2d.knowledge_compression.topk_sparsification import (
@@ -242,6 +248,8 @@ class RelayNode2D(BaseRelayNode):
                 state = payload
             
             c_updates.append(state)
+            if delta_c is not None:
+                delta_c_updates.append(delta_c)
             valid_sids.append(sid)
 
         if not c_updates:
@@ -256,6 +264,12 @@ class RelayNode2D(BaseRelayNode):
         weights = [auv_n_samples.get(sid, 0) / total_samples for sid in valid_sids]
         
         self.intra_state_dict = svd_lora_aggregate(c_updates, weights)
+        
+        if len(delta_c_updates) == len(c_updates):
+            delta_c_agg = {}
+            for k in delta_c_updates[0].keys():
+                delta_c_agg[k] = sum(d[k] * w for d, w in zip(delta_c_updates, weights))
+            self.intra_state_dict['__scaffold_delta_c__'] = delta_c_agg
             
         self.final_state_dict = copy.deepcopy(self.intra_state_dict)
 
@@ -393,6 +407,16 @@ class Simulator2D(BaseSimulator):
         self.global_student = StudentModel(student_ckpt, rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         
         self.gateway = BaseGateway(initial_state=self.global_student.trainable_state_dict())
+
+        # [SCAFFOLD] Khởi tạo control variates
+        if 'scaffold' in self.baseline:
+            import torch
+            self.global_c = {k: torch.zeros_like(v) for k, v in self.gateway.global_state_dict.items()}
+            self.local_c_states = {
+                auv_id: {k: torch.zeros_like(v) for k, v in self.gateway.global_state_dict.items()}
+                for auv_id in self.auv_yamls.keys()
+            }
+        
         self._last_kd_metrics = {}
 
         if cfg['use_int8']:
@@ -580,6 +604,8 @@ class Simulator2D(BaseSimulator):
             global_weights=self.gateway.global_state_dict if (
                 'fedprox' in self.baseline or getattr(self, '_fedprox_mu_override', 0.0) > 0.0
             ) else None,
+            global_c=getattr(self, 'global_c', None),
+            local_c=self.local_c_states[s_id] if hasattr(self, 'local_c_states') else None,
         )
 
         cfg = parse_baseline_config(self.baseline)

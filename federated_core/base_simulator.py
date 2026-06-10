@@ -394,6 +394,14 @@ class BaseSimulator(ABC):
             cluster_samples = {m: sum(auv_n_samples.get(s_id, 0) for s_id in relay.cluster_members) for m, relay in self.relays.items()}
             self.gateway.aggregate_global(relay_final, cluster_samples)
 
+            # --- [SCAFFOLD] Cập nhật Global Control Variates ---
+            if hasattr(self, 'global_c') and '__scaffold_delta_c__' in self.gateway.global_state_dict:
+                delta_c_agg = self.gateway.global_state_dict.pop('__scaffold_delta_c__')
+                ratio = len(alive_auvs) / self.net_cfg.N_AUVS
+                for k in self.global_c:
+                    if k in delta_c_agg:
+                        self.global_c[k] += delta_c_agg[k].to(self.global_c[k].device) * ratio
+
             # KD sẽ được gọi SAU evaluate() để Adaptive Dropout Gate có metrics của vòng này
 
             # --- Phase 4: Logging ---

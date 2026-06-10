@@ -59,13 +59,32 @@ def _count_inference_tensors(module: torch.nn.Module) -> tuple[int, list[str]]:
 
 class CustomDetectionTrainer(DetectionTrainer):
     def __init__(self, overrides=None, _callbacks=None, student_wrapper=None,
-                 cached_optimizer_state: dict = None):
+                 cached_optimizer_state: dict = None, global_c: dict = None, local_c: dict = None):
         super().__init__(overrides=overrides, _callbacks=_callbacks)
         self.student_wrapper = student_wrapper
         # State dict bởi tên tham số từ round trước (None = round đầu tiên)
         self.cached_optimizer_state = cached_optimizer_state
         self._fl_injected_model = None
         self.topk_grad_ratio = None
+        # SCAFFOLD
+        self.global_c = global_c
+        self.local_c = local_c
+
+    def optimizer_step(self):
+        """Override để inject Control Variates của SCAFFOLD vào gradient trước khi step."""
+        if self.global_c is not None and self.local_c is not None:
+            id_to_name = {id(p): n for n, p in self.model.named_parameters()}
+            for p in self.model.parameters():
+                if p.grad is not None:
+                    name = id_to_name.get(id(p))
+                    if name and name in self.global_c and name in self.local_c:
+                        # SCAFFOLD: d_i = g_i - c_i + c
+                        # PyTorch trừ gradient: w = w - lr * grad -> grad += (c - c_i)
+                        gc_tensor = self.global_c[name].to(p.device)
+                        lc_tensor = self.local_c[name].to(p.device)
+                        p.grad.data.add_(gc_tensor - lc_tensor)
+        
+        super().optimizer_step()
 
     def validate(self):
         """
@@ -346,6 +365,8 @@ def local_sgd_od(
     global_weights: dict = None,
     local_teacher = None,
     cached_optimizer_state: dict = None,
+    global_c: dict = None,
+    local_c: dict = None,
 ) -> tuple:
     """
     Thực hiện Local SGD cho OD tại AUV (Tier 1).
@@ -460,6 +481,8 @@ def local_sgd_od(
             overrides=overrides,
             student_wrapper=student_model,
             cached_optimizer_state=cached_optimizer_state,
+            global_c=global_c,
+            local_c=local_c,
         )
 
     trainer._fl_injected_model = student_model.yolo.model
@@ -514,6 +537,35 @@ def local_sgd_od(
 
     # 4. Lấy state sau khi train
     state_after = student_model.trainable_state_dict()
+
+    # [SCAFFOLD] Tính toán Control Variates Update
+    if global_c is not None and local_c is not None:
+        delta_c_i = {}
+        try:
+            steps = epochs * len(trainer.train_loader)
+        except Exception:
+            steps = epochs * 10  # fallback
+            
+        for k in state_before:
+            if k in state_after and k in global_c and k in local_c:
+                # Tìm lr_multiplier cho param k
+                lr_mult = 1.0
+                if 'lora_' in k:
+                    lr_mult = getattr(trainer, 'lora_lr_multiplier', 1.0)
+                elif any(h in k for h in ('model.21.', 'model.22.', 'model.23.')):
+                    lr_mult = getattr(trainer, 'head_lr_multiplier', 1.0)
+                
+                eff_lr = lr * lr_mult * steps
+                if eff_lr > 0:
+                    x = state_before[k].to(device)
+                    y = state_after[k].to(device)
+                    # c_i^+ = c_i - c + (x - y) / (K * eta_l)
+                    c_i_plus = local_c[k].to(device) - global_c[k].to(device) + (x - y) / eff_lr
+                    delta_c_i[k] = (c_i_plus - local_c[k].to(device)).cpu()
+                    # Cập nhật local_c trực tiếp bằng c_i^+
+                    local_c[k] = c_i_plus.cpu()
+        
+        state_after['__scaffold_delta_c__'] = delta_c_i
 
     # 5. Tính delta norm (cho Lazy Communication Filter — Eq. 40)
     delta_norm = 0.0

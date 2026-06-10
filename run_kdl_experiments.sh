@@ -77,20 +77,13 @@ else
 fi
 
 # =========================================================
-# Định nghĩa các mảng Task (Sắp xếp theo RQ, fedkdl chạy đầu tiên)
+# Định nghĩa các mảng Task (Mô-đun hóa dễ mở rộng)
 # =========================================================
-MAIN_BASELINES=("fedkdl")
+MAIN_BASELINES=("fedkdl" "fedkdl_selective" "fedprox_kdl" "fedkd")
+SOTA_LORA_BASELINES=("fedkdl_nolora") # Thêm các phương pháp LoRA mới vào đây sau này
+SOTA_KD_BASELINES=("fedkdl_nokd" "fedkdl_proxy_ft")     # Thêm các phương pháp KD mới vào đây sau này
 
-# RQ1: Kết nối và ổn định (Topology Flat)
-RQ1_BASELINES=("fedavg" "fedprox")
-
-# RQ2 & RQ3: Nén truyền thông, Non-IID và Phân cấp (Topology HFL)
-RQ2_RQ3_BASELINES=("fedavg_hfl" "fedprox_hfl" "flora" "scaffold" "fedkdl_nocoop" "topk_grad")
-
-# RQ4: Gateway KD (Topology HFL/Flat)
-RQ4_BASELINES=("logit_kd" "fedkdl_nokd" "centralized")
-
-total_tasks=$(( ${#MAIN_BASELINES[@]} + ${#RQ1_BASELINES[@]} + ${#RQ2_RQ3_BASELINES[@]} + ${#RQ4_BASELINES[@]} ))
+total_tasks=$(( ${#MAIN_BASELINES[@]} + ${#SOTA_LORA_BASELINES[@]} + ${#SOTA_KD_BASELINES[@]} ))
 current_task=0
 
 run_baseline() {
@@ -136,28 +129,23 @@ run_baseline() {
 }
 
 echo ""
-echo "=== GROUP 1: Reference Baseline ==="
+echo "=== GROUP 1: Main Baselines ==="
 for b in "${MAIN_BASELINES[@]}"; do
   run_baseline "$b"
 done
 
 echo ""
-echo "=== GROUP 2: RQ1 (Flat Topology) ==="
-for b in "${RQ1_BASELINES[@]}"; do
+echo "=== GROUP 2: SOTA LoRA Propagation & Ablation ==="
+for b in "${SOTA_LORA_BASELINES[@]}"; do
   run_baseline "$b"
 done
 
 echo ""
-echo "=== GROUP 3: RQ2 & RQ3 (HFL Topology) ==="
-for b in "${RQ2_RQ3_BASELINES[@]}"; do
-  run_baseline "$b"
-done
-
-echo ""
-echo "=== GROUP 4: RQ4 (Gateway KD & Centralized) ==="
-for b in "${RQ4_BASELINES[@]}"; do
+echo "=== GROUP 3: SOTA Knowledge Distillation & Ablation ==="
+for b in "${SOTA_KD_BASELINES[@]}"; do
   run_baseline "$b"
 done
 
 echo ""
 echo "[KDL] Training done. All experiments completed for Phase 5 setup."
+# Vẽ biểu đồ sẽ được thiết lập ở 1 module độc lập (do cấu trúc JSON có thể thay đổi sau đợt tái cấu trúc)

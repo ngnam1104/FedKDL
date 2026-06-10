@@ -90,9 +90,21 @@ class BaseGateway:
         from federated_core.aggregator import fedavg_global
         states_list = []
         samples_list = []
+        delta_c_list = []
+        
         for relay_id, state in relay_final_states.items():
+            if isinstance(state, dict) and '__scaffold_delta_c__' in state:
+                delta_c_list.append(state.pop('__scaffold_delta_c__'))
             states_list.append(state)
             samples_list.append(cluster_total_samples[relay_id])
 
         if states_list:
             self.global_state_dict = fedavg_global(states_list, samples_list)
+            
+        if len(delta_c_list) == len(states_list) and len(states_list) > 0:
+            total_samples = sum(samples_list)
+            weights = [s / total_samples for s in samples_list]
+            delta_c_agg = {}
+            for k in delta_c_list[0].keys():
+                delta_c_agg[k] = sum(d[k] * w for d, w in zip(delta_c_list, weights))
+            self.global_state_dict['__scaffold_delta_c__'] = delta_c_agg
