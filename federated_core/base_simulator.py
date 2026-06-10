@@ -332,11 +332,14 @@ class BaseSimulator(ABC):
                         e_svd_total += svd_cost
 
             # Liên cụm (Inter-cluster Cooperation)
-            if 'selective' in self.baseline:
+            if 'nocoop' in self.baseline:
+                coop_rule = 'nocoop'
+            elif 'selective' in self.baseline:
                 coop_rule = 'selective'
-            elif 'nearest' in self.baseline or 'fedkdl' in self.baseline:
+            elif 'fedkdl' in self.baseline or 'logit_kd' in self.baseline:
                 coop_rule = 'nearest'
             else:
+                # Các baselines còn lại (fedavg_hfl, fedprox_hfl, flora, scaffold, topk) mặc định không hợp tác relay
                 coop_rule = 'nocoop'
             
             # Chỉ lấy state dict của relay còn sống

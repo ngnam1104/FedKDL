@@ -17,7 +17,7 @@
 
 ## Gap: Baselines cần implement thêm
 
-### RQ1 — Kết nối và ổn định
+### RQ1 — Kết nối và ổn định: Flat ở Fedavg và  prox
 
 | Baseline cần | Trạng thái | Việc cần làm |
 |---|---|---|
@@ -27,6 +27,8 @@
 > **Lưu ý:** `fedprox_kdl` hiện có nhưng là HFL version. Cần FedProx dạng flat (không relay) để so sánh đúng.
 
 ---
+
+### Từ các RQ sau, tất cả đều được train phân cấp, bất kể là Avg hay Prox, sẽ tạo 1 version mới cho hfl
 
 ### RQ2 — Nén truyền thông
 
@@ -85,7 +87,7 @@
 
 ### Ưu tiên thấp (phức tạp)
 
-6. **SCAFFOLD** (~1-2 ngày):
+1. **SCAFFOLD** (~1-2 ngày):
    - Server lưu global control variate `c`
    - Client cập nhật local `c_i` và hiệu chỉnh gradient
    - Cần sửa `workers.py`, `aggregator.py`, và `trainer.py`

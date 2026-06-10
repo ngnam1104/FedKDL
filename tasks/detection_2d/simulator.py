@@ -18,16 +18,22 @@ def parse_baseline_config(baseline: str) -> dict:
     """Return the 2D experiment configuration for each baseline."""
     # (full_param, use_lora, use_int8, use_gateway_kd, use_gateway_proxy_ft)
     cfg_map = {
-        # [BẢN ĐƠN GIẢN HÓA] Bật lại use_int8=True, nhưng sẽ CHỈ DÙNG RAW INT8, bỏ Delta.
-        'fedkdl':           (False, True,  True,  True,  False),
-        'fedkdl_selective': (False, True,  True,  True,  False),
-        'fedprox_kdl':      (False, True,  True,  True,  False),
-        'fedkd':            (True,  False, False,  True,  False),  # Flat, full param KD
-        'topk_grad':        (True,  False, False, False, False),  # Full param, Top-K sparsity
-        'centralized':      (False, True,  False, False, False),  # Centralized LoRA
-        'fedkdl_nokd':      (False, True,  True, False, False),  # HFL, no Gateway adaptation
-        'fedkdl_nolora':    (True,  False, False,  True,  False),  # HFL, full params, KD
-        'fedkdl_proxy_ft':  (False, True,  True, False,  True),   # HFL + supervised proxy fine-tune, no Teacher KD
+        'fedavg':           (True,  False, False, False, False), # Flat
+        'fedprox':          (True,  False, False, False, False), # Flat
+        'fedavg_hfl':       (True,  False, False, False, False), # HFL
+        'fedprox_hfl':      (True,  False, False, False, False), # HFL
+        'flora':            (False, True,  False, False, False), # HFL, LoRA Float32
+        'scaffold':         (True,  False, False, False, False), # HFL, Control Variates
+        'fedkdl':           (False, True,  True,  True,  False), # HFL, LoRA INT8 + KD
+        'fedkdl_nocoop':    (False, True,  True,  True,  False), # HFL
+        'logit_kd':         (False, True,  True,  True,  False), # HFL, LoRA INT8 + Logit KD
+        'fedprox_kdl':      (False, True,  True,  True,  False), # HFL
+        'fedkd':            (True,  False, False, True,  False), # Flat
+        'topk_grad':        (True,  False, False, False, False), # HFL
+        'centralized':      (False, True,  False, False, False), # Flat
+        'fedkdl_nokd':      (False, True,  True,  False, False), # HFL
+        'fedkdl_nolora':    (True,  False, False, True,  False), # HFL
+        'fedkdl_proxy_ft':  (False, True,  True,  False, True),  # HFL
     }
     # Fallback default matches fedkdl.
     f_p, u_l, u_i, u_kd, u_ft = cfg_map.get(baseline, (False, True, True, True, False))
