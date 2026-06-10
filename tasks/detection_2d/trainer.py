@@ -469,6 +469,8 @@ def local_sgd_od(
         'cache': local_cache_dataset,
         'epochs': epochs,
         'batch': batch_size,
+        'mosaic': 0.0,
+        'augment': False,
         'close_mosaic': 0,
         'lr0': lr,
         'optimizer': opt_choice,

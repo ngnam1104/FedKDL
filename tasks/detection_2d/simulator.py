@@ -787,6 +787,8 @@ class Simulator2D(BaseSimulator):
             'plots': False,
             'workers': self.fed_cfg.PROXY_FT_WORKERS,
             'close_mosaic': 0,
+            'mosaic': 0.0,
+            'augment': False,
             'optimizer': 'SGD',
             'lr0': self.fed_cfg.PROXY_FT_LR,
             'warmup_epochs': 0.0,
@@ -894,6 +896,8 @@ class Simulator2D(BaseSimulator):
             'plots': False,
             'workers': self.fed_cfg.KD_WORKERS,
             'close_mosaic': 0,
+            'mosaic': 0.0,
+            'augment': False,
             'optimizer': 'SGD',
             'amp': self.fed_cfg.KD_AMP,
             
