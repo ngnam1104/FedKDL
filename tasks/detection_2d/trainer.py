@@ -223,31 +223,9 @@ class CustomDetectionTrainer(DetectionTrainer):
                 else:
                     v.requires_grad = False
 
-        # ---------------------------------------------------------------
-        # Differential LR: Head params học nhanh hơn, LoRA học chậm hơn.
-        #
-        # CẤU HÌNH ĐÃ CHỐT (xem train_student_warmup.py / local_sgd_od / train_teacher_lora.py):
-        #
-        #   [1] Centralized LoRA (150 epochs, AdamW, amp=False):
-        #       lr0 = 2e-3
-        #       head_lr_multiplier = 1.0  → Head LR = 2e-3  (đủ mạnh cho 4 class URPC mới)
-        #       lora_lr_multiplier = 0.25 → LoRA LR = 5e-4
-        #       Đặt trong: train_student_warmup.py → run_centralized_lora()
-        #
-        #   [2] FL Local SGD (2 epochs/round, SGD, amp=False):
-        #       lr0 = 5e-4  (từ Global Cosine LR decay)
-        #       head_lr_multiplier = 2.0  → Head LR = 1e-3
-        #       lora_lr_multiplier = 1.0  → LoRA LR = 5e-4
-        #       Đặt trong: trainer.py → local_sgd_od()
-        #
-        #   [3] Teacher YOLO12l (300 epochs, AdamW, amp=True):
-        #       lr0 = 2e-4  (mạng dày ~43M params, LR phải thấp để không nổ FP16)
-        #       head_lr_multiplier = 1.0  → Head LR = 2e-4  (default, không ghi đè)
-        #       lora_lr_multiplier = 0.25 → LoRA LR = 5e-5  (default, đủ nhỏ cho Large)
-        #       Đặt trong: train_teacher_lora.py (lr0 override thủ công)
-        #
-        # DEFAULT (nếu không ghi đè): head×1.0, lora×0.25
-        # ---------------------------------------------------------------
+        # Differential LR is configured by each caller through trainer attributes
+        # and ultimately by config/settings.py. Defaults preserve Ultralytics-style
+        # behavior when a caller does not request a split LR.
         head_lr_multiplier = getattr(self, 'head_lr_multiplier', 1.0)   # Default: Head LR = lr0 × 1.0
         lora_lr_multiplier = getattr(self, 'lora_lr_multiplier', 0.25)  # Default: LoRA LR = lr0 × 0.25
         
@@ -333,47 +311,44 @@ class CustomDetectionTrainer(DetectionTrainer):
                     lc_tensor = self._gpu_local_c[name]
                     param.grad.data.add_(gc_tensor - lc_tensor)
 
-        # ── [GRAD EXPLOSION DETECTOR] ──────────────────────────────────────
-        # Đo gradient norm TRƯỚC khi clip để biết liệu có nổ gradient không.
-        # Khi AMP=True, GradScaler sẽ "skip" step nếu grad có Inf/NaN (do overflow FP16).
-        # Đây là chỉ báo chính xác nhất để phát hiện nổ gradient.
         import torch
-        raw_grad_norm = 0.0
-        _grad_inf_nan = False
-        for _, param in self._cached_named_params:
-            if param.grad is not None:
-                g = param.grad.detach()
-                if not torch.isfinite(g).all():
-                    _grad_inf_nan = True
-                    break
-                raw_grad_norm += g.norm().item() ** 2
-        raw_grad_norm = raw_grad_norm ** 0.5
+        if getattr(self, 'grad_diagnostics', False):
+            raw_grad_norm = 0.0
+            _grad_inf_nan = False
+            for _, param in self._cached_named_params:
+                if param.grad is not None:
+                    g = param.grad.detach()
+                    if not torch.isfinite(g).all():
+                        _grad_inf_nan = True
+                        break
+                    raw_grad_norm += g.norm().item() ** 2
+            raw_grad_norm = raw_grad_norm ** 0.5
 
-        if _grad_inf_nan:
-            print(
-                f"\n[⚠️ GRAD EXPLOSION] Batch #{getattr(self, '_batch_count', '?')} | "
-                f"NaN/Inf trong gradient! AMP GradScaler sẽ SKIP optimizer.step() này. "
-                f"Nếu điều này xảy ra liên tục → đặt amp=False trong trainer.py:L462."
-            )
-        elif raw_grad_norm > 100.0:
-            print(
-                f"\n[⚠️ GRAD HIGH NORM] Batch #{getattr(self, '_batch_count', '?')} | "
-                f"Grad norm = {raw_grad_norm:.1f} (>100). Clip sẽ cắt xuống max_norm=10. "
-                f"Nếu Loss không hội tụ sau 2+ epoch → đặt amp=False trong trainer.py:L462."
-            )
+            if _grad_inf_nan:
+                print(
+                    f"\n[GRAD EXPLOSION] Batch #{getattr(self, '_batch_count', '?')} | "
+                    f"NaN/Inf trong gradient. AMP GradScaler will skip this optimizer step. "
+                    f"If repeated, set fed_cfg.LOCAL_AMP=False or lower LOCAL_LR."
+                )
+            elif raw_grad_norm > 100.0:
+                print(
+                    f"\n[GRAD HIGH NORM] Batch #{getattr(self, '_batch_count', '?')} | "
+                    f"Grad norm = {raw_grad_norm:.1f} (>100). Clip will cap it at max_norm=10."
+                )
 
         # Tăng bộ đếm batch nội bộ để log có ngữ cảnh
         self._batch_count = getattr(self, '_batch_count', 0) + 1
 
         # ── Gradient Clipping (sau khi đã log) ─────────────────────────────
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
+        trainable_params = [p for _, p in self._cached_named_params]
+        torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=10.0)
 
         topk_ratio = getattr(self, "topk_grad_ratio", None)
         if topk_ratio is not None and topk_ratio < 1.0:
             self.scaler.unscale_(self.optimizer)
             with torch.no_grad():
-                for p in self.model.parameters():
-                    if p.requires_grad and p.grad is not None:
+                for p in trainable_params:
+                    if p.grad is not None:
                         numel = p.grad.numel()
                         k = max(1, int(numel * topk_ratio))
                         if k < numel:
@@ -474,12 +449,24 @@ def local_sgd_od(
     # (Dùng lại biến lr được truyền từ simulator thay vì hardcode để giữ được cơ chế Global LR Decay)
     opt_choice = 'SGD'
     print(f"[DiffLR] Chuyển Optimizer sang SGD (lr={lr:.4f}) để chống nổ Loss do cold-start.")
+    try:
+        from config.settings import fed_cfg
+        local_cache_dataset = getattr(fed_cfg, 'LOCAL_CACHE_DATASET', getattr(fed_cfg, 'CACHE_DATASET', True))
+        local_amp = getattr(fed_cfg, 'LOCAL_AMP', True)
+        local_workers = getattr(fed_cfg, 'LOCAL_DATALOADER_WORKERS', 8)
+        grad_diagnostics = getattr(fed_cfg, 'GRAD_DIAGNOSTICS', False)
+    except Exception:
+        fed_cfg = None
+        local_cache_dataset = True
+        local_amp = True
+        local_workers = 8
+        grad_diagnostics = False
 
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
     overrides = {
         'model': "yolo12n.pt", # Dummy, will be overwritten by _fl_injected_model
         'data': auv_yaml,
-        'cache': True,     # [REVERT] Trở lại nạp RAM (chấp nhận trễ 1-2s đầu vòng) vì code chạy trên server độc lập không tiện config RAM Disk.
+        'cache': local_cache_dataset,
         'epochs': epochs,
         'batch': batch_size,
         'close_mosaic': 0,
@@ -491,7 +478,7 @@ def local_sgd_od(
         'lrf': 1.0,
         'cos_lr': False,
         'device': device,
-        'amp': True,   # [TỐI ƯU] Bật FP16 AMP (vì đã chuyển sang SGD an toàn, không còn sợ nổ Loss)
+        'amp': local_amp,
         'project': 'runs/fl_auvs',
         'name': f'auv_{auv_id}',
         'exist_ok': True,
@@ -499,7 +486,7 @@ def local_sgd_od(
         'save': False,     # Không lưu weight cục bộ
         'val': False,      # Không đánh giá cục bộ
         'plots': False,    # Không vẽ đồ thị cục bộ
-        'workers': 8,      # YOLO augment (Mosaic) cực kỳ nặng CPU, phải dùng đa luồng (8) để Dataloader đẩy kịp dữ liệu cho GPU.
+        'workers': local_workers,
     }
 
     # 3. Khởi tạo Trainer phù hợp
@@ -508,13 +495,12 @@ def local_sgd_od(
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.student_wrapper = student_model
         trainer.set_teacher(local_teacher.yolo.model)
-        
-        # [CÂN BẰNG LOSS] Hạ Supervised Loss xuống 1/4 (~3.3) và giữ KD ~3.0 để cân bằng tuyệt đối
-        trainer.stu_lambda = 0.20
-        trainer.kd_lambda = 1.0  
+
+        trainer.stu_lambda = getattr(fed_cfg, 'LOCAL_KD_STU_LAMBDA', 0.20)
+        trainer.kd_lambda = getattr(fed_cfg, 'LOCAL_KD_LAMBDA', 1.0)
         
         trainer._fl_injected_model = student_model.yolo.model
-        trainer.head_lr_multiplier = 3.0
+        trainer.head_lr_multiplier = getattr(fed_cfg, 'LOCAL_KD_HEAD_LR_MULT', 3.0)
         # KDDetectionTrainer không hỗ trợ cached_optimizer_state (không cần thiết cho FedKD)
     else:
         trainer = CustomDetectionTrainer(
@@ -529,6 +515,7 @@ def local_sgd_od(
     trainer.model = student_model.yolo.model
     trainer.fedprox_mu = fedprox_mu
     trainer.global_weights = global_weights
+    trainer.grad_diagnostics = grad_diagnostics
     
     if getattr(student_model, 'full_param', False):
         trainer.head_lr_multiplier = 1.0

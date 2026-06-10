@@ -103,6 +103,23 @@ def _weighted_fedavg_tensors(tensors: List[torch.Tensor], weights: List[float]) 
     return out
 
 
+def _weighted_fedavg_control_dicts(dicts: List[Dict[str, torch.Tensor]], weights: List[float]) -> Dict[str, torch.Tensor]:
+    """Weighted average for metadata dictionaries such as SCAFFOLD delta_c."""
+    if len(dicts) != len(weights):
+        raise ValueError(f"Expected one weight per dict, got {len(dicts)} dicts and {len(weights)} weights.")
+    out: Dict[str, torch.Tensor] = {}
+    all_keys = set().union(*(d.keys() for d in dicts))
+    for key in sorted(all_keys):
+        tensors = [d[key] for d in dicts if key in d]
+        key_weights = [w for d, w in zip(dicts, weights) if key in d]
+        if not tensors:
+            continue
+        weight_sum = sum(key_weights)
+        key_weights = [w / weight_sum for w in key_weights] if weight_sum > 0 else [1.0 / len(tensors)] * len(tensors)
+        out[key] = _weighted_fedavg_tensors(tensors, key_weights).to(tensors[0].dtype)
+    return out
+
+
 def svd_lora_aggregate(
     client_sds: List[Dict[str, torch.Tensor]],
     weights: List[float],
@@ -139,7 +156,10 @@ def svd_lora_aggregate(
             continue
         weight_sum = sum(key_weights)
         key_weights = [w / weight_sum for w in key_weights] if weight_sum > 0 else [1.0 / len(tensors)] * len(tensors)
-        aggregated_sd[key] = _weighted_fedavg_tensors(tensors, key_weights).to(tensors[0].dtype)
+        if isinstance(tensors[0], dict):
+            aggregated_sd[key] = _weighted_fedavg_control_dicts(tensors, key_weights)
+        else:
+            aggregated_sd[key] = _weighted_fedavg_tensors(tensors, key_weights).to(tensors[0].dtype)
 
     for b_key in lora_B_keys:
         a_key = b_key.replace('lora_B', 'lora_A')

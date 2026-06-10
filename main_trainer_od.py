@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
+from tasks.detection_2d.baselines import parse_baseline_config
 from tasks.detection_2d.simulator import Simulator2D
 from utils.log_export import build_experiment_bundle
 from utils.train_io import build_experiment_paths, run_trainer_with_artifacts
@@ -82,10 +83,12 @@ def main():
     )
 
     def _train():
+        baseline_cfg = parse_baseline_config(args.baseline)
         # [AUTO WARMUP CHECK]
         # Đảm bảo pre-train model mới nhất luôn được tạo ra nếu chưa có
         warmup_pt = Path("yolo12n_warmup.pt")
-        if args.baseline in ['fedkdl', 'fedkd']:
+        uses_warmup_student = baseline_cfg.use_lora or baseline_cfg.local_kd or baseline_cfg.use_gateway_kd
+        if uses_warmup_student:
             if not warmup_pt.exists():
                 print(f"[Auto-Warmup] Không tìm thấy {warmup_pt}. Tiến hành tạo warmup model mới (5 epochs)...")
                 from scripts.fedkdl.train_student_warmup import run_warmup
@@ -102,7 +105,7 @@ def main():
             data_path=str(data_path),
             baseline=args.baseline,
             test_yaml="datasets/URPC2020.yaml" if "urpc" in dataset.lower() else "coco8.yaml",
-            student_ckpt="yolo12n_warmup.pt" if args.baseline in ['fedkdl', 'fedkd'] else "yolo12n.pt",
+            student_ckpt="yolo12n_warmup.pt" if uses_warmup_student else "yolo12n.pt",
             teacher_ckpt="yolo12l_lora_pretrained.pt" if Path("yolo12l_lora_pretrained.pt").exists() else ("yolo12l_pretrained.pt" if Path("yolo12l_pretrained.pt").exists() else "yolo12l.pt"),
             device=device,
         )

@@ -7,6 +7,10 @@ from typing import Dict, Any, Tuple
 from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
 from federated_core.metrics import EnergyTracker, LatencyTracker, MetricsLogger
 from federated_core.hfl_rules import compute_mean_cluster_size, compute_q1_relay_distance
+try:
+    from tasks.detection_2d.baselines import parse_baseline_config as parse_2d_baseline_config
+except Exception:
+    parse_2d_baseline_config = None
 
 class BaseSimulator(ABC):
     """
@@ -65,10 +69,10 @@ class BaseSimulator(ABC):
         self.gateway_position = self.topology.gateway_position
         self.G = EnvironmentManager.restore_graph(topo)
         
-        # [CRITICAL FIX] Dựa theo đính chính của user: 
-        # TẤT CẢ các baseline đều là phân cấp (Hierarchical) TRỪ fedavg, fedprox (Case 1), fedkd (reference), centralized.
-        flat_baselines = ['fedavg', 'fedprox', 'fedkd', 'centralized']
-        self.is_flat = self.baseline in flat_baselines
+        if parse_2d_baseline_config is not None:
+            self.is_flat = not parse_2d_baseline_config(self.baseline).hfl
+        else:
+            self.is_flat = self.baseline in ['fedavg', 'fedprox', 'fedkd', 'centralized']
         
         if self.is_flat:
             self.association = topo.flat_association
@@ -127,14 +131,14 @@ class BaseSimulator(ABC):
             self.baseline = baseline
         import concurrent.futures
         
-        # In ra thông tin topology để biết auv nào thuộc cụm nào
-        print("\n" + "="*60)
-        print("[*] CLUSTER TOPOLOGY INFO:")
-        if self.is_flat:
-            print("    (Flat Topology: AUVs connect directly or via relays to Gateway)")
-        for relay_id, relay in self.relays.items():
-            print(f"    - Relay {relay_id} manages auvs: {relay.cluster_members}")
-        print("="*60 + "\n")
+        if getattr(self.fed_cfg, 'LOG_ROUND_TOPOLOGY', False):
+            print("\n" + "="*60)
+            print("[*] CLUSTER TOPOLOGY INFO:")
+            if self.is_flat:
+                print("    (Flat Topology: AUVs connect directly or via relays to Gateway)")
+            for relay_id, relay in self.relays.items():
+                print(f"    - Relay {relay_id} manages auvs: {relay.cluster_members}")
+            print("="*60 + "\n")
         
         cumulative_payload = 0.0
         cumulative_joint_cost = 0.0  # Σ joint_cost^t  — tích lũy Eq.22 qua các round
@@ -142,8 +146,12 @@ class BaseSimulator(ABC):
         import math
         initial_lr = self.fed_cfg.LOCAL_LR
 
-        # [OPTION B] (Đã bị loại bỏ) Không pre-warm YOLO cache trước vòng FL đầu tiên nữa,
-        # để mỗi AUV tự cache khi đến lượt train của nó (tránh block hệ thống lâu ở đầu).
+        if (
+            self.task_key == "2D"
+            and getattr(self.fed_cfg, 'PREWARM_YOLO_LABEL_CACHE', False)
+            and hasattr(self, '_pre_warm_dataset_cache')
+        ):
+            self._pre_warm_dataset_cache()
 
         for t in range(1, T_rounds + 1):
             self.current_round = t
@@ -165,13 +173,14 @@ class BaseSimulator(ABC):
                     f"[*] LR Schedule | round={t}/{T_rounds} | "
                     f"base_lr={initial_lr:.6f} -> current_lr={self.current_lr:.8f}"
                 )
-                print("\n" + "="*60)
-                print("[*] CLUSTER TOPOLOGY INFO:")
-                if self.is_flat:
-                    print("    (Flat Topology: AUVs connect directly or via relays to Gateway)")
-                for relay_id, relay in self.relays.items():
-                    print(f"    - Relay {relay_id} manages auvs: {relay.cluster_members}")
-                print("="*60 + "\n")
+                if getattr(self.fed_cfg, 'LOG_ROUND_TOPOLOGY', False):
+                    print("\n" + "="*60)
+                    print("[*] CLUSTER TOPOLOGY INFO:")
+                    if self.is_flat:
+                        print("    (Flat Topology: AUVs connect directly or via relays to Gateway)")
+                    for relay_id, relay in self.relays.items():
+                        print(f"    - Relay {relay_id} manages auvs: {relay.cluster_members}")
+                    print("="*60 + "\n")
             else:
                 print(
                     f"   -> [FL Simulator 1D] Round {t}/{T_rounds} | "
@@ -180,7 +189,7 @@ class BaseSimulator(ABC):
                 )
 
             # --- [NEW] Logging Trajectories to File (Trước khi bắt đầu vòng FL) ---
-            if self.task_key == "2D":
+            if self.task_key == "2D" and getattr(self.fed_cfg, 'LOG_TRAJECTORIES', False):
                 import os
                 alpha_str = str(self.alpha).replace('.', 'p') if hasattr(self, 'alpha') else "unknown"
                 filename = f"auv_trajectories_N{self.N_actual}_{self.baseline}_a{alpha_str}.txt"
@@ -331,15 +340,9 @@ class BaseSimulator(ABC):
                         self.relays[m].deduct_battery(svd_cost, min_battery=self.en_cfg.RELAY_E_MIN)
                         e_svd_total += svd_cost
 
-            # Liên cụm (Inter-cluster Cooperation)
-            if 'nocoop' in self.baseline:
-                coop_rule = 'nocoop'
-            elif 'selective' in self.baseline:
-                coop_rule = 'selective'
-            elif 'fedkdl' in self.baseline or 'logit_kd' in self.baseline:
-                coop_rule = 'nearest'
+            if parse_2d_baseline_config is not None:
+                coop_rule = parse_2d_baseline_config(self.baseline).coop_rule
             else:
-                # Các baselines còn lại (fedavg_hfl, fedprox_hfl, flora, scaffold, topk) mặc định không hợp tác relay
                 coop_rule = 'nocoop'
             
             # Chỉ lấy state dict của relay còn sống

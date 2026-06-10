@@ -64,11 +64,19 @@ class FedKDLConfig:
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60})
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 16       # Trả về 16 để tránh tràn VRAM
-    LOCAL_LR: float = 2e-3
+    LOCAL_LR: float = 5e-4
     LOCAL_HEAD_LR_MULT: float = 4.0   # FL Local SGD: Head LR = LOCAL_LR × multiplier
-    LOCAL_LORA_LR_MULT: float = 2.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
+    LOCAL_LORA_LR_MULT: float = 1.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
+    LOCAL_DATALOADER_WORKERS: int = 8 # FL local YOLO dataloader workers
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
+    LOCAL_CACHE_DATASET: bool = False # FL local trainers are recreated per AUV; RAM image cache is often repeated overhead
+    LOCAL_AMP: bool = True           # Keep AMP on after lowering FL LR; set False if non-finite grads persist
+    GRAD_DIAGNOSTICS: bool = False   # Expensive per-batch GPU sync; enable only when debugging NaN/Inf
+    CLEAR_CUDA_CACHE_PER_AUV: bool = False
+    LOG_ROUND_TOPOLOGY: bool = False
+    LOG_TRAJECTORIES: bool = False
+    PREWARM_YOLO_LABEL_CACHE: bool = True
 
     # ── FLOPs / năng lượng tính toán ────────────────────────────────────────
     MODEL_FLOPS_PER_SAMPLE: dict = field(
@@ -80,6 +88,7 @@ class FedKDLConfig:
     LORA_RANK: int = 8               # Phải khớp Teacher (rank=8); payload ~127KB INT8 @ adaptive
     QUANTIZATION_BITS: int = 8       # int8_quantization.py
     TARGET_PAYLOAD_KB: float = 300.0
+    LAZY_FILTER_ENABLED: bool = False
     DELTA_SKIP: float = 0.01         # Lazy communication filter
 
     # ── HFL inter-relay (hfl_rules.should_cooperate) ────────────────────────
@@ -92,12 +101,31 @@ class FedKDLConfig:
     RHO_S: float = 0.05              # Top-K sparsity (AUVWorker1D)
     ANOMALY_EVAL_MODE: str = "best_f1"
     ANOMALY_PERCENTILE: float = 99.8
+    FEDPROX_MU: float = 0.01
+    LORA_R4_RANK: int = 4
 
     # ── Gateway Knowledge Distillation ──────────────────────────────────────
     KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
     KD_STU_LAMBDA: float = 0.50     # Trọng số Supervised Loss trong KD (0.5 = cân bằng GT/KD)
     KD_HEAD_LR_MULT: float = 8.0    # Head LR = LoRA LR × multiplier trong Gateway KD
     KD_LORA_LR_MULT: float = 2.0    # LoRA LR multiplier in Gateway KD
+    KD_EPOCHS: int = 2
+    KD_BATCH_SIZE: int = 8
+    KD_WORKERS: int = 0
+    KD_AMP: bool = False
+    KD_LR: float = 1e-3
+    KD_LAMBDA_START: float = 0.30
+    KD_LAMBDA_FLOOR: float = 0.08
+    KD_DECAY_START_FRAC: float = 0.65
+    KD_ADAPTIVE_DROPOUT_ENABLED: bool = False
+    KD_ADAPTIVE_DROP_THRESHOLD: int = 5
+    LOCAL_KD_STU_LAMBDA: float = 0.20
+    LOCAL_KD_LAMBDA: float = 1.0
+    LOCAL_KD_HEAD_LR_MULT: float = 3.0
+    PROXY_FT_EPOCHS: int = 2
+    PROXY_FT_BATCH_SIZE: int = 4
+    PROXY_FT_WORKERS: int = 0
+    PROXY_FT_LR: float = 1e-3
     WARMUP_HEAD_LR_MULT: float = 2.5 # Warmup LoRA: Head LR = lr0 × multiplier
     WARMUP_LORA_LR_MULT: float = 0.5 # Warmup LoRA: LoRA LR = lr0 × multiplier
     CENTRAL_HEAD_LR_MULT: float = 2.5 # Centralized LoRA: Head LR = lr0 × multiplier

@@ -9,42 +9,10 @@ from typing import Dict, Any, Tuple
 
 from federated_core.base_simulator import BaseSimulator
 from federated_core.workers import BaseWorker, BaseRelayNode, BaseGateway
+from tasks.detection_2d.baselines import parse_baseline_config
 from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
 from tasks.detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_auv_train
 from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
-
-
-def parse_baseline_config(baseline: str) -> dict:
-    """Return the 2D experiment configuration for each baseline."""
-    # (full_param, use_lora, use_int8, use_gateway_kd, use_gateway_proxy_ft)
-    cfg_map = {
-        'fedavg':           (True,  False, False, False, False), # Flat
-        'fedprox':          (True,  False, False, False, False), # Flat
-        'fedavg_hfl':       (True,  False, False, False, False), # HFL
-        'fedprox_hfl':      (True,  False, False, False, False), # HFL
-        'flora':            (False, True,  False, False, False), # HFL, LoRA Float32
-        'scaffold':         (True,  False, False, False, False), # HFL, Control Variates
-        'fedkdl':           (False, True,  True,  True,  False), # HFL, LoRA INT8 + KD
-        'fedkdl_nocoop':    (False, True,  True,  True,  False), # HFL
-        'logit_kd':         (False, True,  True,  True,  False), # HFL, LoRA INT8 + Logit KD
-        'fedprox_kdl':      (False, True,  True,  True,  False), # HFL
-        'fedkd':            (True,  False, False, True,  False), # Flat
-        'topk_grad':        (True,  False, False, False, False), # HFL
-        'centralized':      (False, True,  False, False, False), # Flat
-        'fedkdl_nokd':      (False, True,  True,  False, False), # HFL
-        'fedkdl_nolora':    (True,  False, False, True,  False), # HFL
-        'fedkdl_proxy_ft':  (False, True,  True,  False, True),  # HFL
-    }
-    # Fallback default matches fedkdl.
-    f_p, u_l, u_i, u_kd, u_ft = cfg_map.get(baseline, (False, True, True, True, False))
-    return {
-        'full_param': f_p,
-        'use_lora': u_l,
-        'use_int8': u_i,
-        'use_gateway_kd': u_kd,
-        'use_gateway_proxy_ft': u_ft,
-    }
-
 
 
 class AUVWorker2D(BaseWorker):
@@ -91,15 +59,15 @@ class AUVWorker2D(BaseWorker):
         nc = c_cfg.get('nc', 80)
 
         cfg = parse_baseline_config(baseline)
-        full_param = cfg['full_param']
-        use_lora = cfg['use_lora']
-        use_int8 = cfg['use_int8']
+        full_param = cfg.full_param
+        use_lora = cfg.use_lora
+        use_int8 = cfg.use_int8
         
-        fedprox_mu = 0.01 if 'fedprox' in baseline else 0.0
+        from config.settings import fed_cfg
+        fedprox_mu = fed_cfg.FEDPROX_MU if cfg.fedprox else 0.0
         # Nếu KD bị Adaptive Dropout tắt, fedprox_mu_override sẽ được truyền xuống từ Simulator
         fedprox_mu = max(fedprox_mu, fedprox_mu_override)
-        from config.settings import fed_cfg
-        rank = 4 if 'r4' in baseline else fed_cfg.LORA_RANK
+        rank = fed_cfg.LORA_R4_RANK if 'r4' in baseline else fed_cfg.LORA_RANK
 
         # [CRITICAL FIX] Use the exact SAME baseline student_ckpt (warmup_model) for local 
         # students so freezing non-payload layers uses the correct warmup backbone/head.
@@ -112,7 +80,7 @@ class AUVWorker2D(BaseWorker):
 
         # Cấp phát Teacher cục bộ nếu chạy thuật toán FedKD (Local KD)
         local_teacher = None
-        if baseline == 'fedkd':
+        if cfg.local_kd:
             if not hasattr(self, 'local_teacher'):
                 from tasks.detection_2d.models.yolo_wrapper import TeacherModel
                 print(f"[Simulator2D] Khởi tạo Local Teacher (YOLO12l) dùng chung cho thuật toán FedKD...")
@@ -140,9 +108,11 @@ class AUVWorker2D(BaseWorker):
             local_c=local_c,
         )
 
-        scaffold_delta_c = None
-        if isinstance(new_state, dict) and '__scaffold_delta_c__' in new_state:
-            scaffold_delta_c = new_state.pop('__scaffold_delta_c__')
+        if use_int8 and isinstance(new_state, dict) and '__scaffold_delta_c__' in new_state:
+            # INT8 model payloads are shape-driven byte streams. Control variates
+            # are metadata, not model tensors, so they must not enter pack_payload.
+            # SCAFFOLD itself is currently a Float32 baseline in parse_baseline_config.
+            new_state.pop('__scaffold_delta_c__')
         
         # [FedBN FIX] Save local BN parameters for the next round
         current_sd = local_student.yolo.model.state_dict()
@@ -159,11 +129,11 @@ class AUVWorker2D(BaseWorker):
         local_metrics = {}
         print(f"[AUV {self.auv_id}] Local train metrics skipped to save time.")
 
-        if False and delta_norm < fed_cfg.DELTA_SKIP:
+        if getattr(fed_cfg, 'LAZY_FILTER_ENABLED', False) and delta_norm < fed_cfg.DELTA_SKIP:
             print(f"[AUV {self.auv_id}] 💤 Lazy Filter Activated (delta={delta_norm:.4f} < {fed_cfg.DELTA_SKIP}). Node is resting (No TX).")
             payload_bytes = None
             payload_kb = 0.0
-        elif baseline == 'topk_grad':
+        elif cfg.topk_grad:
             # === TOP-K SPARSE GRADIENT COMPRESSION + ERROR FEEDBACK ===
             from tasks.detection_2d.knowledge_compression.topk_sparsification import (
                 TopKCompressor, SparseFloatPayload, flatten_state_dict, unflatten_state_dict
@@ -211,8 +181,10 @@ class AUVWorker2D(BaseWorker):
             print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB Float32")
 
         del local_student
-        gc.collect()
-        torch.cuda.empty_cache()
+        if getattr(fed_cfg, 'CLEAR_CUDA_CACHE_PER_AUV', False):
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         return payload_bytes, payload_kb, delta_norm, train_loss, local_metrics
 
@@ -410,9 +382,9 @@ class Simulator2D(BaseSimulator):
         # Models
         nc = base_cfg.get('nc', 80) if 'base_cfg' in locals() else 80
         cfg = parse_baseline_config(self.baseline)
-        full_param = cfg['full_param']
-        use_lora = cfg['use_lora']
-        rank = 4 if 'r4' in self.baseline else self.fed_cfg.LORA_RANK
+        full_param = cfg.full_param
+        use_lora = cfg.use_lora
+        rank = self.fed_cfg.LORA_R4_RANK if 'r4' in self.baseline else self.fed_cfg.LORA_RANK
         
         self.teacher = TeacherModel(teacher_ckpt)
         self.teacher.yolo.to(self.device)
@@ -431,7 +403,7 @@ class Simulator2D(BaseSimulator):
         
         self._last_kd_metrics = {}
 
-        if cfg['use_int8']:
+        if cfg.use_int8:
             relay_payload_bytes, relay_payload_kb = pack_payload(self.gateway.global_state_dict)
             self.relay_model_bits = len(relay_payload_bytes) * 8
             print(f"[Simulator2D] Relay payload budget: {relay_payload_kb:.1f} KB INT8/FP16")
@@ -498,13 +470,8 @@ class Simulator2D(BaseSimulator):
         if isinstance(nc, dict) and 'nc' in nc: nc = nc['nc'] # fallback cho kiểu dict
         elif not isinstance(nc, int): nc = 80
 
-        # Nếu là FedKDL thì bật EMD Clustering
-        if 'fedkdl' in self.baseline:
-            # [BẢN ĐƠN GIẢN HÓA] BỎ QUA EMD Clustering theo yêu cầu của user.
-            # Hệ thống sẽ sử dụng 100% mảng self.association mặc định (chỉ gán theo khoảng cách vật lý).
-            print(f"\n[Simulator2D] EMD Clustering đã bị tắt. Giữ nguyên Physical Distance Association...")
-            '''
-            print(f"\n[Simulator2D] Khởi tạo Knowledge-Aware Association (EMD β=0.2)...")
+        if cfg.hfl and getattr(self.fed_cfg, 'BETA_EMD', 0.0) > 0.0:
+            print(f"\n[Simulator2D] Building knowledge-aware association (EMD beta={self.fed_cfg.BETA_EMD})...")
             self.auv_label_hists = np.zeros((N, nc), dtype=np.float32)
             self.auv_label_counts = np.zeros((N, nc), dtype=np.float32)
             for s_id in range(N):
@@ -513,7 +480,6 @@ class Simulator2D(BaseSimulator):
                     self.auv_label_hists[s_id] = n_hist
                     self.auv_label_counts[s_id] = c_hist
             
-            # Tính Relay Histogram từ các cụm vật lý ban đầu
             self.relay_label_hists = np.zeros((M, nc), dtype=np.float32)
             relay_counts = np.zeros(M)
             for s_id, f_id in self.association.items():
@@ -526,7 +492,6 @@ class Simulator2D(BaseSimulator):
                 else:
                     self.relay_label_hists[m] = np.ones(nc, dtype=np.float32) / nc
 
-            # Thực thi Knowledge-Aware Association
             class DummyTopo:
                 def __init__(self, n, m): self.N = n; self.M = m
             
@@ -539,7 +504,6 @@ class Simulator2D(BaseSimulator):
                 beta=self.fed_cfg.BETA_EMD,
             )
             
-            # Đếm số lượng thay đổi
             changed = 0
             changes_log = []
             for s, new_f in new_association.items():
@@ -547,24 +511,19 @@ class Simulator2D(BaseSimulator):
                 if old_f != new_f:
                     changed += 1
                     changes_log.append(f"    - AUV {s}: Relay {old_f} -> Relay {new_f}")
-            print(f"[Simulator2D] EMD Clustering hoàn tất. {changed}/{N} AUVs đã chuyển cụm (Relay) để tối ưu EMD.")
+            print(f"[Simulator2D] Knowledge-aware association done. {changed}/{N} AUVs changed relays.")
             if changed > 0:
-                print("  Chi tiết thay đổi:")
                 for log in changes_log:
                     print(log)
             
-            # Cập nhật state
             self.association = new_association
-            # Cập nhật lại clusters
-            self.clusters = {m: [] for m in range(M)}
-            for s, f in self.association.items():
+        else:
+            print("\n[Simulator2D] Knowledge-aware association disabled; using physical association.")
+
+        self.clusters = {m: [] for m in range(M)}
+        for s, f in self.association.items():
+            if f in self.clusters:
                 self.clusters[f].append(s)
-            '''
-            # Build clusters safely even if EMD is skipped
-            self.clusters = {m: [] for m in range(M)}
-            for s, f in self.association.items():
-                if f in self.clusters:
-                    self.clusters[f].append(s)
 
         # 3. Tiến hành cấp phát Worker/Node như bình thường
         for s_id in range(self.net_cfg.N_AUVS):
@@ -588,11 +547,11 @@ class Simulator2D(BaseSimulator):
 
     def get_flop_multiplier(self) -> float:
         cfg = parse_baseline_config(self.baseline)
-        if self.baseline == 'fedkd':
+        if cfg.local_kd:
             # FedKD chạy Teacher (YOLOv12l) Forward pass + Student (YOLOv12n) Full pass.
             # Tỷ lệ FLOPs của YOLOv12l so với YOLOv12n là ~30 lần. Cộng thêm 3 lần cho Student.
             return 33.0 
-        elif cfg['full_param']:
+        elif cfg.full_param:
             # Full param update (Forward + Backward qua tất cả tham số)
             return 3.0
         # Mặc định (LoRA)
@@ -600,6 +559,7 @@ class Simulator2D(BaseSimulator):
 
     def _process_auv(self, s_id: int) -> Tuple[int, Any, float, int, float, float, dict]:
         auv = self.auvs[s_id]
+        cfg = parse_baseline_config(self.baseline)
 
         if s_id == 0 and getattr(self, '_fedprox_mu_override', 0.0) > 0.0:
             print(f"    [!] Adaptive Dropout Active: AUVs are training with FedProx (mu={self._fedprox_mu_override})")
@@ -614,14 +574,13 @@ class Simulator2D(BaseSimulator):
             student_ckpt=self.student_ckpt,
             # global_weights cần thiết cho FedProx proximal term
             global_weights=self.gateway.global_state_dict if (
-                'fedprox' in self.baseline or getattr(self, '_fedprox_mu_override', 0.0) > 0.0
+                cfg.fedprox or getattr(self, '_fedprox_mu_override', 0.0) > 0.0
             ) else None,
             global_c=getattr(self, 'global_c', None),
             local_c=self.local_c_states[s_id] if hasattr(self, 'local_c_states') else None,
         )
 
-        cfg = parse_baseline_config(self.baseline)
-        use_int8 = cfg['use_int8']
+        use_int8 = cfg.use_int8
         
         from physics_models.energy import e_tx, e_comp
         if payload is not None:
@@ -664,7 +623,7 @@ class Simulator2D(BaseSimulator):
 
     def _aggregate_intra_relay(self, m: int, relay, payloads, auv_n_samples) -> float:
         cfg = parse_baseline_config(self.baseline)
-        use_int8 = cfg['use_int8']
+        use_int8 = cfg.use_int8
         relay.aggregate_intra_cluster(
             global_state_dict=self.gateway.global_state_dict,
             payloads=payloads,
@@ -776,8 +735,8 @@ class Simulator2D(BaseSimulator):
         overrides = {
             'model': self.student_ckpt,
             'data': proxy_yaml,
-            'epochs': 2,
-            'batch': 4,  # Giảm xuống 4 để chạy mượt trên Kaggle (16GB VRAM)
+            'epochs': self.fed_cfg.PROXY_FT_EPOCHS,
+            'batch': self.fed_cfg.PROXY_FT_BATCH_SIZE,
             'device': self.device,
             'project': 'runs/gateway_proxy_ft',
             'name': 'global_proxy_ft',
@@ -786,12 +745,12 @@ class Simulator2D(BaseSimulator):
             'save': False,
             'val': False,
             'plots': False,
-            'workers': 0,
+            'workers': self.fed_cfg.PROXY_FT_WORKERS,
             'close_mosaic': 0,
             'optimizer': 'SGD',
-            'lr0': 1e-3,
+            'lr0': self.fed_cfg.PROXY_FT_LR,
             'warmup_epochs': 0.0,
-            'warmup_bias_lr': 1e-3,
+            'warmup_bias_lr': self.fed_cfg.PROXY_FT_LR,
         }
 
         trainer = CustomDetectionTrainer(overrides=overrides, student_wrapper=self.global_student)
@@ -831,10 +790,10 @@ class Simulator2D(BaseSimulator):
         thì tự động tắt KD vĩnh viễn cho phần còn lại (thuần FL).
         """
         cfg = parse_baseline_config(self.baseline)
-        if cfg.get('use_gateway_proxy_ft'):
+        if cfg.use_gateway_proxy_ft:
             return self._gateway_supervised_finetune()
 
-        if not cfg['use_gateway_kd']:
+        if not cfg.use_gateway_kd:
             self._last_kd_metrics = {
                 'kd_active': False,
                 'kd_epochs': 0,
@@ -845,21 +804,15 @@ class Simulator2D(BaseSimulator):
             }
             return self._last_kd_metrics
 
-        # --- Adaptive KD Dropout Gate ---
-        # Số vòng liên tiếp metrics giảm để kích hoạt ngắt KD
-        CONSEC_DROP_THRESHOLD = getattr(self, '_kd_drop_threshold', 5)
-
-        # Khởi tạo trạng thái tracking nếu chưa có
+        kd_adaptive_dropout = getattr(self.fed_cfg, 'KD_ADAPTIVE_DROPOUT_ENABLED', False)
+        consec_drop_threshold = getattr(self.fed_cfg, 'KD_ADAPTIVE_DROP_THRESHOLD', 5)
         if not hasattr(self, '_kd_disabled'):
             self._kd_disabled = False
-        if not hasattr(self, '_metric_history'):
-            self._metric_history = []   # list of (mAP50, Prec, Rec)
         if not hasattr(self, '_consec_drop_count'):
             self._consec_drop_count = 0
 
-        # Nếu KD đã bị tắt trước đó thì bỏ qua luôn
-        if self._kd_disabled:
-            print(f"[Gateway KD] 🏠 Skipping KD (Adaptive Dropout active — Training strictly with FedProx FL).")
+        if kd_adaptive_dropout and self._kd_disabled:
+            print("[Gateway KD] Skipping KD (Adaptive Dropout active; training strictly with FL).")
             self._last_kd_metrics = {
                 'kd_active': False, 'kd_epochs': 0,
                 'kd_kl': 0.0, 'kd_hidden': 0.0,
@@ -867,9 +820,6 @@ class Simulator2D(BaseSimulator):
             }
             return self._last_kd_metrics
 
-        # Lấy metrics vòng vừa rồi từ lịch sử round logs
-        # [MODIFIED] Bỏ qua Adaptive Dropout, ép KD chạy 100% (cả 60 vòng)
-        self._kd_disabled = False
         if hasattr(self, '_round_metrics_history') and len(self._round_metrics_history) >= 2:
             prev = self._round_metrics_history[-2]
             curr = self._round_metrics_history[-1]
@@ -877,46 +827,23 @@ class Simulator2D(BaseSimulator):
             curr_score = (curr.get('mAP50', 0) + curr.get('Prec', 0) + curr.get('Rec', 0)) / 3.0
             if curr_score < prev_score:
                 self._consec_drop_count += 1
-                print(f"[Gateway KD] ⚠️  Metrics drop detected ({self._consec_drop_count}/∞) - KD VẪN ĐƯỢC GIỮ NGUYÊN!")
+                limit = consec_drop_threshold if kd_adaptive_dropout else "monitor"
+                print(f"[Gateway KD] Metrics drop detected ({self._consec_drop_count}/{limit}).")
+                if kd_adaptive_dropout and self._consec_drop_count >= consec_drop_threshold:
+                    self._kd_disabled = True
+                    print("[Gateway KD] Adaptive Dropout enabled; disabling KD for subsequent rounds.")
             else:
                 self._consec_drop_count = 0
 
-        import os
         from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
 
-        proxy_yaml = getattr(self, 'test_yaml', "coco8.yaml")  # Dùng luôn test_yaml (URPC) làm proxy thay vì tải coco8
-        
-        # Tạo proxy yaml với absolute path qua file txt để tránh lỗi thư mục Linux của YOLO
-        if proxy_yaml != "coco8.yaml" and os.path.exists(proxy_yaml):
-            import yaml
-            from pathlib import Path
-            with open(proxy_yaml, 'r') as f:
-                p_cfg = yaml.safe_load(f)
-            if 'path' in p_cfg and 'val' in p_cfg:
-                # Convert relative val path to absolute before popping 'path'
-                dataset_dir = Path(proxy_yaml).parent
-                base_dir = dataset_dir / p_cfg['path']
-                
-                # YOLO có thể dùng chuỗi đường dẫn trực tiếp, ta chuyển nó thành absolute
-                if isinstance(p_cfg['val'], str):
-                    p_cfg['val'] = str((base_dir / p_cfg['val']).resolve())
-                elif isinstance(p_cfg['val'], list):
-                    p_cfg['val'] = [str((base_dir / v).resolve()) for v in p_cfg['val']]
-            
-            p_cfg.pop('path', None)  # Xoá path đi để YOLO bắt buộc dùng đường dẫn tuyệt đối ở dưới
-            p_cfg['train'] = getattr(self, 'proxy_kd_txt', '')
-            # p_cfg['val'] được giữ nguyên (đã chuyển thành absolute path) thay vì gán bằng train
-            
-            proxy_yaml_abs = "datasets/proxy_kd_data.yaml"
-            with open(proxy_yaml_abs, 'w') as f:
-                yaml.safe_dump(p_cfg, f)
-            proxy_yaml = str(Path(proxy_yaml_abs).absolute())
+        proxy_yaml = self._build_gateway_proxy_yaml()
 
         overrides = {
             'model': self.student_ckpt,
             'data': proxy_yaml,
-            'epochs': 2,  # Giữ ở mức 2 epoch theo yêu cầu để tiết kiệm thời gian
-            'batch': 8,   # [AN TOÀN] Giảm xuống 8 để tránh tràn VRAM khi chạy chung Teacher + Student
+            'epochs': self.fed_cfg.KD_EPOCHS,
+            'batch': self.fed_cfg.KD_BATCH_SIZE,
             'device': self.device,
             'project': 'runs/gateway_kd',
             'name': 'global_kd',
@@ -925,36 +852,35 @@ class Simulator2D(BaseSimulator):
             'save': False,
             'val': False,
             'plots': False,
-            'workers': 0,
+            'workers': self.fed_cfg.KD_WORKERS,
             'close_mosaic': 0,
             'optimizer': 'SGD',
-            'amp': False,
+            'amp': self.fed_cfg.KD_AMP,
             
-            # Dùng SGD + lr0=1e-3 để KD chạy max công suất trong 2 epochs mà không lo nổ
-            'lr0': 1e-3,
+            'lr0': self.fed_cfg.KD_LR,
             
             'warmup_epochs': 0.0,
-            'warmup_bias_lr': 1e-3, # Cho phép bias chạy cùng speed
+            'warmup_bias_lr': self.fed_cfg.KD_LR,
         }
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.head_lr_multiplier = getattr(self.fed_cfg, 'KD_HEAD_LR_MULT', 8.0)  # Head LR boost trong Gateway KD
         trainer.lora_lr_multiplier = getattr(self.fed_cfg, 'KD_LORA_LR_MULT', 2.0)  # LoRA LR boost trong Gateway KD
         trainer.student_wrapper = self.global_student
-        trainer.logit_kd_only = (self.baseline == 'logit_kd')
+        trainer.logit_kd_only = cfg.logit_kd_only
         
         # [CÂN BẰNG LOSS] stu_lambda được đọc từ config (mặc định 0.5 = cân bằng Supervised/KD)
         trainer.stu_lambda = getattr(self.fed_cfg, 'KD_STU_LAMBDA', 0.50)
         
         current_r = getattr(self, 'current_round', 1)
         total_r = getattr(self.fed_cfg, 'T_ROUNDS', self.fed_cfg.GLOBAL_ROUNDS.get("2D", 100))
-        # [FIX] kd_lambda giữ mạnh ở 0.3 đến 65% số vòng, sau đó mới decay nhanh về 0.08.
-        # Thiết kế này tránh tình trạng KD bị suy yếu quá sớm (vòng 30/60 cũ chỉ còn 0.15).
-        decay_start_r = int(total_r * 0.65)  # Bắt đầu decay từ vòng 39/60
+        kd_lambda_start = self.fed_cfg.KD_LAMBDA_START
+        kd_lambda_floor = self.fed_cfg.KD_LAMBDA_FLOOR
+        decay_start_r = int(total_r * self.fed_cfg.KD_DECAY_START_FRAC)
         if current_r <= decay_start_r:
-            kd_lambda = 0.30
+            kd_lambda = kd_lambda_start
         else:
             progress = (current_r - decay_start_r) / max(total_r - decay_start_r, 1)
-            kd_lambda = max(0.08, 0.30 * (1.0 - progress))
+            kd_lambda = max(kd_lambda_floor, kd_lambda_start * (1.0 - progress))
         trainer.kd_lambda = kd_lambda
         print(f"[Gateway KD] Round {current_r}/{total_r} | kd_lambda={kd_lambda:.3f} | stu_lambda={trainer.stu_lambda:.2f}")
         
