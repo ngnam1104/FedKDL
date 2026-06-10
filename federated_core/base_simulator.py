@@ -510,14 +510,8 @@ class BaseSimulator(ABC):
             # Adaptive Dropout Gate sẽ đọc history vòng trước để quyết định có chạy KD không.
             # Simulator2D (fedkdl) override → Teacher KD. Simulator1D → no-op.
             kd_metrics = {}
-            if getattr(self.fed_cfg, 'KD_ACTIVE', False) and (t % 2 == 0):
+            if getattr(self.fed_cfg, 'KD_ACTIVE', False):
                 kd_metrics = self._gateway_knowledge_distillation() or {}
-            elif getattr(self.fed_cfg, 'KD_ACTIVE', False) and (t % 2 != 0):
-                print(f"\n[Simulator] Vòng lẻ (Round {t}) - Bỏ qua KD để tiết kiệm thời gian (Periodic KD).")
-                # Fake KD metrics to keep log format consistent
-                kd_metrics = {
-                    'kd_active': False, 'kd_epochs': 0, 'kd_box': 0.0, 'kd_kl': 0.0, 'kd_lora': 0.0, 'kd_weighted': 0.0
-                }
             elif getattr(self.fed_cfg, 'GLOBAL_FT', False):
                 self._gateway_supervised_finetune()
 
