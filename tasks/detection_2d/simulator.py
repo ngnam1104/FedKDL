@@ -872,7 +872,7 @@ class Simulator2D(BaseSimulator):
             'model': self.student_ckpt,
             'data': proxy_yaml,
             'epochs': 2,  # Giữ ở mức 2 epoch theo yêu cầu để tiết kiệm thời gian
-            'batch': 4,   # Giảm xuống 4 để tránh OOM khi load cả Teacher và Student (Kaggle 16GB VRAM)
+            'batch': 16,  # [TĂNG TỐC] Tăng từ 4 lên 16 nhờ VRAM 10GB (trước đây sợ OOM 16GB Kaggle)
             'device': self.device,
             'project': 'runs/gateway_kd',
             'name': 'global_kd',
