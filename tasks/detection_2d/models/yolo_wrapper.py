@@ -80,7 +80,7 @@ class StudentModel:
                 # Base model (vd: yolo12n.pt) → cần inject LoRA mới
                 is_nano = '12n' in ckpt.lower() or '11n' in ckpt.lower() or '8n' in ckpt.lower()
                 actual_strategy = "adaptive"  # Trở lại adaptive để giữ payload dưới 300KB
-                actual_targets = lora_targets # [FIX] Không ép ['Conv'] cho Nano nữa để tiết kiệm 150KB payload!
+                actual_targets = ['Conv'] if is_nano else lora_targets
 
                 injected = inject_lora(self.yolo.model, target_layer_names=actual_targets, rank=rank, strategy=actual_strategy)
                 print(f"[StudentModel] Injected LoRA into {injected} layers (Targets: {actual_targets}, Strategy: {actual_strategy}).")
