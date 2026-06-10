@@ -439,14 +439,15 @@ class KDDetectionTrainer(DetectionTrainer):
 
         # ── 2. Thu hidden features của Student (trong pha forward hiện tại) ─
         if not getattr(self, 'logit_kd_only', False):
-            if self.batch_count == 0:
-                print(f"\n[KD - Batch 1] Đang forward Student ({self.model.__class__.__name__}) để trích xuất LoRA Projections...")
-            s_hook, s_handles = _register_lora_hooks(self.model)
-            # Forward lại student để thu features
-            _ = self.model(imgs)
-            student_projs = dict(s_hook.outputs)
-            _remove_hooks(s_handles)
-            s_hook.clear()
+            if not getattr(self, '_s_hooks_registered', False):
+                self._s_hook, self._s_handles = _register_lora_hooks(self.model)
+                self._s_hooks_registered = True
+                print(f"\n[KD] Đã gắn Hook vĩnh viễn cho Student ({self.model.__class__.__name__}) để tối ưu loại bỏ 1 lần Forward Pass thừa!")
+                # Phải forward mồi 1 lần duy nhất cho batch ĐẦU TIÊN vì batch này bị lỡ mất hook lúc nó tính `preds`
+                _ = self.model(imgs)
+            
+            student_projs = dict(self._s_hook.outputs)
+            self._s_hook.clear()
             if self.batch_count == 0:
                 total_s = sum(len(v) for v in student_projs.values())
                 print(f"[KD - Batch 1] Student captured {total_s} LoRA projections across {len(student_projs)} stages.")
@@ -455,9 +456,10 @@ class KDDetectionTrainer(DetectionTrainer):
 
         # ── 3. Forward Teacher (no gradient) + thu features ──────────────
         if not getattr(self, 'logit_kd_only', False):
-            if self.batch_count == 0:
-                print(f"[KD - Batch 1] Đang forward Teacher ({self.teacher_model.__class__.__name__}) để trích xuất LoRA Projections...")
-            t_hook, t_handles = _register_lora_hooks(self.teacher_model)
+            if not getattr(self, '_t_hooks_registered', False):
+                self._t_hook, self._t_handles = _register_lora_hooks(self.teacher_model)
+                self._t_hooks_registered = True
+                print(f"[KD] Đã gắn Hook vĩnh viễn cho Teacher ({self.teacher_model.__class__.__name__}).")
             
             with torch.no_grad():
                 t_preds = self.teacher_model(imgs)
@@ -467,9 +469,8 @@ class KDDetectionTrainer(DetectionTrainer):
                 except Exception:
                     loss_tch = torch.tensor(1.0, device=loss_stu.device)
 
-            teacher_projs = dict(t_hook.outputs)
-            _remove_hooks(t_handles)
-            t_hook.clear()
+            teacher_projs = dict(self._t_hook.outputs)
+            self._t_hook.clear()
             if self.batch_count == 0:
                 total_t = sum(len(v) for v in teacher_projs.values())
                 print(f"[KD - Batch 1] Teacher captured {total_t} LoRA projections across {len(teacher_projs)} stages.")
