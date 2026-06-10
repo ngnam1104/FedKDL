@@ -64,10 +64,11 @@ class BaseSimulator(ABC):
         self.relay_positions = self.topology.relay_positions
         self.gateway_position = self.topology.gateway_position
         self.G = EnvironmentManager.restore_graph(topo)
-        # Flat baselines bypass Relay nodes and aggregate directly at the Gateway (Máy trạm)
-        flat_baselines = ['fedprox_kdl', 'fedkd', 'centralized']
-        self.is_flat = self.baseline in flat_baselines
-        self.association = topo.flat_association if self.is_flat else topo.hfl_association
+        
+        # [CRITICAL FIX] Theo yêu cầu của user: KHÔNG CÓ baseline nào là "flat". 
+        # Tất cả đều phải chạy trên topology phân cấp (Hierarchical).
+        self.is_flat = False
+        self.association = topo.hfl_association
         self.clusters = topo.clusters
 
     def get_flop_multiplier(self) -> float:
