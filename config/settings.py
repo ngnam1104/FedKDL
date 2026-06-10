@@ -122,7 +122,7 @@ class FedKDLConfig:
     LOCAL_KD_STU_LAMBDA: float = 0.20
     LOCAL_KD_LAMBDA: float = 1.0
     LOCAL_KD_HEAD_LR_MULT: float = 3.0
-    PROXY_FT_EPOCHS: int = 2
+    PROXY_FT_EPOCHS: int = 1
     PROXY_FT_BATCH_SIZE: int = 4
     PROXY_FT_WORKERS: int = 0
     PROXY_FT_LR: float = 1e-3
