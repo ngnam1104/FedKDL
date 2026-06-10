@@ -70,22 +70,6 @@ class CustomDetectionTrainer(DetectionTrainer):
         self.global_c = global_c
         self.local_c = local_c
 
-    def optimizer_step(self):
-        """Override để inject Control Variates của SCAFFOLD vào gradient trước khi step."""
-        if self.global_c is not None and self.local_c is not None:
-            id_to_name = {id(p): n for n, p in self.model.named_parameters()}
-            for p in self.model.parameters():
-                if p.grad is not None:
-                    name = id_to_name.get(id(p))
-                    if name and name in self.global_c and name in self.local_c:
-                        # SCAFFOLD: d_i = g_i - c_i + c
-                        # PyTorch trừ gradient: w = w - lr * grad -> grad += (c - c_i)
-                        gc_tensor = self.global_c[name].to(p.device)
-                        lc_tensor = self.local_c[name].to(p.device)
-                        p.grad.data.add_(gc_tensor - lc_tensor)
-        
-        super().optimizer_step()
-
     def validate(self):
         """
         Ngăn chặn Ultralytics Validator gọi model.fuse() làm mất trọng số LoRA.
@@ -324,6 +308,17 @@ class CustomDetectionTrainer(DetectionTrainer):
                 if param.requires_grad and param.grad is not None and name in self.global_weights:
                     prox_term = param.data - self.global_weights[name].to(param.device)
                     param.grad.data.add_(prox_term, alpha=self.fedprox_mu)
+
+        # [SCAFFOLD] Inject Control Variates
+        if getattr(self, 'global_c', None) is not None and getattr(self, 'local_c', None) is not None:
+            id_to_name = {id(p): n for n, p in self.model.named_parameters()}
+            for p in self.model.parameters():
+                if p.grad is not None:
+                    name = id_to_name.get(id(p))
+                    if name and name in self.global_c and name in self.local_c:
+                        gc_tensor = self.global_c[name].to(p.device)
+                        lc_tensor = self.local_c[name].to(p.device)
+                        p.grad.data.add_(gc_tensor - lc_tensor)
 
         # [CRITICAL FIX] Gradient Clipping to prevent explosion
         import torch

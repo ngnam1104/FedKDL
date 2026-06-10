@@ -194,7 +194,12 @@ class AUVWorker2D(BaseWorker):
             # Fake packing for simulation (Float32 payload)
             payload_bytes = new_state
             # Calculate bytes based on float32 (4 bytes per param)
-            total_params = sum(t.numel() for t in new_state.values())
+            total_params = 0
+            for k, v in new_state.items():
+                if k == '__scaffold_delta_c__':
+                    total_params += sum(t.numel() for t in v.values())
+                else:
+                    total_params += v.numel()
             payload_kb = (total_params * 4) / 1024.0
             print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB Float32")
 
@@ -928,6 +933,7 @@ class Simulator2D(BaseSimulator):
         trainer.head_lr_multiplier = getattr(self.fed_cfg, 'KD_HEAD_LR_MULT', 8.0)  # Head LR boost trong Gateway KD
         trainer.lora_lr_multiplier = getattr(self.fed_cfg, 'KD_LORA_LR_MULT', 2.0)  # LoRA LR boost trong Gateway KD
         trainer.student_wrapper = self.global_student
+        trainer.logit_kd_only = (self.baseline == 'logit_kd')
         
         # [CÂN BẰNG LOSS] stu_lambda được đọc từ config (mặc định 0.5 = cân bằng Supervised/KD)
         trainer.stu_lambda = getattr(self.fed_cfg, 'KD_STU_LAMBDA', 0.50)

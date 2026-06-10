@@ -438,38 +438,50 @@ class KDDetectionTrainer(DetectionTrainer):
         imgs = batch['img']
 
         # ── 2. Thu hidden features của Student (trong pha forward hiện tại) ─
-        if self.batch_count == 0:
-            print(f"\n[KD - Batch 1] Đang forward Student ({self.model.__class__.__name__}) để trích xuất LoRA Projections...")
-        s_hook, s_handles = _register_lora_hooks(self.model)
-        # Forward lại student để thu features. Không dùng inference/no_grad để tránh
-        # tạo tensor không theo dõi version counter trong graph huấn luyện.
-        _ = self.model(imgs)
-        student_projs = dict(s_hook.outputs)
-        _remove_hooks(s_handles)
-        s_hook.clear()
-        if self.batch_count == 0:
-            total_s = sum(len(v) for v in student_projs.values())
-            print(f"[KD - Batch 1] Student captured {total_s} LoRA projections across {len(student_projs)} stages.")
+        if not getattr(self, 'logit_kd_only', False):
+            if self.batch_count == 0:
+                print(f"\n[KD - Batch 1] Đang forward Student ({self.model.__class__.__name__}) để trích xuất LoRA Projections...")
+            s_hook, s_handles = _register_lora_hooks(self.model)
+            # Forward lại student để thu features
+            _ = self.model(imgs)
+            student_projs = dict(s_hook.outputs)
+            _remove_hooks(s_handles)
+            s_hook.clear()
+            if self.batch_count == 0:
+                total_s = sum(len(v) for v in student_projs.values())
+                print(f"[KD - Batch 1] Student captured {total_s} LoRA projections across {len(student_projs)} stages.")
+        else:
+            student_projs = {}
 
         # ── 3. Forward Teacher (no gradient) + thu features ──────────────
-        if self.batch_count == 0:
-            print(f"[KD - Batch 1] Đang forward Teacher ({self.teacher_model.__class__.__name__}) để trích xuất LoRA Projections...")
-        t_hook, t_handles = _register_lora_hooks(self.teacher_model)
-        with torch.no_grad():
-            t_preds = self.teacher_model(imgs)
-            # Task loss của Teacher (để tính adaptive denominator)
-            try:
-                loss_tch, _ = self.original_criterion(t_preds, batch)
-                loss_tch = loss_tch.detach()
-            except Exception:
-                loss_tch = torch.tensor(1.0, device=loss_stu.device)
+        if not getattr(self, 'logit_kd_only', False):
+            if self.batch_count == 0:
+                print(f"[KD - Batch 1] Đang forward Teacher ({self.teacher_model.__class__.__name__}) để trích xuất LoRA Projections...")
+            t_hook, t_handles = _register_lora_hooks(self.teacher_model)
+            
+            with torch.no_grad():
+                t_preds = self.teacher_model(imgs)
+                try:
+                    loss_tch, _ = self.original_criterion(t_preds, batch)
+                    loss_tch = loss_tch.detach()
+                except Exception:
+                    loss_tch = torch.tensor(1.0, device=loss_stu.device)
 
-        teacher_projs = dict(t_hook.outputs)
-        _remove_hooks(t_handles)
-        t_hook.clear()
-        if self.batch_count == 0:
-            total_t = sum(len(v) for v in teacher_projs.values())
-            print(f"[KD - Batch 1] Teacher captured {total_t} LoRA projections across {len(teacher_projs)} stages.")
+            teacher_projs = dict(t_hook.outputs)
+            _remove_hooks(t_handles)
+            t_hook.clear()
+            if self.batch_count == 0:
+                total_t = sum(len(v) for v in teacher_projs.values())
+                print(f"[KD - Batch 1] Teacher captured {total_t} LoRA projections across {len(teacher_projs)} stages.")
+        else:
+            teacher_projs = {}
+            with torch.no_grad():
+                t_preds = self.teacher_model(imgs)
+                try:
+                    loss_tch, _ = self.original_criterion(t_preds, batch)
+                    loss_tch = loss_tch.detach()
+                except Exception:
+                    loss_tch = torch.tensor(1.0, device=loss_stu.device)
 
         # ── 4. KL Divergence trên soft logits ────────────────────────────
         if self.batch_count == 0:
@@ -537,54 +549,58 @@ class KDDetectionTrainer(DetectionTrainer):
 
         # ── 4. Bounding Box KD Loss (Regression) ────────────────────────────
         # Box KD bắt buộc phải có MASK vì Box của Teacher ở vùng background là rác (không có vật thể).
-        try:
-            def _extract_bboxes(p):
-                # 1. Handle YOLOv11 new dict format
-                train_out = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], dict)) else p
-                if isinstance(train_out, dict):
-                    if 'bboxes' in train_out:
-                        return train_out['bboxes']
-                    elif 'pred_bboxes' in train_out:
-                        return train_out['pred_bboxes']
-                    elif 'boxes' in train_out:
-                        return train_out['boxes']
-                
-                # 2. Handle older list format
-                feats = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], list)) else p
-                if isinstance(feats, list) and len(feats) > 0:
-                    cat = torch.cat([xi.view(xi.shape[0], xi.shape[1], -1) for xi in feats], 2)
-                    reg_max = 16
-                    return cat[:, :reg_max * 4, :]
-                
-                # 3. Handle inference tensor format
-                if isinstance(p, torch.Tensor):
-                    return p[:, :4, :]
-                
-                return None
+        loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
+        if not getattr(self, 'logit_kd_only', False):
+            try:
+                def _extract_bboxes(p):
+                    # 1. Handle YOLOv11 new dict format
+                    train_out = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], dict)) else p
+                    if isinstance(train_out, dict):
+                        if 'bboxes' in train_out:
+                            return train_out['bboxes']
+                        elif 'pred_bboxes' in train_out:
+                            return train_out['pred_bboxes']
+                        elif 'boxes' in train_out:
+                            return train_out['boxes']
+                    
+                    # 2. Handle older list format
+                    feats = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], list)) else p
+                    if isinstance(feats, list) and len(feats) > 0:
+                        cat = torch.cat([xi.view(xi.shape[0], xi.shape[1], -1) for xi in feats], 2)
+                        reg_max = 16
+                        return cat[:, :reg_max * 4, :]
+                    
+                    # 3. Handle inference tensor format
+                    if isinstance(p, torch.Tensor):
+                        return p[:, :4, :]
+                    
+                    return None
 
-            s_box = _extract_bboxes(preds)
-            t_box = _extract_bboxes(t_preds)
+                s_box = _extract_bboxes(preds)
+                t_box = _extract_bboxes(t_preds)
 
-            if s_box is not None and t_box is not None and s_box.shape == t_box.shape:
-                t_prob_raw = torch.sigmoid(t_cls).detach()
-                fg_mask = (t_prob_raw.max(dim=1, keepdim=True)[0] > 0.05).float()
-                valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
-                
-                loss_box_unreduced = F.mse_loss(s_box, t_box.detach(), reduction='none')
-                loss_box_kd = (loss_box_unreduced * fg_mask).sum() / (valid_anchors * s_box.shape[1])
-            else:
+                if s_box is not None and t_box is not None and s_box.shape == t_box.shape:
+                    t_prob_raw = torch.sigmoid(t_cls).detach()
+                    fg_mask = (t_prob_raw.max(dim=1, keepdim=True)[0] > 0.05).float()
+                    valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
+                    
+                    loss_box_unreduced = F.mse_loss(s_box, t_box.detach(), reduction='none')
+                    loss_box_kd = (loss_box_unreduced * fg_mask).sum() / (valid_anchors * s_box.shape[1])
+                else:
+                    if self.batch_count == 0:
+                        s_shape = s_box.shape if s_box is not None else None
+                        t_shape = t_box.shape if t_box is not None else None
+                        print(f"[KD Warning] Extract bboxes failed or mismatch. s_box: {s_shape}, t_box: {t_shape}")
+                    loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
+            except Exception as e:
                 if self.batch_count == 0:
-                    s_shape = s_box.shape if s_box is not None else None
-                    t_shape = t_box.shape if t_box is not None else None
-                    print(f"[KD Warning] Extract bboxes failed or mismatch. s_box: {s_shape}, t_box: {t_shape}")
+                    print(f"[KD] Box fallback Error: {e}")
                 loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
-        except Exception as e:
-            if self.batch_count == 0:
-                print(f"[KD] Box fallback Error: {e}")
-            loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
 
         # ── 5. LoRA-Projection Alignment Loss ──────────────────────────────────────
-        loss_lora_proj = _lora_projection_mse_loss(student_projs, teacher_projs).to(loss_stu.device)
+        loss_lora_proj = torch.tensor(0.0, device=loss_stu.device)
+        if not getattr(self, 'logit_kd_only', False):
+            loss_lora_proj = _lora_projection_mse_loss(student_projs, teacher_projs).to(loss_stu.device)
 
         # Bật lại Feature KD (dựa trên LoRA Projection)
         # Thay thế hoàn toàn SP Loss nặng nề và giải quyết tốt độ lệch kênh (Channel Mismatch) 
