@@ -91,26 +91,42 @@ fi
 #
 # Topology:
 #   Flat (hfl=False): fedavg, fedprox, fedkd, centralized
-#   HFL  (hfl=True):  tat ca con lai
+#   HFL  (hfl=True):  fedavg_hfl, fedprox_hfl, flora, scaffold, topk_grad,
+#                     fedkdl, fedkdl_nocoop, logit_kd, fedkdl_nokd, ...
+#
+# NGUYEN TAC: RQ1 = Flat topology; RQ2/3/4 = HFL topology.
+# Do do: RQ1 dung "fedavg" (flat), RQ2/3 dung "fedavg_hfl" (HFL).
 # =========================================================
 
 # Primary - chay dau tien, dung lam reference moi RQ
 FEDKDL_FIRST=("fedkdl")
 
-# RQ1: Flat baselines
+# RQ1: So sanh ket noi/on dinh - TAT CA FLAT (flat vs. fedkdl HFL)
 RQ1_BASELINES=("fedavg" "fedprox")
 
-# RQ2: Compression baselines (HFL + fedavg flat ref)
-RQ2_BASELINES=("fedavg" "topk_grad" "flora")
+# RQ2: Nen truyen thong - TAT CA HFL
+# fedavg_hfl = HFL FedAvg (reference HFL, khong nen)
+# topk_grad  = HFL + Top-K sparse gradient
+# flora      = HFL + LoRA Float32 (no INT8)
+# fedkdl     = HFL + LoRA INT8 + KD (da chay)
+RQ2_BASELINES=("fedavg_hfl" "topk_grad" "flora")
 
-# RQ3: Non-IID + Relay Cooperation (HFL + fedavg flat ref)
-RQ3_BASELINES=("fedavg" "scaffold" "flora" "fedkdl_nocoop")
+# RQ3: Non-IID va Relay Cooperation - TAT CA HFL
+# fedavg_hfl  = HFL FedAvg (reference, khong xu ly non-IID)
+# scaffold    = HFL + Control Variates (xu ly drift)
+# flora       = HFL + LoRA (da chay RQ2, skip neu co log)
+# fedkdl_nocoop = HFL + LoRA INT8 + KD, khong relay coop
+# fedkdl      = HFL + LoRA INT8 + KD + relay coop (da chay)
+RQ3_BASELINES=("fedavg_hfl" "scaffold" "flora" "fedkdl_nocoop")
 
-# RQ4: KD ablation (HFL)
+# RQ4: Gateway KD Ablation - TAT CA HFL
+# fedkdl_nokd = HFL + LoRA INT8, khong KD
+# logit_kd    = HFL + LoRA INT8 + Logit KD (KL-divergence)
+# fedkdl      = HFL + LoRA INT8 + Projection KD (da chay)
 RQ4_BASELINES=("fedkdl_nokd" "logit_kd")
 
-# Ablation extras
-ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedavg_hfl" "fedprox_hfl")
+# Ablation extras (neu con thoi gian)
+ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedprox_hfl")
 
 total_tasks=20
 current_task=0
