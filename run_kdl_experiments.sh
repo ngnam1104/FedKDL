@@ -139,6 +139,7 @@ RUN_BASELINES=(
   "fedavg_hfl"
   "topk_grad"
   "flora"
+  "naive_lora"
   "scaffold"
   "fedkdl_nocoop"
   "fedkdl_selective"
