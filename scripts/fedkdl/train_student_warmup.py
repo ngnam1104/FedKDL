@@ -53,7 +53,7 @@ def run_warmup(epochs: int):
         'model': "yolo12n.pt",
         'data': str(proxy_yaml),
         'epochs': epochs,
-        'batch': 16,
+        'batch': 8,          # Giảm xuống 8 để tránh OOM khi chạy song song Teacher+Student trên T4 15GB
         'workers': 2,
         'lr0': 2e-3,
         'warmup_bias_lr': 2e-3,
@@ -62,7 +62,7 @@ def run_warmup(epochs: int):
         'lrf': 1.0,
         'cos_lr': False,
         'device': device,
-        'amp': False,
+        'amp': True,          # Bật AMP để tiết kiệm VRAM ~30%
         'project': str(REPO_ROOT / "runs/student_warmup_lora"),
         'name': 'yolo12n_lora_warmup',
         'exist_ok': True,
@@ -127,6 +127,74 @@ def run_warmup(epochs: int):
         split="val",
     )
     baked_tmp_path.unlink(missing_ok=True)  # Xóa file tạm
+
+
+def run_warmup_fullparam(epochs: int):
+    """Warmup Detection Head (khong LoRA) tren Proxy Data de dong bo voi LoRA warmup.
+
+    Ly do: fedavg, fedprox, scaffold, topk_grad, fedkdl_nolora... dung full_param=True.
+    Neu ho bat dau voi head random-init trong khi LoRA baselines da warmup 5 epochs,
+    so sanh se khong cong bang -> tao yolo12n_head_warmup.pt cho nhom nay.
+    """
+    print("==================================================")
+    print(f"[Full-Param Warmup] Warm-up YOLO12n (Full Param, Head nc=4)")
+    print("==================================================")
+
+    proxy_yaml = REPO_ROOT / "datasets/URPC2020_proxy.yaml"
+    save_path = REPO_ROOT / "yolo12n_head_warmup.pt"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    print(f"-> Loading yolo12n.pt (Full Param, thay Head nc=4)...")
+    student = StudentModel(
+        ckpt="yolo12n.pt",
+        rank=0,
+        nc=4,
+        full_param=True,
+        use_lora=False,
+    )
+
+    overrides = {
+        'model': "yolo12n.pt",
+        'data': str(proxy_yaml),
+        'epochs': epochs,
+        'batch': 8,
+        'workers': 2,
+        'lr0': 1e-3,
+        'warmup_bias_lr': 1e-3,
+        'optimizer': 'AdamW',
+        'warmup_epochs': 0.0,
+        'lrf': 1.0,
+        'cos_lr': False,
+        'device': device,
+        'amp': True,
+        'project': str(REPO_ROOT / "runs/student_warmup_fullparam"),
+        'name': 'yolo12n_fullparam_warmup',
+        'exist_ok': True,
+        'verbose': True,
+        'save': True,
+        'val': False,
+        'plots': False,
+        'close_mosaic': 0,
+    }
+
+    trainer = CustomDetectionTrainer(
+        overrides=overrides,
+        student_wrapper=student,
+        cached_optimizer_state=None,
+    )
+    trainer._fl_injected_model = student.yolo.model
+    trainer.model = student.yolo.model
+    # Full-param: head va backbone dung cung LR, khong phan biet LoRA/Head
+    trainer.head_lr_multiplier = 1.0
+    trainer.lora_lr_multiplier = 1.0
+
+    print(f"\n-> Bat dau full-param warm-up {epochs} epochs tren: {proxy_yaml.name} (lr={overrides['lr0']:.1e})")
+    trainer.train()
+
+    student.yolo.model.float()
+    ckpt = {"model": student.yolo.model, "epoch": epochs}
+    torch.save(ckpt, save_path)
+    print(f"\n[Thanh cong] Da luu Full-Param warmup tai: {save_path}")
 
 
 def run_centralized_lora(
@@ -335,7 +403,7 @@ def run_centralized_topk_grad(epochs: int, patience: int = 30, resume: bool = Fa
 
 def main():
     parser = argparse.ArgumentParser(description="Chạy Warmup hoặc Centralized Baselines")
-    parser.add_argument("--mode", type=str, default="all", choices=["warmup", "centralized_lora", "centralized_full", "centralized_topk", "all"],
+    parser.add_argument("--mode", type=str, default="all", choices=["warmup", "warmup_fullparam", "centralized_lora", "centralized_full", "centralized_topk", "all"],
                         help="Chế độ chạy (mặc định: all)")
     parser.add_argument("--epochs-warmup", type=int, default=3, help="Số epoch cho warmup")
     parser.add_argument("--epochs-centralized", type=int, default=150, help="Số epoch cho centralized tests")
@@ -345,10 +413,14 @@ def main():
     args = parser.parse_args()
 
     if args.mode in ["warmup", "all"]:
-        # [FIX] 5 epoch warmup để Detection Head (random init) hội tụ đủ
-        # trước khi centralized phase bắt đầu (mặc định cũ là 3, quá ngắn).
+        # [FIX] 5 epoch warmup de Detection Head (random init) hoi tu du
+        # truoc khi centralized phase bat dau (mac dinh cu la 3, qua ngan).
         warmup_epochs = max(args.epochs_warmup, 5)
         run_warmup(epochs=warmup_epochs)
+
+    if args.mode in ["warmup_fullparam", "all"]:
+        warmup_epochs = max(args.epochs_warmup, 5)
+        run_warmup_fullparam(epochs=warmup_epochs)
         
     if args.mode in ["centralized_lora", "all"]:
         run_centralized_lora(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume)

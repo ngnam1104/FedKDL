@@ -68,12 +68,32 @@ if [[ -f "yolo12n_warmup.pt" ]]; then
   echo "[KDL] yolo12n_warmup.pt da ton tai, BO QUA buoc Warm-up."
 else
   set +e
-  "$PYTHON" scripts/fedkdl/train_student_warmup.py --mode warmup --epochs-warmup 3
+  "$PYTHON" scripts/fedkdl/train_student_warmup.py --mode warmup --epochs-warmup 5
   STUDENT_RC=$?
   set -e
   if [[ $STUDENT_RC -ne 0 ]]; then
     echo "[Warning] train_student_warmup.py exit=$STUDENT_RC."
     if [[ ! -f "yolo12n_warmup.pt" ]]; then
+      exit 1
+    fi
+  fi
+fi
+
+# =========================================================
+# BƯỚC 3: Warmup Full-Param (Detection Head, khong LoRA)
+# Dam bao cong bang voi LoRA baselines khi so sanh mAP
+# =========================================================
+echo "[KDL] Dang Warm-up Student (Full-Param, Head only)..."
+if [[ -f "yolo12n_head_warmup.pt" ]]; then
+  echo "[KDL] yolo12n_head_warmup.pt da ton tai, BO QUA."
+else
+  set +e
+  "$PYTHON" scripts/fedkdl/train_student_warmup.py --mode warmup_fullparam --epochs-warmup 5
+  FP_RC=$?
+  set -e
+  if [[ $FP_RC -ne 0 ]]; then
+    echo "[Warning] warmup_fullparam exit=$FP_RC."
+    if [[ ! -f "yolo12n_head_warmup.pt" ]]; then
       exit 1
     fi
   fi
