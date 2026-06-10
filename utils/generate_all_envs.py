@@ -100,9 +100,8 @@ def main():
                                     base_yaml_path="datasets/URPC2020.yaml"
                                 )
                             else:
-                                data_part = EnvironmentManager.generate_data_partition(
-                                    net_cfg, dataset_name=ds, alpha=alpha, seed=seed
-                                )
+                                print(f"  [error] Dataset {ds} không được hỗ trợ (chỉ hỗ trợ URPC).")
+                                continue
                             EnvironmentManager.save_data_partition(data_part, task_type)
                         else:
                             print(f"  [dry-run] se sinh data_N{n}_{ds}_a{alpha}_seed{seed}.pkl")
