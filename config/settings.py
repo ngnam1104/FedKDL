@@ -109,7 +109,7 @@ class FedKDLConfig:
     KD_STU_LAMBDA: float = 0.50     # Trọng số Supervised Loss trong KD (0.5 = cân bằng GT/KD)
     KD_HEAD_LR_MULT: float = 8.0    # Head LR = LoRA LR × multiplier trong Gateway KD
     KD_LORA_LR_MULT: float = 2.0    # LoRA LR multiplier in Gateway KD
-    KD_EPOCHS: int = 2
+    KD_EPOCHS: int = 1
     KD_BATCH_SIZE: int = 16
     KD_WORKERS: int = 0
     KD_AMP: bool = False
