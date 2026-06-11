@@ -130,6 +130,10 @@ class BaseSimulator(ABC):
         """
         pass
 
+    def _transport_relay_state(self, state):
+        """Hook for task-specific R2R/R2G serialization and reconstruction."""
+        return state
+
     def run(self, T_rounds: int, baseline: str = None) -> list:
         if baseline is not None:
             self.baseline = baseline
@@ -323,6 +327,7 @@ class BaseSimulator(ABC):
             from physics_models.energy import e_tx, e_svd
             dead_relays = []
             e_svd_total = 0.0
+            svd_calls_by_relay = {}
 
             def _intra_relay_job(args):
                 m, relay = args
@@ -337,7 +342,7 @@ class BaseSimulator(ABC):
                 svd_cost = 0.0
                 if uses_relay_svd and has_updates:
                     svd_cost = e_svd(
-                        d_out=256, d_in=128, n_svd_calls=2,
+                        d_out=256, d_in=128, n_svd_calls=1,
                         epsilon_op=self.en_cfg.EPSILON_OP.get(self.task_key, 2.0e-12)
                     )
                 return m, 'ok', r2r_cost, svd_cost
@@ -357,6 +362,8 @@ class BaseSimulator(ABC):
                         e_r2r_total += r2r_cost
                         self.relays[m].deduct_battery(svd_cost, min_battery=self.en_cfg.RELAY_E_MIN)
                         e_svd_total += svd_cost
+                        if svd_cost > 0.0:
+                            svd_calls_by_relay[m] = 1
 
             if self.baseline in DETECTION_BASELINE_CONFIGS:
                 coop_rule = parse_2d_baseline_config(self.baseline).coop_rule
@@ -388,9 +395,27 @@ class BaseSimulator(ABC):
                     feasibility_graph=self.G,
                     all_relays_intra_states=all_intra,
                     q1_distance=q1_dist,
+                    transport_state=self._transport_relay_state,
                 )
                 if did_coop and partner_id is not None:
                     cooperation_partners[m] = partner_id
+                    uses_relay_svd = False
+                    if self.baseline in DETECTION_BASELINE_CONFIGS:
+                        cfg = parse_2d_baseline_config(self.baseline)
+                        uses_relay_svd = cfg.use_lora and cfg.lora_aggregation == "svd"
+                    if uses_relay_svd:
+                        final_svd_cost = e_svd(
+                            d_out=256,
+                            d_in=128,
+                            n_svd_calls=1,
+                            epsilon_op=self.en_cfg.EPSILON_OP.get(self.task_key, 2.0e-12),
+                        )
+                        e_svd_total += final_svd_cost
+                        svd_calls_by_relay[m] = svd_calls_by_relay.get(m, 0) + 1
+                        relay.deduct_battery(
+                            final_svd_cost,
+                            min_battery=self.en_cfg.RELAY_E_MIN,
+                        )
                     link_key_fwd = ('relay', partner_id, 'relay', m)
                     link_key_bwd = ('relay', m, 'relay', partner_id)
                     key = link_key_fwd if link_key_fwd in self.G else (link_key_bwd if link_key_bwd in self.G else None)
@@ -401,7 +426,10 @@ class BaseSimulator(ABC):
                             self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
                         )
                         e_r2r_total += e_coop_tx
-                        relay.deduct_battery(e_coop_tx, min_battery=self.en_cfg.RELAY_E_MIN)
+                        self.relays[partner_id].deduct_battery(
+                            e_coop_tx,
+                            min_battery=self.en_cfg.RELAY_E_MIN,
+                        )
             
             # Tính năng lượng gửi Relay -> Gateway và trừ vào pin Relay
             if not self.is_flat:
@@ -422,19 +450,24 @@ class BaseSimulator(ABC):
 
             # --- Phase 3: Global Aggregation ---
             relay_final = {
-                m: relay.final_state_dict
+                m: self._transport_relay_state(relay.final_state_dict)
                 for m, relay in self.relays.items()
                 if relay.final_state_dict is not None
                 and any(sid in payloads for sid in relay.cluster_members)
             }
             cluster_samples = {m: sum(auv_n_samples.get(s_id, 0) for s_id in relay.cluster_members) for m, relay in self.relays.items()}
             lora_aggregation = "svd"
+            server_mix_beta = 1.0
             if self.baseline in DETECTION_BASELINE_CONFIGS:
-                lora_aggregation = parse_2d_baseline_config(self.baseline).lora_aggregation
+                detection_cfg = parse_2d_baseline_config(self.baseline)
+                lora_aggregation = detection_cfg.lora_aggregation
+                if detection_cfg.server_mix:
+                    server_mix_beta = getattr(self.fed_cfg, 'SERVER_MIX_BETA', 0.90)
             self.gateway.aggregate_global(
                 relay_final,
                 cluster_samples,
                 lora_aggregation=lora_aggregation,
+                server_mix_beta=server_mix_beta,
             )
 
             # --- [SCAFFOLD] Cập nhật Global Control Variates ---
@@ -483,7 +516,9 @@ class BaseSimulator(ABC):
                 uses_relay_svd = cfg.use_lora and cfg.lora_aggregation == "svd"
             tau_svd = 0.0
             if uses_relay_svd and payloads:
+                max_svd_calls = max(svd_calls_by_relay.values(), default=0)
                 tau_svd = relay_comp_delay(
+                    n_svd_calls=max_svd_calls,
                     f_cpu=self.en_cfg.F_CPU,
                     n_cores=getattr(self.en_cfg, 'N_CORES', 6),
                     flops_per_cycle=getattr(self.en_cfg, 'FLOPS_PER_CYCLE', 4.0)
@@ -574,6 +609,7 @@ class BaseSimulator(ABC):
                 'lambda_tau':         lambda_tau,
                 'joint_cost_round':   joint_cost_round,
                 'joint_cost_cumul':   cumulative_joint_cost,
+                'server_mix_beta':    server_mix_beta,
                 
                 # ── Per-AUV Local Evaluation ──────────────────────────────────
                 'auv_train_metrics': auv_local_metrics,

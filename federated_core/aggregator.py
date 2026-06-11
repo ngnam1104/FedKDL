@@ -95,6 +95,31 @@ def fedavg_global(
     raise ValueError(f"Unknown LoRA aggregation strategy: {lora_aggregation}")
 
 
+def mix_server_state(
+    old_state: Dict[str, torch.Tensor],
+    aggregated_state: Dict[str, torch.Tensor],
+    beta: float,
+    lora_aggregation: str = "svd",
+) -> Dict[str, torch.Tensor]:
+    """
+    Interpolate the previous global state with the current aggregate.
+
+    For SVD-LoRA, interpolation is performed on effective B @ A matrices and
+    refactorized. Averaging A/B independently would reintroduce cross terms.
+    """
+    beta = float(beta)
+    if not 0.0 < beta <= 1.0:
+        raise ValueError(f"Server mix beta must be in (0, 1], got {beta}")
+    if beta == 1.0:
+        return copy.deepcopy(aggregated_state)
+    weights = [1.0 - beta, beta]
+    if lora_aggregation == "svd":
+        return svd_lora_aggregate([old_state, aggregated_state], weights)
+    if lora_aggregation == "naive":
+        return weighted_state_dict_average([old_state, aggregated_state], weights)
+    raise ValueError(f"Unknown LoRA aggregation strategy: {lora_aggregation}")
+
+
 def _weighted_fedavg_tensors(tensors: List[torch.Tensor], weights: List[float]) -> torch.Tensor:
     if len(tensors) != len(weights):
         raise ValueError(f"Expected one weight per tensor, got {len(tensors)} tensors and {len(weights)} weights.")
@@ -123,6 +148,20 @@ def _weighted_fedavg_control_dicts(dicts: List[Dict[str, torch.Tensor]], weights
         key_weights = [w / weight_sum for w in key_weights] if weight_sum > 0 else [1.0 / len(tensors)] * len(tensors)
         out[key] = _weighted_fedavg_tensors(tensors, key_weights).to(tensors[0].dtype)
     return out
+
+
+def _canonicalize_svd_signs(
+    U: torch.Tensor,
+    Vh: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Resolve SVD sign ambiguity without changing U @ diag(S) @ Vh."""
+    if U.numel() == 0:
+        return U, Vh
+    columns = torch.arange(U.shape[1], device=U.device)
+    pivot_rows = U.abs().argmax(dim=0)
+    signs = torch.sign(U[pivot_rows, columns])
+    signs = torch.where(signs == 0, torch.ones_like(signs), signs)
+    return U * signs.unsqueeze(0), Vh * signs.unsqueeze(1)
 
 
 def weighted_state_dict_average(
@@ -253,6 +292,7 @@ def svd_lora_aggregate(
             sqrt_S = torch.sqrt(S[:keep]).float()
             U_r = U[:, :keep].float()
             Vh_r = Vh[:keep, :].float()
+            U_r, Vh_r = _canonicalize_svd_signs(U_r, Vh_r)
 
             B_new = torch.zeros((out_features, rank), dtype=torch.float32, device=U_r.device)
             A_new = torch.zeros((rank, in_features), dtype=torch.float32, device=Vh_r.device)

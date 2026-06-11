@@ -468,12 +468,14 @@ def local_sgd_od(
         local_cache_dataset = getattr(fed_cfg, 'LOCAL_CACHE_DATASET', getattr(fed_cfg, 'CACHE_DATASET', True))
         local_amp = getattr(fed_cfg, 'LOCAL_AMP', True)
         local_workers = getattr(fed_cfg, 'LOCAL_DATALOADER_WORKERS', 8)
+        local_augment = getattr(fed_cfg, 'LOCAL_AUGMENT', False)
         grad_diagnostics = getattr(fed_cfg, 'GRAD_DIAGNOSTICS', False)
     except Exception:
         fed_cfg = None
         local_cache_dataset = True
         local_amp = True
         local_workers = 8
+        local_augment = False
         grad_diagnostics = False
 
     # 2. Chuẩn bị overrides cho Ultralytics Trainer
@@ -484,7 +486,18 @@ def local_sgd_od(
         'epochs': epochs,
         'batch': batch_size,
         'mosaic': 0.0,
-        'augment': False,
+        'mixup': 0.0,
+        'augment': local_augment,
+        'hsv_h': getattr(fed_cfg, 'LOCAL_HSV_H', 0.01) if fed_cfg else 0.01,
+        'hsv_s': getattr(fed_cfg, 'LOCAL_HSV_S', 0.30) if fed_cfg else 0.30,
+        'hsv_v': getattr(fed_cfg, 'LOCAL_HSV_V', 0.20) if fed_cfg else 0.20,
+        'translate': getattr(fed_cfg, 'LOCAL_TRANSLATE', 0.05) if fed_cfg else 0.05,
+        'scale': getattr(fed_cfg, 'LOCAL_SCALE', 0.15) if fed_cfg else 0.15,
+        'fliplr': getattr(fed_cfg, 'LOCAL_FLIPLR', 0.50) if fed_cfg else 0.50,
+        'flipud': 0.0,
+        'degrees': 0.0,
+        'shear': 0.0,
+        'perspective': 0.0,
         'close_mosaic': 0,
         'lr0': lr,
         'optimizer': opt_choice,
@@ -571,8 +584,9 @@ def local_sgd_od(
             print(f"[OptimState] Không thể extract optimizer state: {e}")
 
     # Đảm bảo không có bất kỳ trọng số nào ngoài LoRA và head bị thay đổi.
-    # [FedBN] Loại trừ BN params khỏi check: BN được train local và KHÔNG aggregate,
-    # nên chúng được phép thay đổi (đây là thiết kế của FedBN, không phải lỗi).
+    # BN belongs to the transmitted/aggregated payload, so it is not part of
+    # frozen_weights_before. Keep the name guard for compatibility with older
+    # checkpoints whose payload selection may differ.
     if not student_model.full_param:
         for k, v in student_model.yolo.model.named_parameters():
             if k in frozen_weights_before and 'bn' not in k:

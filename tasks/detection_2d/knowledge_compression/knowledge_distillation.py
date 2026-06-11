@@ -3,24 +3,10 @@ knowledge_distillation.py
 Custom DetectionTrainer kế thừa Ultralytics YOLO để tích hợp KD loss đầy đủ.
 Không chỉnh sửa source code của Ultralytics — chỉ override criterion().
 
-Hàm loss đa nhiệm (LoRA-Projection KD):
-
-    L_total = L_stu + λ * [KL(y^s, y^t) + MSE(b^s, b^t) + MSE(h^s, h^t)]
-                            ───────────────────────────────────────────────
-                                       L_tch + L_stu
-
-Trong đó:
-    - L_stu : YOLO task loss của Student
-    - L_tch : YOLO task loss của Teacher (tính riêng, không backward)
-    - KL    : KL Divergence trên soft logits (temperature T=4)
-    - MSE(b): Box MSE loss giữa dự đoán Teacher và Student
-    - MSE(h): LoRA-Projection Loss — MSE giữa h=Ax của Teacher và Student
-              ghép cặp theo Stage (Backbone↔Backbone, Neck↔Neck, Head↔Head)
-              + Proportional Matching trong mỗi Stage
-
-Mẫu số (L_tch + L_stu) đóng vai trò bộ điều tiết động: khi Teacher
-sai lệch lớn (L_tch tăng), trọng lượng distillation giảm về 0,
-ngăn Student học từ tri thức nhiễu (Adaptive KD Weighting).
+L_total = λ_sup L_sup + ρ_t (w_cls L_cls + w_box L_box + w_proj L_proj).
+Mỗi nhánh KD được chuẩn hóa theo đóng góp supervised rồi phân bổ theo trọng số
+cấu hình. ρ_t giảm dần theo vòng FL; confidence mask của Teacher loại background
+yếu, còn box KD kết hợp DFL-KL và CIoU.
 """
 import torch
 import torch.nn as nn
@@ -28,6 +14,75 @@ import torch.nn.functional as F
 from typing import Optional, List, Tuple
 
 from ultralytics.models.yolo.detect.train import DetectionTrainer
+from ultralytics.utils.metrics import bbox_iou
+from ultralytics.utils.tal import dist2bbox, make_anchors
+
+
+def _compose_balanced_kd(
+    loss_stu: torch.Tensor,
+    stu_weight: float,
+    component_values: dict[str, torch.Tensor],
+    component_weights: dict[str, float],
+    kd_lambda: float,
+    balance_by_supervised: bool,
+    scale_min: float,
+    scale_max: float,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Normalize active KD branches and return their weighted contribution."""
+    supervised_scalar = loss_stu if loss_stu.ndim == 0 else loss_stu.sum()
+    supervised_weighted = supervised_scalar.detach().abs() * float(stu_weight)
+    active_names = [
+        name
+        for name, value in component_values.items()
+        if component_weights[name] > 0.0 and value.detach().abs().item() > 1e-12
+    ]
+    active_weight_sum = sum(component_weights[name] for name in active_names)
+    balanced_components = {
+        name: loss_stu.new_tensor(0.0)
+        for name in component_values
+    }
+
+    for name in active_names:
+        value = component_values[name]
+        normalized_weight = component_weights[name] / max(active_weight_sum, 1e-12)
+        if balance_by_supervised:
+            component_scale = (
+                supervised_weighted / value.detach().abs().clamp_min(1e-8)
+            ).clamp(min=scale_min, max=scale_max)
+        else:
+            component_scale = value.new_tensor(1.0)
+        balanced_components[name] = value * component_scale * normalized_weight
+
+    balanced_kd = sum(
+        balanced_components.values(),
+        loss_stu.new_tensor(0.0),
+    )
+    if balance_by_supervised:
+        kd_reference = balanced_kd.detach().abs().clamp_min(1e-8)
+        kd_scale = (
+            float(kd_lambda) * supervised_weighted / kd_reference
+        ).clamp(min=scale_min, max=scale_max)
+    else:
+        kd_scale = balanced_kd.new_tensor(float(kd_lambda))
+
+    weighted_components = {
+        name: value * kd_scale
+        for name, value in balanced_components.items()
+    }
+    weighted_kd = sum(
+        weighted_components.values(),
+        loss_stu.new_tensor(0.0),
+    )
+    actual_kd_ratio = (
+        weighted_kd.detach().abs() / supervised_weighted.clamp_min(1e-8)
+    )
+    return (
+        supervised_weighted,
+        weighted_components,
+        weighted_kd,
+        kd_scale,
+        actual_kd_ratio,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -199,8 +254,11 @@ class KDDetectionTrainer(DetectionTrainer):
     Teacher: YOLOv12-Large (~40M params), frozen, eval mode.
     Student: yolo12n với LoRA injection.
 
-    Loss tổng hợp:
-        L_total = L_stu + [KL(y^s, y^t) + MSE(H,H) + MSE(A,A)] / (L_tch + L_stu)
+    Loss:
+        L_total = stu_weight * L_stu + scale * (L_KL + L_box + L_projection)
+
+    Gateway KD chooses a detached scale so the KD term contributes the
+    configured fraction of the weighted supervised loss.
     """
 
     def __init__(self, overrides=None, _callbacks=None):
@@ -209,6 +267,16 @@ class KDDetectionTrainer(DetectionTrainer):
         self.student_wrapper = None
         self.kd_temperature: float = 4.0
         self.kd_lambda: float = 0.5
+        self.kd_balance_by_supervised: bool = False
+        self.kd_balance_scale_min: float = 0.001
+        self.kd_balance_scale_max: float = 4.0
+        self.kd_cls_weight: float = 0.45
+        self.kd_box_weight: float = 0.35
+        self.kd_proj_weight: float = 0.20
+        self.kd_conf_threshold: float = 0.10
+        self.kd_conf_gamma: float = 2.0
+        self.kd_dfl_weight: float = 1.0
+        self.kd_ciou_weight: float = 0.5
         
         # Accumulators for logging KD loss
         self.epoch_box_loss = 0.0
@@ -217,6 +285,11 @@ class KDDetectionTrainer(DetectionTrainer):
         self.epoch_kd_loss = 0.0
         self.epoch_stu_loss = 0.0
         self.epoch_kd_only_loss = 0.0
+        self.epoch_kd_scale = 0.0
+        self.epoch_kd_ratio = 0.0
+        self.epoch_cls_contrib = 0.0
+        self.epoch_box_contrib = 0.0
+        self.epoch_proj_contrib = 0.0
         self.batch_count = 0
         self.kd_epoch_history = []
 
@@ -270,6 +343,11 @@ class KDDetectionTrainer(DetectionTrainer):
                 mean_lora = trainer.epoch_lora_loss / trainer.batch_count
                 mean_stu = trainer.epoch_stu_loss / trainer.batch_count
                 mean_kd_only = trainer.epoch_kd_only_loss / trainer.batch_count
+                mean_kd_scale = trainer.epoch_kd_scale / trainer.batch_count
+                mean_kd_ratio = trainer.epoch_kd_ratio / trainer.batch_count
+                mean_cls_contrib = trainer.epoch_cls_contrib / trainer.batch_count
+                mean_box_contrib = trainer.epoch_box_contrib / trainer.batch_count
+                mean_proj_contrib = trainer.epoch_proj_contrib / trainer.batch_count
                 mean_weighted = trainer.epoch_kd_loss / trainer.batch_count
 
                 print(
@@ -279,6 +357,10 @@ class KDDetectionTrainer(DetectionTrainer):
                     f"Box: {mean_box:.4f} | "
                     f"KL: {mean_kl:.4f} | "
                     f"LoRA_Proj: {mean_lora:.4f} | "
+                    f"KD Scale: {mean_kd_scale:.4f} | "
+                    f"KD/Sup: {mean_kd_ratio:.3f} | "
+                    f"Contrib C/B/P: {mean_cls_contrib:.4f}/"
+                    f"{mean_box_contrib:.4f}/{mean_proj_contrib:.4f} | "
                     f"Total: {mean_weighted:.4f}"
                 )
 
@@ -287,6 +369,13 @@ class KDDetectionTrainer(DetectionTrainer):
                     'box': float(mean_box),
                     'kl': float(mean_kl),
                     'lora_proj': float(mean_lora),
+                    'kd_scale': float(mean_kd_scale),
+                    'kd_ratio': float(mean_kd_ratio),
+                    'kd_contrib': float(mean_kd_only),
+                    'cls_contrib': float(mean_cls_contrib),
+                    'box_contrib': float(mean_box_contrib),
+                    'proj_contrib': float(mean_proj_contrib),
+                    'total': float(mean_weighted),
                     'weighted': float(mean_weighted),
                     'batches': int(trainer.batch_count),
                 })
@@ -296,6 +385,11 @@ class KDDetectionTrainer(DetectionTrainer):
                 trainer.epoch_kd_loss = 0.0
                 trainer.epoch_stu_loss = 0.0
                 trainer.epoch_kd_only_loss = 0.0
+                trainer.epoch_kd_scale = 0.0
+                trainer.epoch_kd_ratio = 0.0
+                trainer.epoch_cls_contrib = 0.0
+                trainer.epoch_box_contrib = 0.0
+                trainer.epoch_proj_contrib = 0.0
                 trainer.batch_count = 0
                 
         self.add_callback("on_train_epoch_end", log_kd_loss)
@@ -491,11 +585,6 @@ class KDDetectionTrainer(DetectionTrainer):
             
             with torch.no_grad():
                 t_preds = self.teacher_model(imgs)
-                try:
-                    loss_tch, _ = self.original_criterion(t_preds, batch)
-                    loss_tch = loss_tch.detach()
-                except Exception:
-                    loss_tch = torch.tensor(1.0, device=loss_stu.device)
 
             teacher_projs = dict(self._t_hook.outputs)
             self._t_hook.clear()
@@ -506,16 +595,12 @@ class KDDetectionTrainer(DetectionTrainer):
             teacher_projs = {}
             with torch.no_grad():
                 t_preds = self.teacher_model(imgs)
-                try:
-                    loss_tch, _ = self.original_criterion(t_preds, batch)
-                    loss_tch = loss_tch.detach()
-                except Exception:
-                    loss_tch = torch.tensor(1.0, device=loss_stu.device)
 
         # ── 4. KL Divergence trên soft logits ────────────────────────────
         if self.batch_count == 0:
             print("[KD - Batch 1] Đang tính toán Distillation Loss (KL/Hidden/Attn)...")
-        T = 4.0  # Tăng Temperature để soft-label của Teacher mờ hơn, tránh ép Student quá cứng
+        temperature = max(float(getattr(self, 'kd_temperature', 4.0)), 1e-6)
+        anchor_weight = None
         try:
             def _extract_cls(p):
                 # 1. Handle YOLOv11 new dict format
@@ -541,28 +626,32 @@ class KDDetectionTrainer(DetectionTrainer):
             t_cls = _extract_cls(t_preds)
             
             if s_cls is not None and t_cls is not None and s_cls.shape == t_cls.shape:
-                # [CRITICAL FIX v9] Áp dụng Quality Focal Loss (QFL) cho KD!
-                # Vấn đề gốc rễ: Tính BCE trên TẤT CẢ 8400 anchors khiến Background (vốn chiếm 99%) 
-                # tạo ra một khối lượng Loss khổng lồ (dù đã chia sum), đè bẹp Foreground và làm tụt Recall.
-                # Giải pháp đỉnh cao: Dùng Focal Weight = |Teacher_Prob - Student_Prob|^gamma
-                # Khi đó, Background (nơi Student đã đoán đúng là 0) sẽ bị triệt tiêu Loss về 0.
-                # Còn những chỗ Student đoán sai (False Positive hoặc False Negative) sẽ được nhân mạnh lên!
-                t_prob = torch.sigmoid(t_cls).detach()
+                # Teacher confidence suppresses the dominant background anchors
+                # so KD focuses on locations carrying object evidence.
+                teacher_confidence = torch.sigmoid(t_cls).detach()
+                t_prob = torch.sigmoid(t_cls / temperature).detach()
+
+                anchor_confidence = teacher_confidence.max(dim=1, keepdim=True)[0]
+                confidence_threshold = float(getattr(self, 'kd_conf_threshold', 0.10))
+                confidence_gamma = float(getattr(self, 'kd_conf_gamma', 2.0))
+                anchor_weight = (
+                    (anchor_confidence > confidence_threshold).to(anchor_confidence.dtype)
+                    * anchor_confidence.pow(confidence_gamma)
+                )
+                weight_sum = anchor_weight.sum().clamp_min(1e-8)
                 
-                # [CRITICAL FIX v13] Masked KD (Foreground Only)
-                # Thay vì QFL trên toàn bộ 537,600 anchors (dẫn đến nổ Loss khi lệch kiến trúc),
-                # ta CHỈ distill ở những vùng Teacher có sự tự tin (t_prob > 0.05).
-                # Còn vùng Background, YOLO Supervised Loss đã lo liệu rất tốt!
-                fg_mask = (t_prob.max(dim=1, keepdim=True)[0] > 0.05).float()
-                valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
+                # Binary-logit KD with temperature. T^2 preserves the standard
+                # gradient scale before the contribution-ratio normalization.
+                loss_kl_unreduced = F.binary_cross_entropy_with_logits(
+                    s_cls / temperature,
+                    t_prob,
+                    reduction='none',
+                ) * (temperature ** 2)
                 
-                # Tính BCE nguyên bản
-                loss_kl_unreduced = F.binary_cross_entropy_with_logits(s_cls, t_prob, reduction='none')
-                
-                # Tính Mean BCE trên Foreground (chia cho số anchors * số classes)
-                # Bỏ nhân hệ số 10.0 vì Mean BCE ở vùng Foreground tự nhiên đã rơi vào khoảng 3.0 - 5.0,
-                # tương đương hoàn hảo với cls_loss gốc của YOLO (từ 2.0 - 4.5).
-                loss_kl = (loss_kl_unreduced * fg_mask).sum() / (valid_anchors * s_cls.shape[1])
+                loss_kl = (
+                    (loss_kl_unreduced * anchor_weight).sum()
+                    / (weight_sum * s_cls.shape[1])
+                )
             else:
                 if self.batch_count == 0:
                     s_shape = s_cls.shape if s_cls is not None else None
@@ -581,42 +670,89 @@ class KDDetectionTrainer(DetectionTrainer):
         loss_box_kd = torch.tensor(0.0, device=loss_stu.device)
         if not getattr(self, 'logit_kd_only', False):
             try:
-                def _extract_bboxes(p):
+                def _extract_bboxes_and_feats(p):
                     # 1. Handle YOLOv11 new dict format
                     train_out = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], dict)) else p
                     if isinstance(train_out, dict):
                         if 'bboxes' in train_out:
-                            return train_out['bboxes']
+                            return train_out['bboxes'], train_out.get('feats')
                         elif 'pred_bboxes' in train_out:
-                            return train_out['pred_bboxes']
+                            return train_out['pred_bboxes'], train_out.get('feats')
                         elif 'boxes' in train_out:
-                            return train_out['boxes']
+                            return train_out['boxes'], train_out.get('feats')
                     
                     # 2. Handle older list format
                     feats = p[1] if (isinstance(p, tuple) and len(p) > 1 and isinstance(p[1], list)) else p
                     if isinstance(feats, list) and len(feats) > 0:
                         cat = torch.cat([xi.view(xi.shape[0], xi.shape[1], -1) for xi in feats], 2)
                         reg_max = 16
-                        return cat[:, :reg_max * 4, :]
+                        return cat[:, :reg_max * 4, :], feats
                     
                     # 3. Handle inference tensor format
                     if isinstance(p, torch.Tensor):
-                        return p[:, :4, :]
+                        return p[:, :4, :], None
                     
-                    return None
+                    return None, None
 
-                s_box = _extract_bboxes(preds)
-                t_box = _extract_bboxes(t_preds)
+                s_box, s_feats = _extract_bboxes_and_feats(preds)
+                t_box, _ = _extract_bboxes_and_feats(t_preds)
 
-                if s_box is not None and t_box is not None and s_box.shape == t_box.shape:
-                    t_prob_raw = torch.sigmoid(t_cls).detach()
-                    fg_mask = (t_prob_raw.max(dim=1, keepdim=True)[0] > 0.05).float()
-                    valid_anchors = torch.clamp(fg_mask.sum(), min=1.0)
-                    
-                    loss_box_unreduced = F.mse_loss(s_box, t_box.detach(), reduction='none')
-                    # [CRITICAL FIX] Box logits MSE thường rất lớn (~20.0) do scale của DFL layer.
-                    # Nhân với 0.02 để kéo về cùng hệ quy chiếu với KL loss (~0.4)
-                    loss_box_kd = ((loss_box_unreduced * fg_mask).sum() / (valid_anchors * s_box.shape[1])) * 0.02
+                if (
+                    s_box is not None
+                    and t_box is not None
+                    and s_box.shape == t_box.shape
+                    and s_box.shape[1] > 4
+                    and s_box.shape[1] % 4 == 0
+                    and s_feats is not None
+                    and anchor_weight is not None
+                ):
+                    batch_size, channels, anchors = s_box.shape
+                    reg_max = channels // 4
+                    s_dfl = s_box.permute(0, 2, 1).reshape(batch_size, anchors, 4, reg_max)
+                    t_dfl = t_box.detach().permute(0, 2, 1).reshape(batch_size, anchors, 4, reg_max)
+                    box_anchor_weight = anchor_weight.squeeze(1)
+                    box_weight_sum = box_anchor_weight.sum().clamp_min(1e-8)
+
+                    t_dfl_prob = F.softmax(t_dfl, dim=-1)
+                    dfl_kl = F.kl_div(
+                        F.log_softmax(s_dfl, dim=-1),
+                        t_dfl_prob,
+                        reduction='none',
+                    ).sum(dim=-1)
+                    loss_dfl_kd = (
+                        (dfl_kl * box_anchor_weight.unsqueeze(-1)).sum()
+                        / (box_weight_sum * 4.0)
+                    )
+
+                    anchor_points, _ = make_anchors(
+                        s_feats,
+                        self.original_criterion.stride,
+                        0.5,
+                    )
+                    projection = torch.arange(
+                        reg_max,
+                        device=s_dfl.device,
+                        dtype=s_dfl.dtype,
+                    )
+                    s_distance = F.softmax(s_dfl, dim=-1).matmul(projection)
+                    t_distance = t_dfl_prob.matmul(projection)
+                    s_decoded = dist2bbox(s_distance, anchor_points, xywh=False)
+                    t_decoded = dist2bbox(t_distance, anchor_points, xywh=False)
+                    ciou = bbox_iou(
+                        s_decoded,
+                        t_decoded.detach(),
+                        xywh=False,
+                        CIoU=True,
+                    ).squeeze(-1)
+                    loss_ciou_kd = (
+                        ((1.0 - ciou) * box_anchor_weight).sum()
+                        / box_weight_sum
+                    )
+
+                    loss_box_kd = (
+                        loss_dfl_kd
+                        + float(getattr(self, 'kd_ciou_weight', 0.5)) * loss_ciou_kd
+                    )
                 else:
                     if self.batch_count == 0:
                         s_shape = s_box.shape if s_box is not None else None
@@ -633,29 +769,54 @@ class KDDetectionTrainer(DetectionTrainer):
         if not getattr(self, 'logit_kd_only', False):
             loss_lora_proj = _lora_projection_mse_loss(student_projs, teacher_projs).to(loss_stu.device)
 
-        # Bật lại Feature KD (dựa trên LoRA Projection)
-        # Thay thế hoàn toàn SP Loss nặng nề và giải quyết tốt độ lệch kênh (Channel Mismatch) 
-        # do A_teacher và A_student đều được chiếu về không gian có chiều = Rank (VD: 8).
-        loss_dist_adaptive = loss_kl + loss_box_kd + loss_lora_proj
-        
-        # Mở lại Supervised Loss để giữ mỏ neo Ground Truth
-        # [CRITICAL FIX] Tăng stu_weight từ 0.2 lên 1.0 để Student không bị chững lại (learn chậm)
-        # [CRITICAL FIX] Cân bằng 50-50 giữa Teacher và Ground Truth
+        # Keep ground-truth supervision as the reference scale. Gateway KD
+        # interprets kd_lambda as the target KD/supervised contribution ratio.
         stu_weight = getattr(self, 'stu_lambda', 0.5)
         total_loss = loss_stu.clone() * stu_weight
+
+        component_values = {
+            'cls': loss_kl,
+            'box': loss_box_kd,
+            'proj': loss_lora_proj,
+        }
+        component_weights = {
+            'cls': max(float(getattr(self, 'kd_cls_weight', 0.45)), 0.0),
+            'box': max(float(getattr(self, 'kd_box_weight', 0.35)), 0.0),
+            'proj': max(float(getattr(self, 'kd_proj_weight', 0.20)), 0.0),
+        }
+        (
+            supervised_weighted,
+            weighted_components,
+            weighted_kd,
+            kd_scale,
+            actual_kd_ratio,
+        ) = _compose_balanced_kd(
+            loss_stu=loss_stu,
+            stu_weight=stu_weight,
+            component_values=component_values,
+            component_weights=component_weights,
+            kd_lambda=self.kd_lambda,
+            balance_by_supervised=getattr(self, 'kd_balance_by_supervised', False),
+            scale_min=self.kd_balance_scale_min,
+            scale_max=self.kd_balance_scale_max,
+        )
         
         if total_loss.ndim == 0:
-            total_loss = total_loss + self.kd_lambda * loss_dist_adaptive
+            total_loss = total_loss + weighted_kd
         else:
-            total_loss[0] = total_loss[0] + self.kd_lambda * loss_dist_adaptive
-        
+            total_loss[0] = total_loss[0] + weighted_kd
+
         self.epoch_box_loss += loss_box_kd.item()
         self.epoch_kl_loss += loss_kl.item()
         self.epoch_lora_loss += loss_lora_proj.item()
-        stu_loss_val = (loss_stu.item() if loss_stu.ndim == 0 else loss_stu[0].item())
-        self.epoch_stu_loss += (stu_loss_val * stu_weight)
-        self.epoch_kd_only_loss += (self.kd_lambda * loss_dist_adaptive.item())
-        self.epoch_kd_loss += total_loss.item() if total_loss.ndim == 0 else total_loss[0].item()
+        self.epoch_stu_loss += supervised_weighted.item()
+        self.epoch_kd_only_loss += weighted_kd.item()
+        self.epoch_kd_scale += kd_scale.item()
+        self.epoch_kd_ratio += actual_kd_ratio.item()
+        self.epoch_cls_contrib += weighted_components['cls'].item()
+        self.epoch_box_contrib += weighted_components['box'].item()
+        self.epoch_proj_contrib += weighted_components['proj'].item()
+        self.epoch_kd_loss += total_loss.item() if total_loss.ndim == 0 else total_loss.sum().item()
         self.batch_count += 1
 
         return total_loss, loss_items
@@ -669,6 +830,13 @@ class KDDetectionTrainer(DetectionTrainer):
                 'kd_box': 0.0,
                 'kd_kl': 0.0,
                 'kd_lora': 0.0,
+                'kd_scale': 0.0,
+                'kd_ratio': 0.0,
+                'kd_contrib': 0.0,
+                'kd_total': 0.0,
+                'kd_cls_contrib': 0.0,
+                'kd_box_contrib': 0.0,
+                'kd_proj_contrib': 0.0,
                 'kd_weighted': 0.0,
             }
 
@@ -679,6 +847,15 @@ class KDDetectionTrainer(DetectionTrainer):
             'kd_box': float(sum(e['box'] for e in self.kd_epoch_history) / n),
             'kd_kl': float(sum(e['kl'] for e in self.kd_epoch_history) / n),
             'kd_lora': float(sum(e['lora_proj'] for e in self.kd_epoch_history) / n),
+            'kd_scale': float(sum(e['kd_scale'] for e in self.kd_epoch_history) / n),
+            'kd_ratio': float(sum(e['kd_ratio'] for e in self.kd_epoch_history) / n),
+            'kd_contrib': float(sum(e['kd_contrib'] for e in self.kd_epoch_history) / n),
+            'kd_total': float(sum(e['total'] for e in self.kd_epoch_history) / n),
+            'kd_cls_contrib': float(sum(e['cls_contrib'] for e in self.kd_epoch_history) / n),
+            'kd_box_contrib': float(sum(e['box_contrib'] for e in self.kd_epoch_history) / n),
+            'kd_proj_contrib': float(sum(e['proj_contrib'] for e in self.kd_epoch_history) / n),
+            # Backward-compatible alias: historical logs used kd_weighted for
+            # the complete KD training objective rather than KD contribution.
             'kd_weighted': float(sum(e['weighted'] for e in self.kd_epoch_history) / n),
             'kd_last_epoch': self.kd_epoch_history[-1],
             'kd_epoch_history': list(self.kd_epoch_history),

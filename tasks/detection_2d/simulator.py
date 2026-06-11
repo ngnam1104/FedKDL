@@ -12,7 +12,11 @@ from federated_core.workers import BaseWorker, BaseRelayNode, BaseGateway
 from tasks.detection_2d.baselines import parse_baseline_config
 from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
 from tasks.detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_auv_train
-from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
+from tasks.detection_2d.knowledge_compression.int8_quantization import (
+    pack_delta_payload,
+    pack_payload,
+    unpack_delta_payload,
+)
 
 
 class AUVWorker2D(BaseWorker):
@@ -76,10 +80,6 @@ class AUVWorker2D(BaseWorker):
         local_student = StudentModel(student_ckpt, rank=rank, nc=nc, full_param=full_param, use_lora=use_lora)
         local_student.load_trainable_state_dict(global_state)
 
-        # [FedBN FIX] Restore persistent local BN parameters if they exist from previous rounds
-        if getattr(self, '_local_bn_state', None) is not None:
-            local_student.yolo.model.load_state_dict(self._local_bn_state, strict=False)
-
         # Cấp phát Teacher cục bộ nếu chạy thuật toán FedKD (Local KD)
         local_teacher = None
         if cfg.local_kd:
@@ -94,6 +94,21 @@ class AUVWorker2D(BaseWorker):
         # [TWEAK] ĐÃ GỠ BỎ: Trước đây giảm cực mạnh LR để chống Gradient Explosion khi AdamW bị cold-start
         # Nhưng nay đã chuyển sang SGD, SGD cần giữ nguyên LR gốc (0.001) để hội tụ tốt.
         # lr = lr * (0.1 if use_lora else 0.5)
+        optimizer_state_for_round = self._optimizer_state
+        if (
+            optimizer_state_for_round
+            and use_lora
+            and cfg.lora_aggregation == "svd"
+        ):
+            # SVD can rotate or flip the LoRA factor basis between rounds.
+            # Momentum attached to old A/B coordinates is therefore invalid,
+            # while Head/BN momentum remains in a stable parameter basis.
+            optimizer_state_for_round = {
+                key: value
+                for key, value in optimizer_state_for_round.items()
+                if 'lora_' not in key
+            }
+
         new_state, delta_norm, train_loss, new_opt_state = local_sgd_od(
             student_model=local_student,
             auv_yaml=self.auv_yaml,
@@ -105,7 +120,7 @@ class AUVWorker2D(BaseWorker):
             fedprox_mu=fedprox_mu,
             global_weights=global_weights,
             local_teacher=local_teacher,
-            cached_optimizer_state=self._optimizer_state,  # Phục hồi cache optimizer để SGD giữ đà Momentum
+            cached_optimizer_state=optimizer_state_for_round,
             global_c=global_c,
             local_c=local_c,
             cached_train_loader=self._train_loader,
@@ -126,13 +141,6 @@ class AUVWorker2D(BaseWorker):
             # SCAFFOLD itself is currently a Float32 baseline in parse_baseline_config.
             new_state.pop('__scaffold_delta_c__')
         
-        # [FedBN FIX] Save local BN parameters for the next round
-        current_sd = local_student.yolo.model.state_dict()
-        self._local_bn_state = {
-            k: v.cpu().clone() for k, v in current_sd.items() 
-            if 'bn' in k or 'running' in k or 'tracked' in k
-        }
-
         # Lưu optimizer state cho vòng sau
         self._optimizer_state = new_opt_state
 
@@ -175,9 +183,16 @@ class AUVWorker2D(BaseWorker):
             payload_kb = payload_bytes.payload_bytes / 1024.0
             print(f"[AUV {self.auv_id}] [Top-K] Sparse Payload: {payload_kb:.1f} KB (K={self._topk_compressor.K}/{total_params} params)")
         elif use_int8:
-            # [USER REQUEST] Ép lượng tử hóa INT8 TRỰC TIẾP trên trọng số gốc (Không dùng Delta)
-            payload_bytes, payload_kb = pack_payload(new_state)
-            print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB INT8 (Raw) "
+            # Quantize the local update rather than absolute weights. Payload
+            # size is unchanged, while the smaller per-tensor range sharply
+            # reduces repeated quantization error across FL rounds.
+            use_delta_payload = getattr(fed_cfg, 'INT8_DELTA_PAYLOAD', True)
+            if use_delta_payload:
+                payload_bytes, payload_kb = pack_delta_payload(new_state, global_state)
+            else:
+                payload_bytes, payload_kb = pack_payload(new_state)
+            payload_mode = "Delta" if use_delta_payload else "Raw"
+            print(f"[AUV {self.auv_id}] Payload: {payload_kb:.1f} KB INT8 {payload_mode} "
                   f"(target ≤ {fed_cfg.TARGET_PAYLOAD_KB:.0f} KB)")
         else:
             # Fake packing for simulation (Float32 payload)
@@ -245,8 +260,13 @@ class RelayNode2D(BaseRelayNode):
                     else:
                         state[k] = v
             elif use_kd_lora_int8 and isinstance(payload, (bytes, bytearray)):
-                # INT8 LoRA payload (RAW, NO DELTA)
-                state = unpack_payload(payload, global_state_dict)
+                # INT8 update: reconstruct the client state from the exact
+                # global state used at the beginning of this FL round.
+                from config.settings import fed_cfg
+                if getattr(fed_cfg, 'INT8_DELTA_PAYLOAD', True):
+                    state = unpack_delta_payload(payload, global_state_dict)
+                else:
+                    state = unpack_payload(payload, global_state_dict)
             else:
                 # Float32 full-state dict (legacy fallback)
                 state = payload
@@ -504,9 +524,10 @@ class Simulator2D(BaseSimulator):
         # 2. Xây dựng Histogram cho toàn bộ mạng lưới
         N = self.net_cfg.N_AUVS
         M = getattr(self.net_cfg, 'M_RELAYS_2D', self.net_cfg.M_RELAYS)
-        nc = getattr(self.global_student.yolo.model.yaml, 'nc', 80) if hasattr(self.global_student.yolo.model, 'yaml') else 80
-        if isinstance(nc, dict) and 'nc' in nc: nc = nc['nc'] # fallback cho kiểu dict
-        elif not isinstance(nc, int): nc = 80
+        model_yaml = getattr(self.global_student.yolo.model, 'yaml', {})
+        nc = model_yaml.get('nc', 80) if isinstance(model_yaml, dict) else 80
+        if not isinstance(nc, int):
+            nc = 80
 
         if cfg.hfl and getattr(self.fed_cfg, 'BETA_EMD', 0.0) > 0.0:
             print(f"\n[Simulator2D] Building knowledge-aware association (EMD beta={self.fed_cfg.BETA_EMD})...")
@@ -676,6 +697,16 @@ class Simulator2D(BaseSimulator):
         )
         return 0.0
 
+    def _transport_relay_state(self, state):
+        """Apply the modeled Relay link codec to R2R and R2G learning states."""
+        if not self.baseline_cfg.use_int8:
+            return state
+        if getattr(self.fed_cfg, 'INT8_DELTA_PAYLOAD', True):
+            payload, _ = pack_delta_payload(state, self.gateway.global_state_dict)
+            return unpack_delta_payload(payload, self.gateway.global_state_dict)
+        payload, _ = pack_payload(state)
+        return unpack_payload(payload, self.gateway.global_state_dict)
+
     def _pre_warm_dataset_cache(self):
         """
         [OPTION B] Pre-warm YOLO label cache cho tất cả AUV datasets TRƯỚC vòng FL đầu tiên.
@@ -808,6 +839,16 @@ class Simulator2D(BaseSimulator):
         }
 
         trainer = CustomDetectionTrainer(overrides=overrides, student_wrapper=self.global_student)
+        # Keep Proxy-FT and KD optimizer settings identical so the ablation
+        # isolates teacher supervision rather than differential learning rates.
+        trainer.head_lr_multiplier = getattr(
+            self.fed_cfg, 'PROXY_FT_HEAD_LR_MULT',
+            getattr(self.fed_cfg, 'KD_HEAD_LR_MULT', 4.0),
+        )
+        trainer.lora_lr_multiplier = getattr(
+            self.fed_cfg, 'PROXY_FT_LORA_LR_MULT',
+            getattr(self.fed_cfg, 'KD_LORA_LR_MULT', 1.0),
+        )
         self.global_student.strip_inference_tensors()
         self.global_student.load_trainable_state_dict(self.gateway.global_state_dict)
         trainer._fl_injected_model = self.global_student.yolo.model
@@ -823,6 +864,10 @@ class Simulator2D(BaseSimulator):
             'kd_box': 0.0,
             'kd_kl': 0.0,
             'kd_lora': 0.0,
+            'kd_scale': 0.0,
+            'kd_ratio': 0.0,
+            'kd_contrib': 0.0,
+            'kd_total': 0.0,
             'kd_weighted': 0.0,
             'gateway_proxy_ft_active': True,
             'gateway_proxy_ft_epochs': overrides['epochs'],
@@ -854,6 +899,10 @@ class Simulator2D(BaseSimulator):
                 'kd_box': 0.0,
                 'kd_kl': 0.0,
                 'kd_lora': 0.0,
+                'kd_scale': 0.0,
+                'kd_ratio': 0.0,
+                'kd_contrib': 0.0,
+                'kd_total': 0.0,
                 'kd_weighted': 0.0,
             }
             return self._last_kd_metrics
@@ -889,6 +938,10 @@ class Simulator2D(BaseSimulator):
                 'kd_box': 0.0,
                 'kd_kl': 0.0,
                 'kd_lora': 0.0,
+                'kd_scale': 0.0,
+                'kd_ratio': 0.0,
+                'kd_contrib': 0.0,
+                'kd_total': 0.0,
                 'kd_weighted': 0.0,
                 'kd_skip_reason': skip_reason,
             }
@@ -900,30 +953,53 @@ class Simulator2D(BaseSimulator):
             self._kd_disabled = False
         if not hasattr(self, '_consec_drop_count'):
             self._consec_drop_count = 0
+        if not hasattr(self, '_kd_applied_rounds'):
+            self._kd_applied_rounds = []
+        if not hasattr(self, '_kd_assessed_rounds'):
+            self._kd_assessed_rounds = set()
 
-        if kd_adaptive_dropout and self._kd_disabled:
-            print("[Gateway KD] Skipping KD (Adaptive Dropout active; training strictly with FL).")
-            self._last_kd_metrics = {
-                'kd_active': False, 'kd_epochs': 0,
-                'kd_kl': 0.0, 'kd_hidden': 0.0,
-                'kd_attn': 0.0, 'kd_weighted': 0.0,
-            }
-            return self._last_kd_metrics
+        # At the next scheduled KD call, assess the previous KD round against
+        # the immediately preceding pure-FL round. This avoids confusing normal
+        # round-to-round noise with harm caused by KD itself.
+        history = getattr(self, '_round_metrics_history', [])
+        for kd_round in self._kd_applied_rounds:
+            if kd_round in self._kd_assessed_rounds or kd_round < 2 or len(history) < kd_round:
+                continue
+            before = history[kd_round - 2]
+            after = history[kd_round - 1]
 
-        if hasattr(self, '_round_metrics_history') and len(self._round_metrics_history) >= 2:
-            prev = self._round_metrics_history[-2]
-            curr = self._round_metrics_history[-1]
-            prev_score = (prev.get('mAP50', 0) + prev.get('Prec', 0) + prev.get('Rec', 0)) / 3.0
-            curr_score = (curr.get('mAP50', 0) + curr.get('Prec', 0) + curr.get('Rec', 0)) / 3.0
-            if curr_score < prev_score:
+            def _quality(metrics):
+                return (
+                    float(metrics.get('mAP50-95', 0.0))
+                    + 0.25 * float(metrics.get('mAP50', 0.0))
+                    + 0.25 * float(metrics.get('Rec', 0.0))
+                )
+
+            quality_delta = _quality(after) - _quality(before)
+            self._kd_assessed_rounds.add(kd_round)
+            if quality_delta < 0.0:
                 self._consec_drop_count += 1
-                limit = consec_drop_threshold if kd_adaptive_dropout else "monitor"
-                print(f"[Gateway KD] Metrics drop detected ({self._consec_drop_count}/{limit}).")
+                print(
+                    f"[Gateway KD] Harm check R{kd_round}: Δquality={quality_delta:+.5f} "
+                    f"({self._consec_drop_count}/{consec_drop_threshold})."
+                )
                 if kd_adaptive_dropout and self._consec_drop_count >= consec_drop_threshold:
                     self._kd_disabled = True
-                    print("[Gateway KD] Adaptive Dropout enabled; disabling KD for subsequent rounds.")
             else:
                 self._consec_drop_count = 0
+                print(f"[Gateway KD] Benefit check R{kd_round}: Δquality={quality_delta:+.5f}.")
+
+        if kd_adaptive_dropout and self._kd_disabled:
+            print("[Gateway KD] Skipping KD after repeated measured harm; continuing with pure FL.")
+            self._last_kd_metrics = {
+                'kd_active': False, 'kd_epochs': 0,
+                'kd_box': 0.0, 'kd_kl': 0.0,
+                'kd_lora': 0.0, 'kd_scale': 0.0,
+                'kd_ratio': 0.0, 'kd_contrib': 0.0,
+                'kd_total': 0.0, 'kd_weighted': 0.0,
+                'kd_skip_reason': 'adaptive_harm',
+            }
+            return self._last_kd_metrics
 
         from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
 
@@ -957,11 +1033,28 @@ class Simulator2D(BaseSimulator):
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.head_lr_multiplier = getattr(self.fed_cfg, 'KD_HEAD_LR_MULT', 4.0)
         trainer.lora_lr_multiplier = getattr(self.fed_cfg, 'KD_LORA_LR_MULT', 1.0)
+        trainer.kd_temperature = getattr(self.fed_cfg, 'KD_TEMPERATURE', 4.0)
         trainer.student_wrapper = self.global_student
         trainer.logit_kd_only = cfg.logit_kd_only
         
         # [CÂN BẰNG LOSS] stu_lambda được đọc từ config (mặc định 0.5 = cân bằng Supervised/KD)
         trainer.stu_lambda = getattr(self.fed_cfg, 'KD_STU_LAMBDA', 0.50)
+        trainer.kd_balance_by_supervised = getattr(
+            self.fed_cfg, 'KD_BALANCE_BY_SUPERVISED', True
+        )
+        trainer.kd_balance_scale_min = getattr(
+            self.fed_cfg, 'KD_BALANCE_SCALE_MIN', 0.001
+        )
+        trainer.kd_balance_scale_max = getattr(
+            self.fed_cfg, 'KD_BALANCE_SCALE_MAX', 4.0
+        )
+        trainer.kd_cls_weight = getattr(self.fed_cfg, 'KD_CLS_WEIGHT', 0.45)
+        trainer.kd_box_weight = getattr(self.fed_cfg, 'KD_BOX_WEIGHT', 0.35)
+        trainer.kd_proj_weight = getattr(self.fed_cfg, 'KD_PROJ_WEIGHT', 0.20)
+        trainer.kd_conf_threshold = getattr(self.fed_cfg, 'KD_CONF_THRESHOLD', 0.10)
+        trainer.kd_conf_gamma = getattr(self.fed_cfg, 'KD_CONF_GAMMA', 2.0)
+        trainer.kd_dfl_weight = getattr(self.fed_cfg, 'KD_DFL_WEIGHT', 1.0)
+        trainer.kd_ciou_weight = getattr(self.fed_cfg, 'KD_CIOU_WEIGHT', 0.5)
         
         kd_lambda_start = self.fed_cfg.KD_LAMBDA_START
         kd_lambda_floor = self.fed_cfg.KD_LAMBDA_FLOOR
@@ -971,7 +1064,8 @@ class Simulator2D(BaseSimulator):
         trainer.kd_lambda = kd_lambda
         print(
             f"[Gateway KD] Round {current_r}/{total_r} | interval={kd_interval} | "
-            f"kd_lambda={kd_lambda:.3f} | stu_lambda={trainer.stu_lambda:.2f}"
+            f"target_kd_ratio={kd_lambda:.3f} | stu_lambda={trainer.stu_lambda:.2f} | "
+            f"balanced={trainer.kd_balance_by_supervised}"
         )
         
         trainer.set_teacher(self.teacher.yolo.model)
@@ -998,9 +1092,14 @@ class Simulator2D(BaseSimulator):
             'kd_box': 0.0,
             'kd_kl': 0.0,
             'kd_lora': 0.0,
+            'kd_scale': 0.0,
+            'kd_ratio': 0.0,
+            'kd_contrib': 0.0,
+            'kd_total': 0.0,
             'kd_weighted': 0.0,
         }
         self._last_kd_metrics = kd_metrics
+        self._kd_applied_rounds.append(current_r)
 
         if kd_metrics.get('kd_active', False):
             print(
@@ -1008,7 +1107,9 @@ class Simulator2D(BaseSimulator):
                 f"Box={kd_metrics.get('kd_box', 0.0):.4f}, "
                 f"KL={kd_metrics.get('kd_kl', 0.0):.4f}, "
                 f"LoRA_Proj={kd_metrics.get('kd_lora', 0.0):.4f}, "
-                f"Weighted={kd_metrics.get('kd_weighted', 0.0):.4f}"
+                f"KD/Sup={kd_metrics.get('kd_ratio', 0.0):.3f}, "
+                f"KD Contrib={kd_metrics.get('kd_contrib', 0.0):.4f}, "
+                f"Total={kd_metrics.get('kd_total', 0.0):.4f}"
             )
 
         # Cập nhật global state dict sau KD

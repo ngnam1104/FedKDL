@@ -20,10 +20,13 @@ from typing import Any, Dict, List
 import torch
 
 from federated_core.aggregator import (
+    mix_server_state,
     svd_lora_aggregate,
     weighted_state_dict_average,
 )
 from federated_core.hfl_rules import blend_state_dicts
+from federated_core.hfl_rules import find_coop_partner
+from federated_core.metrics import LatencyTracker
 from federated_core.workers import BaseGateway
 from tasks.detection_2d.baselines import (
     BASELINE_CONFIGS,
@@ -31,13 +34,22 @@ from tasks.detection_2d.baselines import (
     STANDARD_BASELINES,
     BaselineConfig,
 )
-from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload, unpack_payload
+from tasks.detection_2d.knowledge_compression.int8_quantization import (
+    pack_delta_payload,
+    pack_payload,
+    unpack_delta_payload,
+    unpack_payload,
+)
+from tasks.detection_2d.knowledge_compression.knowledge_distillation import (
+    _compose_balanced_kd,
+)
 from tasks.detection_2d.knowledge_compression.topk_sparsification import (
     SparseFloatPayload,
     TopKCompressor,
     flatten_state_dict,
     unflatten_state_dict,
 )
+from config.settings import fed_cfg
 
 
 @dataclass
@@ -124,7 +136,8 @@ def encode_auv_payload(
         payload = SparseFloatPayload(idx, values, total_params=flat.numel(), shapes=shapes)
         return payload, payload.payload_bytes / 1024.0, "topk_sparse"
     if cfg.use_int8:
-        payload, kb = pack_payload(state)
+        delta = {key: state[key] - global_state[key] for key in global_state}
+        payload, kb = pack_payload(delta)
         return payload, kb, "int8"
 
     params = sum(value.numel() for value in state.values() if torch.is_tensor(value))
@@ -145,7 +158,11 @@ def decode_auv_payload(
     if payload_kind == "int8":
         if not isinstance(payload, (bytes, bytearray)):
             raise AssertionError("INT8 AUV payload must be bytes")
-        return unpack_payload(payload, global_state)
+        recovered_delta = unpack_payload(payload, global_state)
+        return {
+            key: global_state[key] + recovered_delta[key]
+            for key in global_state
+        }
     if not isinstance(payload, dict):
         raise AssertionError("Float32 AUV payload must be a state dict")
     return payload
@@ -157,6 +174,17 @@ def maybe_pack_roundtrip(state: Dict[str, torch.Tensor], template: Dict[str, tor
         return state, params * 4 / 1024.0
     payload, kb = pack_payload(state)
     return unpack_payload(payload, template), kb
+
+
+def relay_delta_roundtrip(
+    state: Dict[str, torch.Tensor],
+    global_state: Dict[str, torch.Tensor],
+    use_int8: bool,
+) -> Dict[str, torch.Tensor]:
+    if not use_int8:
+        return state
+    payload, _ = pack_delta_payload(state, global_state)
+    return unpack_delta_payload(payload, global_state)
 
 
 def topk_roundtrip(global_state: Dict[str, torch.Tensor], state: Dict[str, torch.Tensor]) -> tuple[Dict[str, torch.Tensor], float]:
@@ -223,6 +251,7 @@ def run_dummy_pipeline(baseline: str) -> DummyResult:
             dict(enumerate(client_states)),
             dict(enumerate(client_samples)),
             lora_aggregation=cfg.lora_aggregation,
+            server_mix_beta=fed_cfg.SERVER_MIX_BETA if cfg.server_mix else 1.0,
         )
         gateway_state = gateway.global_state_dict
     else:
@@ -231,14 +260,22 @@ def run_dummy_pipeline(baseline: str) -> DummyResult:
         relay0_head = relay0["model.21.head.weight"].clone()
         relay1_head = relay1["model.21.head.weight"].clone()
         if cfg.coop:
-            alpha = 0.8 if cfg.coop_rule == 'selective' else 0.7
-            relay0 = blend_state_dicts(relay0, relay1, alpha=alpha)
+            alpha = 1.0 - (
+                fed_cfg.COOP_NEIGHBOR_WEIGHT_SELECTIVE
+                if cfg.coop_rule == 'selective'
+                else fed_cfg.COOP_NEIGHBOR_WEIGHT_NEAREST
+            )
+            relay1_on_r2r = relay_delta_roundtrip(relay1, global_state, cfg.use_int8)
+            relay0 = blend_state_dicts(relay0, relay1_on_r2r, alpha=alpha)
         relay0_after_coop_head = relay0["model.21.head.weight"].clone()
+        relay0 = relay_delta_roundtrip(relay0, global_state, cfg.use_int8)
+        relay1 = relay_delta_roundtrip(relay1, global_state, cfg.use_int8)
         gateway = BaseGateway(global_state)
         gateway.aggregate_global(
             {0: relay0, 1: relay1},
             {0: sum(client_samples[:2]), 1: sum(client_samples[2:])},
             lora_aggregation=cfg.lora_aggregation,
+            server_mix_beta=fed_cfg.SERVER_MIX_BETA if cfg.server_mix else 1.0,
         )
         gateway_state = gateway.global_state_dict
 
@@ -305,9 +342,17 @@ def expected_for(baseline: str) -> DummyResult:
         if cfg.coop and cfg.hfl:
             relay0 = (client_delta[0] * 1 + client_delta[1] * 3) / 4.0
             relay1 = (client_delta[2] * 2 + client_delta[3] * 4) / 6.0
-            alpha = 0.8 if cfg.coop_rule == 'selective' else 0.7
+            alpha = 1.0 - (
+                fed_cfg.COOP_NEIGHBOR_WEIGHT_SELECTIVE
+                if cfg.coop_rule == 'selective'
+                else fed_cfg.COOP_NEIGHBOR_WEIGHT_NEAREST
+            )
             expected_delta = 0.4 * (alpha * relay0 + (1.0 - alpha) * relay1) + 0.6 * relay1
-        expected_head = torch.tensor([10.0 + expected_delta, 20.0 + expected_delta])
+        server_beta = fed_cfg.SERVER_MIX_BETA if cfg.server_mix else 1.0
+        expected_head = torch.tensor([
+            10.0 + server_beta * expected_delta,
+            20.0 + server_beta * expected_delta,
+        ])
     elif cfg.topk_grad:
         # Per-client Top-K keeps both head deltas in this tiny state.
         expected_head = torch.tensor([12.9, 22.9])
@@ -316,9 +361,17 @@ def expected_for(baseline: str) -> DummyResult:
         if cfg.coop and cfg.hfl:
             relay0 = (client_delta[0] * 1 + client_delta[1] * 3) / 4.0
             relay1 = (client_delta[2] * 2 + client_delta[3] * 4) / 6.0
-            alpha = 0.8 if cfg.coop_rule == 'selective' else 0.7
+            alpha = 1.0 - (
+                fed_cfg.COOP_NEIGHBOR_WEIGHT_SELECTIVE
+                if cfg.coop_rule == 'selective'
+                else fed_cfg.COOP_NEIGHBOR_WEIGHT_NEAREST
+            )
             expected_delta = 0.4 * (alpha * relay0 + (1.0 - alpha) * relay1) + 0.6 * relay1
-        expected_head = torch.tensor([10.0 + expected_delta, 20.0 + expected_delta])
+        server_beta = fed_cfg.SERVER_MIX_BETA if cfg.server_mix else 1.0
+        expected_head = torch.tensor([
+            10.0 + server_beta * expected_delta,
+            20.0 + server_beta * expected_delta,
+        ])
 
     expected_lora = None
     if cfg.use_lora:
@@ -326,10 +379,16 @@ def expected_for(baseline: str) -> DummyResult:
         if cfg.coop and cfg.hfl:
             # relay0 scale=1.175, relay1 scale=1.3667, relay0 cooperates with
             # relay1, then gateway averages relay0/relay1 by 4/6.
-            alpha = 0.8 if cfg.coop_rule == 'selective' else 0.7
+            alpha = 1.0 - (
+                fed_cfg.COOP_NEIGHBOR_WEIGHT_SELECTIVE
+                if cfg.coop_rule == 'selective'
+                else fed_cfg.COOP_NEIGHBOR_WEIGHT_NEAREST
+            )
             expected_scale = (4.0 / 10.0) * (alpha * 1.175 + (1.0 - alpha) * (41.0 / 30.0)) + (6.0 / 10.0) * (41.0 / 30.0)
         else:
             expected_scale = 1.29
+        server_beta = fed_cfg.SERVER_MIX_BETA if cfg.server_mix else 1.0
+        expected_scale = 1.0 + server_beta * (expected_scale - 1.0)
         expected_lora = base_product * expected_scale
 
     map50 = 0.50
@@ -357,6 +416,185 @@ def test_quantization_roundtrip() -> None:
         raise AssertionError("INT8 payload size must be positive")
     assert_close(recovered["a"], state["a"], "INT8 roundtrip a", atol=0.01)
     assert_close(recovered["b"], state["b"], "INT8 roundtrip b", atol=0.02)
+
+
+def _max_state_error(
+    actual: Dict[str, torch.Tensor],
+    expected: Dict[str, torch.Tensor],
+) -> float:
+    return max(
+        (actual[key].float() - expected[key].float()).abs().max().item()
+        for key in expected
+    )
+
+
+def _delta_int8_roundtrip(
+    global_state: Dict[str, torch.Tensor],
+    local_state: Dict[str, torch.Tensor],
+) -> tuple[Dict[str, torch.Tensor], float]:
+    payload, payload_kb = pack_delta_payload(local_state, global_state)
+    return unpack_delta_payload(payload, global_state), payload_kb
+
+
+def test_delta_int8_zero_and_constant_updates() -> None:
+    global_state = {
+        "layer.weight": torch.tensor([1000.0, -500.0, 25.0, 0.0]),
+        "model.0.bn.running_mean": torch.tensor([0.25, -0.50]),
+    }
+    local_state = {
+        "layer.weight": global_state["layer.weight"] + 0.125,
+        "model.0.bn.running_mean": global_state["model.0.bn.running_mean"].clone(),
+    }
+    recovered, payload_kb = _delta_int8_roundtrip(global_state, local_state)
+
+    if payload_kb <= 0:
+        raise AssertionError("Delta-INT8 payload size must be positive")
+    assert_close(recovered["layer.weight"], local_state["layer.weight"], "constant delta", atol=1e-7)
+    assert_close(
+        recovered["model.0.bn.running_mean"],
+        local_state["model.0.bn.running_mean"],
+        "zero BN delta",
+        atol=1e-7,
+    )
+
+
+def test_delta_int8_reduces_quantization_error() -> None:
+    global_state = {
+        "layer.weight": torch.tensor([-1000.0, -250.0, 500.0, 1000.0]),
+        "model.21.head.weight": torch.tensor([-400.0, -30.0, 70.0, 600.0]),
+    }
+    delta = {
+        "layer.weight": torch.tensor([0.030, -0.020, 0.010, -0.040]),
+        "model.21.head.weight": torch.tensor([0.004, -0.003, 0.002, -0.001]),
+    }
+    local_state = {
+        key: global_state[key] + delta[key]
+        for key in global_state
+    }
+
+    raw_payload, raw_kb = pack_payload(local_state)
+    raw_recovered = unpack_payload(raw_payload, global_state)
+    delta_recovered, delta_kb = _delta_int8_roundtrip(global_state, local_state)
+
+    raw_error = _max_state_error(raw_recovered, local_state)
+    delta_error = _max_state_error(delta_recovered, local_state)
+    if delta_kb != raw_kb:
+        raise AssertionError(
+            f"Raw and delta INT8 must have equal shape-based payload size: {raw_kb} vs {delta_kb}"
+        )
+    if not delta_error < raw_error * 0.05:
+        raise AssertionError(
+            f"Delta-INT8 should reduce error by at least 20x; raw={raw_error:.6g}, "
+            f"delta={delta_error:.6g}"
+        )
+
+
+def test_delta_int8_multiclient_fedavg_with_bn() -> None:
+    global_state = {
+        "layer.weight": torch.tensor([100.0, -80.0, 40.0, -20.0]),
+        "model.21.head.weight": torch.tensor([10.0, 20.0, 30.0, 40.0]),
+        "model.0.bn.running_mean": torch.tensor([0.2, -0.3]),
+        "model.0.bn.running_var": torch.tensor([1.0, 1.5]),
+        "model.0.bn.num_batches_tracked": torch.tensor(100, dtype=torch.int64),
+    }
+    client_deltas = [
+        {
+            "layer.weight": torch.tensor([0.02, -0.01, 0.03, -0.04]),
+            "model.21.head.weight": torch.tensor([0.04, -0.02, 0.01, -0.03]),
+            "model.0.bn.running_mean": torch.tensor([0.01, -0.02]),
+            "model.0.bn.running_var": torch.tensor([0.03, -0.01]),
+            "model.0.bn.num_batches_tracked": torch.tensor(2, dtype=torch.int64),
+        },
+        {
+            "layer.weight": torch.tensor([-0.03, 0.04, -0.01, 0.02]),
+            "model.21.head.weight": torch.tensor([-0.01, 0.03, -0.04, 0.02]),
+            "model.0.bn.running_mean": torch.tensor([-0.03, 0.01]),
+            "model.0.bn.running_var": torch.tensor([-0.02, 0.04]),
+            "model.0.bn.num_batches_tracked": torch.tensor(4, dtype=torch.int64),
+        },
+        {
+            "layer.weight": torch.tensor([0.01, 0.02, -0.02, -0.01]),
+            "model.21.head.weight": torch.tensor([0.02, 0.01, -0.01, -0.02]),
+            "model.0.bn.running_mean": torch.tensor([0.02, 0.03]),
+            "model.0.bn.running_var": torch.tensor([0.01, 0.02]),
+            "model.0.bn.num_batches_tracked": torch.tensor(6, dtype=torch.int64),
+        },
+    ]
+    samples = [1, 3, 6]
+    ideal_clients = []
+    recovered_clients = []
+    for delta in client_deltas:
+        local_state = {
+            key: global_state[key] + delta[key]
+            for key in global_state
+        }
+        ideal_clients.append(local_state)
+        recovered, _ = _delta_int8_roundtrip(global_state, local_state)
+        recovered_clients.append(recovered)
+
+        # BN tensors bypass INT8 and must survive the transport exactly.
+        for key in global_state:
+            if "bn" in key:
+                assert_close(recovered[key], local_state[key], f"Delta-INT8 exact {key}", atol=0.0)
+
+    expected = weighted_state_dict_average(ideal_clients, samples)
+    actual = weighted_state_dict_average(recovered_clients, samples)
+    assert_close(actual["layer.weight"], expected["layer.weight"], "Delta-INT8 FedAvg weight", atol=2e-4)
+    assert_close(actual["model.21.head.weight"], expected["model.21.head.weight"], "Delta-INT8 FedAvg head", atol=2e-4)
+    assert_close(
+        actual["model.0.bn.running_mean"],
+        expected["model.0.bn.running_mean"],
+        "Delta-INT8 FedAvg BN mean",
+        atol=0.0,
+    )
+    assert_close(
+        actual["model.0.bn.running_var"],
+        expected["model.0.bn.running_var"],
+        "Delta-INT8 FedAvg BN variance",
+        atol=0.0,
+    )
+
+
+def test_delta_int8_multiround_drift() -> None:
+    ideal = {
+        "layer.weight": torch.tensor([-1000.0, -250.0, 500.0, 1000.0]),
+        "model.21.head.weight": torch.tensor([-400.0, -30.0, 70.0, 600.0]),
+    }
+    raw_global = {key: value.clone() for key, value in ideal.items()}
+    delta_global = {key: value.clone() for key, value in ideal.items()}
+
+    for round_idx in range(1, 61):
+        scale = 1.0 + (round_idx % 7) * 0.1
+        update = {
+            "layer.weight": torch.tensor([0.030, -0.020, 0.010, -0.040]) * scale,
+            "model.21.head.weight": torch.tensor([0.004, -0.003, 0.002, -0.001]) * scale,
+        }
+        ideal = {key: ideal[key] + update[key] for key in ideal}
+
+        raw_local = {key: raw_global[key] + update[key] for key in raw_global}
+        raw_payload, _ = pack_payload(raw_local)
+        raw_global = unpack_payload(raw_payload, raw_global)
+
+        delta_local = {key: delta_global[key] + update[key] for key in delta_global}
+        delta_global, _ = _delta_int8_roundtrip(delta_global, delta_local)
+
+    raw_error = _max_state_error(raw_global, ideal)
+    delta_error = _max_state_error(delta_global, ideal)
+    if delta_error > 0.01:
+        raise AssertionError(f"Delta-INT8 accumulated excessive 60-round drift: {delta_error:.6g}")
+    if not delta_error < raw_error * 0.05:
+        raise AssertionError(
+            f"Delta-INT8 60-round drift should be at least 20x lower; "
+            f"raw={raw_error:.6g}, delta={delta_error:.6g}"
+        )
+
+
+def run_delta_int8_tests() -> None:
+    test_quantization_roundtrip()
+    test_delta_int8_zero_and_constant_updates()
+    test_delta_int8_reduces_quantization_error()
+    test_delta_int8_multiclient_fedavg_with_bn()
+    test_delta_int8_multiround_drift()
 
 
 def test_topk_expected_values() -> None:
@@ -397,6 +635,132 @@ def test_lora_aggregation_strategies() -> None:
         raise AssertionError("Naive FLORA and SVD-LoRA aggregation must remain distinct")
 
 
+def test_server_mix_preserves_effective_lora_geometry() -> None:
+    old_state = {
+        "layer.lora_B": torch.tensor([[1.0], [2.0]]),
+        "layer.lora_A": torch.tensor([[3.0, 4.0]]),
+        "head": torch.tensor([10.0, 20.0]),
+    }
+    aggregated_state = {
+        "layer.lora_B": torch.tensor([[2.0], [4.0]]),
+        "layer.lora_A": torch.tensor([[3.0, 4.0]]),
+        "head": torch.tensor([14.0, 24.0]),
+    }
+    mixed = mix_server_state(old_state, aggregated_state, beta=0.75, lora_aggregation="svd")
+    mixed_product = mixed["layer.lora_B"] @ mixed["layer.lora_A"]
+    expected_product = (
+        0.25 * (old_state["layer.lora_B"] @ old_state["layer.lora_A"])
+        + 0.75 * (aggregated_state["layer.lora_B"] @ aggregated_state["layer.lora_A"])
+    )
+    assert_close(mixed_product, expected_product, "Server mix effective LoRA product")
+    assert_close(mixed["head"], torch.tensor([13.0, 23.0]), "Server mix head")
+
+
+def test_svd_factor_signs_are_canonical() -> None:
+    state = {
+        "layer.lora_B": torch.tensor([[-2.0, 0.0], [0.0, -1.0]]),
+        "layer.lora_A": torch.eye(2),
+    }
+    aggregated = svd_lora_aggregate([state], [1.0])
+    B = aggregated["layer.lora_B"]
+    for column in range(B.shape[1]):
+        pivot = B[:, column].abs().argmax()
+        if B[pivot, column] < 0:
+            raise AssertionError("SVD LoRA factors must use deterministic positive pivots")
+    assert_close(
+        B @ aggregated["layer.lora_A"],
+        state["layer.lora_B"] @ state["layer.lora_A"],
+        "canonical SVD preserves effective LoRA matrix",
+    )
+
+
+def test_kd_component_contributions() -> None:
+    supervised = torch.tensor(10.0)
+    components = {
+        'cls': torch.tensor(2.0),
+        'box': torch.tensor(1.0),
+        'proj': torch.tensor(0.5),
+    }
+    (
+        supervised_weighted,
+        weighted_components,
+        weighted_kd,
+        _,
+        kd_ratio,
+    ) = _compose_balanced_kd(
+        loss_stu=supervised,
+        stu_weight=0.5,
+        component_values=components,
+        component_weights={'cls': 0.45, 'box': 0.35, 'proj': 0.20},
+        kd_lambda=1.0,
+        balance_by_supervised=True,
+        scale_min=0.001,
+        scale_max=20.0,
+    )
+    assert_scalar(supervised_weighted.item(), 5.0, "KD supervised reference")
+    assert_scalar(weighted_components['cls'].item(), 2.25, "KD cls contribution")
+    assert_scalar(weighted_components['box'].item(), 1.75, "KD box contribution")
+    assert_scalar(weighted_components['proj'].item(), 1.0, "KD projection contribution")
+    assert_scalar(weighted_kd.item(), 5.0, "KD total contribution")
+    assert_scalar(kd_ratio.item(), 1.0, "KD/supervised ratio")
+
+
+def test_nearest_and_selective_partner_rules() -> None:
+    class Link:
+        def __init__(self, distance: float):
+            self.distance = distance
+
+    graph = {
+        ('relay', 0, 'relay', 1): Link(10.0),
+        ('relay', 0, 'relay', 2): Link(20.0),
+    }
+    cluster_sizes = {0: 9, 1: 9, 2: 12}
+
+    nearest = find_coop_partner(
+        0,
+        cluster_sizes,
+        graph,
+        require_larger_cluster=False,
+    )
+    if nearest != 1:
+        raise AssertionError(f"HFL-Nearest must choose closest feasible relay 1, got {nearest}")
+
+    selective = find_coop_partner(
+        0,
+        cluster_sizes,
+        graph,
+        require_larger_cluster=True,
+    )
+    if selective != 2:
+        raise AssertionError(f"HFL-Selective must borrow from larger relay 2, got {selective}")
+
+
+def test_latency_keeps_relay_paths_coupled() -> None:
+    class Link:
+        def __init__(self, rate: float):
+            self.R_bps = rate
+            self.distance = 0.0
+
+    graph = {
+        ('auv', 0, 'relay', 0): Link(10.0),
+        ('auv', 1, 'relay', 1): Link(100.0),
+        ('relay', 0, 'gateway', 0): Link(100.0),
+        ('relay', 1, 'gateway', 0): Link(10.0),
+    }
+    metrics = LatencyTracker().compute_round_latency(
+        G=graph,
+        association={0: 0, 1: 1},
+        cooperation_partners={},
+        tau_comp=0.0,
+        tau_svd=0.0,
+        auv_payload_bits=100.0,
+        relay_model_bits=100.0,
+    )
+    assert_scalar(metrics['tau_round'], 11.0, "per-relay latency bottleneck")
+    assert_scalar(metrics['tau_a2r'], 10.0, "max AUV-to-relay latency")
+    assert_scalar(metrics['tau_r2g'], 10.0, "max relay-to-gateway latency")
+
+
 def test_baseline_contracts() -> None:
     expected = {
         'fedavg': dict(hfl=False, full_param=True, fedprox=False),
@@ -421,10 +785,10 @@ def test_baseline_contracts() -> None:
         ),
         'scaffold': dict(hfl=True, full_param=True, scaffold=True, coop_rule='nocoop'),
         'topk_grad': dict(hfl=True, full_param=True, topk_grad=True, coop_rule='nocoop'),
-        'fedkdl': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='nearest'),
-        'fedkdl_selective': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='selective'),
-        'fedkdl_nocoop': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='nocoop'),
-        'fedkdl_nokd': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=False, coop_rule='nearest'),
+        'fedkdl': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='nearest', server_mix=True),
+        'fedkdl_selective': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='selective', server_mix=True),
+        'fedkdl_nocoop': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, coop_rule='nocoop', server_mix=True),
+        'fedkdl_nokd': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=False, coop_rule='nearest', server_mix=True),
         'fedkdl_proxy_ft': dict(
             hfl=True,
             use_lora=True,
@@ -432,10 +796,11 @@ def test_baseline_contracts() -> None:
             use_gateway_kd=False,
             use_gateway_proxy_ft=True,
             coop_rule='nearest',
+            server_mix=True,
         ),
-        'logit_kd': dict(hfl=True, use_gateway_kd=True, logit_kd_only=True, coop_rule='nearest'),
-        'fedprox_kdl': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, fedprox=True),
-        'fedkdl_nolora': dict(hfl=True, full_param=True, use_lora=False, use_gateway_kd=True),
+        'logit_kd': dict(hfl=True, use_gateway_kd=True, logit_kd_only=True, coop_rule='nearest', server_mix=True),
+        'fedprox_kdl': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, fedprox=True, server_mix=True),
+        'fedkdl_nolora': dict(hfl=True, full_param=True, use_lora=False, use_gateway_kd=True, server_mix=True),
         'fedkd': dict(hfl=False, full_param=True, use_gateway_kd=True, local_kd=False),
         'centralized': dict(hfl=False, use_lora=True, full_param=False, use_gateway_kd=False),
     }
@@ -506,7 +871,11 @@ def test_baseline(baseline: str) -> bool:
         assert_close(actual.relay1_head, expected_relay1, f"{baseline} Relay 1", atol=tensor_atol)
         expected_after_coop = expected_relay0
         if cfg.coop:
-            alpha = 0.8 if cfg.coop_rule == "selective" else 0.7
+            alpha = 1.0 - (
+                fed_cfg.COOP_NEIGHBOR_WEIGHT_SELECTIVE
+                if cfg.coop_rule == "selective"
+                else fed_cfg.COOP_NEIGHBOR_WEIGHT_NEAREST
+            )
             expected_after_coop = alpha * expected_relay0 + (1.0 - alpha) * expected_relay1
         assert actual.relay0_after_coop_head is not None
         assert_close(
@@ -551,12 +920,26 @@ def main() -> None:
 
     parser = argparse.ArgumentParser("Deterministic FedKDL baseline tests")
     parser.add_argument("--include-optional", action="store_true")
+    parser.add_argument(
+        "--delta-int8-only",
+        action="store_true",
+        help="Run only focused Delta-INT8 transport and drift tests.",
+    )
     args = parser.parse_args()
 
+    run_delta_int8_tests()
+    if args.delta_int8_only:
+        print("PASS Delta-INT8: roundtrip, error reduction, BN/FedAvg, and 60-round drift")
+        return
+
     test_baseline_contracts()
-    test_quantization_roundtrip()
     test_topk_expected_values()
     test_lora_aggregation_strategies()
+    test_server_mix_preserves_effective_lora_geometry()
+    test_svd_factor_signs_are_canonical()
+    test_kd_component_contributions()
+    test_nearest_and_selective_partner_rules()
+    test_latency_keeps_relay_paths_coupled()
 
     results = {}
     baselines = list(STANDARD_BASELINES)

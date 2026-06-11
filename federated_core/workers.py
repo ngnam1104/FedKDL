@@ -46,6 +46,7 @@ class BaseRelayNode:
         feasibility_graph: Dict,
         all_relays_intra_states: Dict[int, Any],
         q1_distance: Optional[float] = None,
+        transport_state=None,
     ) -> Tuple[bool, Optional[int]]:
         """Logic HFL-Selective/Nearest."""
         from federated_core.hfl_rules import should_cooperate, find_coop_partner, blend_state_dicts
@@ -56,16 +57,25 @@ class BaseRelayNode:
         if rule == 'selective' and not should_cooperate(effective_cluster_size, mean_cluster_size):
             return False, None
 
-        alpha = 0.7 if rule == 'nearest' else 0.8
+        from config.settings import fed_cfg
+        neighbor_weight = (
+            fed_cfg.COOP_NEIGHBOR_WEIGHT_NEAREST
+            if rule == 'nearest'
+            else fed_cfg.COOP_NEIGHBOR_WEIGHT_SELECTIVE
+        )
+        alpha = 1.0 - float(neighbor_weight)
         dist_filter = q1_distance if rule == 'selective' else None
 
         partner_id = find_coop_partner(
             self.relay_id, cluster_sizes, feasibility_graph,
             q1_distance=dist_filter,
+            require_larger_cluster=(rule == 'selective'),
         )
 
         if partner_id is not None and partner_id in all_relays_intra_states:
             neighbor_sd = all_relays_intra_states[partner_id]
+            if transport_state is not None:
+                neighbor_sd = transport_state(neighbor_sd)
             self.final_state_dict = blend_state_dicts(
                 self.intra_state_dict, neighbor_sd, alpha=alpha
             )
@@ -91,9 +101,10 @@ class BaseGateway:
         relay_final_states: Dict[int, Any],
         cluster_total_samples: Dict[int, int],
         lora_aggregation: str = "svd",
+        server_mix_beta: float = 1.0,
     ):
         """fedavg_global"""
-        from federated_core.aggregator import fedavg_global
+        from federated_core.aggregator import fedavg_global, mix_server_state
         states_list = []
         samples_list = []
         delta_c_list = []
@@ -112,9 +123,16 @@ class BaseGateway:
             samples_list.append(cluster_total_samples[relay_id])
 
         if states_list:
-            self.global_state_dict = fedavg_global(
+            old_global_state = copy.deepcopy(self.global_state_dict)
+            aggregated_state = fedavg_global(
                 states_list,
                 samples_list,
+                lora_aggregation=lora_aggregation,
+            )
+            self.global_state_dict = mix_server_state(
+                old_global_state,
+                aggregated_state,
+                beta=server_mix_beta,
                 lora_aggregation=lora_aggregation,
             )
             

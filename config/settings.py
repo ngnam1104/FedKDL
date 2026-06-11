@@ -73,6 +73,13 @@ class FedKDLConfig:
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
     LOCAL_CACHE_DATASET: bool = True # Bật cache RAM cho AUV để vượt qua nút thắt I/O mạng chậm của server
     LOCAL_AMP: bool = True           # Keep AMP on after lowering FL LR; set False if non-finite grads persist
+    LOCAL_AUGMENT: bool = True       # Mild augmentation; mosaic/mixup remain disabled for small non-IID clients
+    LOCAL_HSV_H: float = 0.01
+    LOCAL_HSV_S: float = 0.30
+    LOCAL_HSV_V: float = 0.20
+    LOCAL_TRANSLATE: float = 0.05
+    LOCAL_SCALE: float = 0.15
+    LOCAL_FLIPLR: float = 0.50
     GRAD_DIAGNOSTICS: bool = False   # Expensive per-batch GPU sync; enable only when debugging NaN/Inf
     CLEAR_CUDA_CACHE_PER_AUV: bool = False
     LOG_ROUND_TOPOLOGY: bool = False
@@ -88,12 +95,15 @@ class FedKDLConfig:
     # ── LoRA + INT8 payload ───────────────────────────────────────────────────
     LORA_RANK: int = 8               # Phải khớp Teacher (rank=8); payload ~127KB INT8 @ adaptive
     QUANTIZATION_BITS: int = 8       # int8_quantization.py
+    INT8_DELTA_PAYLOAD: bool = True  # Quantize updates instead of repeatedly quantizing absolute weights
     TARGET_PAYLOAD_KB: float = 300.0
     LAZY_FILTER_ENABLED: bool = False
     DELTA_SKIP: float = 0.01         # Lazy communication filter
 
     # ── HFL inter-relay (hfl_rules.should_cooperate) ────────────────────────
     COOP_THRESHOLD_MULTIPLIER: float = 0.75  # Eq. 41: c_m ≤ max(2, mult × c̄)
+    COOP_NEIGHBOR_WEIGHT_NEAREST: float = 0.30
+    COOP_NEIGHBOR_WEIGHT_SELECTIVE: float = 0.20
 
     # ── Knowledge-aware re-clustering (knowledge_association) ───────────────
     BETA_EMD: float = 0.0            # 0 = chỉ khoảng cách; 0.5 = EMD + địa lý
@@ -107,7 +117,7 @@ class FedKDLConfig:
 
     # ── Gateway Knowledge Distillation ──────────────────────────────────────
     KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
-    KD_STU_LAMBDA: float = 0.50     # Trọng số Supervised Loss trong KD (0.5 = cân bằng GT/KD)
+    KD_STU_LAMBDA: float = 0.50     # Absolute supervised-loss scale during gateway KD
     KD_HEAD_LR_MULT: float = 4.0    # Gateway KD Head LR = 4e-3 when KD_LR=1e-3
     KD_LORA_LR_MULT: float = 1.0    # Gateway KD LoRA LR = KD_LR
     KD_EPOCHS: int = 1
@@ -115,11 +125,22 @@ class FedKDLConfig:
     KD_WORKERS: int = 0
     KD_AMP: bool = True
     KD_LR: float = 1e-3
-    KD_LAMBDA_START: float = 0.20
-    KD_LAMBDA_FLOOR: float = 0.03
+    KD_TEMPERATURE: float = 4.0
+    KD_LAMBDA_START: float = 1.00  # KD equals weighted supervised contribution at phase start
+    KD_LAMBDA_FLOOR: float = 0.20  # KD remains meaningful before the pure-FL phase
+    KD_BALANCE_BY_SUPERVISED: bool = True
+    KD_BALANCE_SCALE_MIN: float = 0.001
+    KD_BALANCE_SCALE_MAX: float = 20.0  # Allows weak KL/projection branches to reach their target share
+    KD_CLS_WEIGHT: float = 0.45
+    KD_BOX_WEIGHT: float = 0.35
+    KD_PROJ_WEIGHT: float = 0.20
+    KD_CONF_THRESHOLD: float = 0.10
+    KD_CONF_GAMMA: float = 2.0
+    KD_DFL_WEIGHT: float = 1.0
+    KD_CIOU_WEIGHT: float = 0.5
     KD_PHASE1_END_FRAC: float = 1.0 / 3.0  # KD every 2 rounds
     KD_STOP_FRAC: float = 2.0 / 3.0        # Phase 2: every 4 rounds; then pure FL
-    KD_ADAPTIVE_DROPOUT_ENABLED: bool = False
+    KD_ADAPTIVE_DROPOUT_ENABLED: bool = True
     KD_ADAPTIVE_DROP_THRESHOLD: int = 5
     LOCAL_KD_STU_LAMBDA: float = 0.20
     LOCAL_KD_LAMBDA: float = 1.0
@@ -128,6 +149,8 @@ class FedKDLConfig:
     PROXY_FT_BATCH_SIZE: int = 4
     PROXY_FT_WORKERS: int = 0
     PROXY_FT_LR: float = 1e-3
+    PROXY_FT_HEAD_LR_MULT: float = 4.0  # Match KD optimizer for a loss-only ablation
+    PROXY_FT_LORA_LR_MULT: float = 1.0
     WARMUP_HEAD_LR_MULT: float = 2.5 # Warmup LoRA: Head LR = lr0 × multiplier
     WARMUP_LORA_LR_MULT: float = 0.5 # Warmup LoRA: LoRA LR = lr0 × multiplier
     STUDENT_WARMUP_EPOCHS: int = 5   # One shared warmup; non-LoRA baselines use its baked copy
@@ -139,6 +162,7 @@ class FedKDLConfig:
     LAMBDA_TAU: float = 1e-3
     TAU_MAX: float = float('inf')    # Bài toán P1 nới lỏng giới hạn
     TAU_MAX_REF: float = 1800.0      # s — Ngưỡng tham chiếu (Lớp 3)
+    SERVER_MIX_BETA: float = 0.90    # FedKDL-only: old global 0.10 + new aggregate 0.90
 
 
 network_cfg = NetworkConfig()

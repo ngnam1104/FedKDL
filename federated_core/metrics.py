@@ -271,21 +271,26 @@ class LatencyTracker:
             r2r_per_relay[relay_id] = delay
 
         # 3. Relay → Gateway delays
-        r2g_delays = []
+        r2g_per_relay: Dict[int, float] = {}
         for m in set(association.values()):
             if m == -1:
                 continue
             key = ('relay', m, 'gateway', 0)
             if key in G:
                 link = G[key]
-                r2g_delays.append(comm_delay(relay_model_bits, link.R_bps, link.distance, self.c_s))
+                r2g_per_relay[m] = comm_delay(
+                    relay_model_bits,
+                    link.R_bps,
+                    link.distance,
+                    self.c_s,
+                )
 
         # 4. Tính toán cục bộ đã được tính ở ngoài và truyền vào qua tham số tau_comp
 
         # Bottleneck: max over all relays of (a2r + r2r + r2g)
         all_relay_ids = set(association.values())
         per_relay_total = []
-        max_r2g = max(r2g_delays) if r2g_delays else 0.0
+        max_r2g = max(r2g_per_relay.values()) if r2g_per_relay else 0.0
         for m in all_relay_ids:
             if m == -1:
                 per_relay_total.append(a2r_per_relay.get(m, 0.0))
@@ -293,7 +298,7 @@ class LatencyTracker:
                 per_relay_total.append(
                     a2r_per_relay.get(m, 0.0) +
                     r2r_per_relay.get(m, 0.0) +
-                    max_r2g
+                    r2g_per_relay.get(m, 0.0)
                 )
         max_a2r = max(a2r_per_relay.values()) if a2r_per_relay else 0.0
         max_r2r = max(r2r_per_relay.values()) if r2r_per_relay else 0.0

@@ -268,3 +268,34 @@ def unpack_payload(payload: bytes,
                       f"float range=[{recovered[key].min():.6e}, {recovered[key].max():.6e}]")
             
     return recovered
+
+
+def pack_delta_payload(
+    state_dict: Dict[str, torch.Tensor],
+    reference_state: Dict[str, torch.Tensor],
+) -> Tuple[bytes, float]:
+    """Pack a state update relative to the model shared at the start of the link."""
+    if set(state_dict) != set(reference_state):
+        missing = sorted(set(reference_state) - set(state_dict))
+        extra = sorted(set(state_dict) - set(reference_state))
+        raise ValueError(
+            f"Delta payload keys must match the reference state; missing={missing[:5]}, "
+            f"extra={extra[:5]}"
+        )
+    delta_state = {
+        key: state_dict[key].cpu() - reference_state[key].cpu()
+        for key in reference_state
+    }
+    return pack_payload(delta_state)
+
+
+def unpack_delta_payload(
+    payload: bytes,
+    reference_state: Dict[str, torch.Tensor],
+) -> Dict[str, torch.Tensor]:
+    """Reconstruct a state from an INT8 update and its exact link reference."""
+    decoded_delta = unpack_payload(payload, reference_state)
+    return {
+        key: reference_state[key].cpu() + decoded_delta[key]
+        for key in reference_state
+    }

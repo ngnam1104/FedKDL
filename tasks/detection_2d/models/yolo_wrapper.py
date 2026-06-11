@@ -98,14 +98,10 @@ class StudentModel:
             for param in self.yolo.model.parameters():
                 param.requires_grad_(True)
         else:
-            # Đóng băng tất cả, trừ payload keys VÀ toàn bộ BatchNorm (cho FedBN)
+            # Đóng băng tất cả, trừ payload keys. BatchNorm nằm trong payload
+            # và được aggregate toàn cục giống các tensor trainable khác.
             for name, param in self.yolo.model.named_parameters():
                 if self._is_payload_key(name):
-                    param.requires_grad_(True)
-                elif 'bn' in name:
-                    # [FedBN] Mở train cho TẤT CẢ các lớp BatchNorm (weight, bias).
-                    # Running stats (mean, var) sẽ tự động được cập nhật vì ta không dùng FrozenBatchNorm2d nữa.
-                    # Những tham số này CHỈ được train local, KHÔNG truyền qua mạng.
                     param.requires_grad_(True)
                 else:
                     param.requires_grad_(False)

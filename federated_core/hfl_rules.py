@@ -71,13 +71,13 @@ def find_coop_partner(
     feasibility_graph: Dict,
     relay_positions=None,
     q1_distance: Optional[float] = None,
+    require_larger_cluster: bool = True,
 ) -> Optional[int]:
     """
-    Tìm Relay láng giềng j khả thi gần nhất có cụm lớn hơn cụm m.
+    Tìm Relay láng giềng khả thi gần nhất.
 
-    Theo paper Eq. 29 (HFL-Selective): chỉ xét láng giềng có
-        - cluster_size > my_size
-        - distance ≤ Q1 của tất cả relay-relay distances (khi q1_distance được truyền vào)
+    HFL-Selective chỉ xét láng giềng có cụm lớn hơn và distance <= Q1.
+    HFL-Nearest xét mọi láng giềng khả thi, đúng quy tắc argmin distance.
 
     HFL-Nearest không truyền q1_distance → xét tất cả feasible neighbors.
 
@@ -97,7 +97,7 @@ def find_coop_partner(
     for other_id, other_size in cluster_sizes.items():
         if other_id == relay_id:
             continue
-        if other_size <= my_size:
+        if require_larger_cluster and other_size <= my_size:
             continue
         # Kiểm tra link khả thi (theo cả hai chiều)
         key_fwd = ('relay', relay_id, 'relay', other_id)
