@@ -12,7 +12,7 @@ import pickle
 
 from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
 from physics_models.communication import min_source_level, shannon_capacity
-from physics_models.energy import e_tx, e_comp
+from physics_models.energy import e_tx, e_comp, e_rx
 from physics_models.latency import comm_delay, comp_delay_dynamic, relay_comp_delay
 
 # ─────────────────────────────────────────────────────────────────────
@@ -35,6 +35,9 @@ SPREADING      = acoustic_cfg.SPREADING_FACTOR
 C_S            = acoustic_cfg.SOUND_SPEED
 ETA_EA         = energy_cfg.ETA_EA
 P_C_TX         = energy_cfg.P_C_TX
+P_C_RX         = energy_cfg.P_C_RX
+# Giả lập AUV dùng chip nhúng (Edge TPU/NPU) thay vì Jetson to:
+# Giữ nguyên F_CPU, chỉ giảm Epsilon cực thấp để E_comp < E_comm
 F_CPU          = energy_cfg.F_CPU
 N_CORES        = energy_cfg.N_CORES
 FPC            = energy_cfg.FLOPS_PER_CYCLE          # flops_per_cycle
@@ -48,13 +51,13 @@ LOCAL_EPOCHS   = fed_cfg.LOCAL_EPOCHS                    # 3
 TAU_MAX        = fed_cfg.TAU_MAX                         # 1800 s
 
 # Cân bằng đóng góp của tau và E trong Joint Cost:
-#   tau_round  ~ 300 – 10,000 s
-#   E_total    ~ 60,000 – 2,000,000 J   (tỷ lệ E/tau ≈ 200-300x)
+#   tau_round  ~ 300 – 1000 s
+#   E_total    ~ 5,000 – 20,000 J   (tỷ lệ E/tau ≈ 20x)
 # Để F = lambda_tau * tau + lambda_E * E có hai hạng tử cùng bậc đại lượng:
 #   lambda_tau = 1e-3  (s^-1)
-#   lambda_E   = 1e-3 / 300 ≈ 3e-6  (J^-1)
-LAMBDA_TAU     = 1e-3      # weight cho latency
-LAMBDA_E       = 3e-6      # weight cho energy (scaled để cân bằng)
+#   lambda_E   = 1e-4  (J^-1)
+LAMBDA_TAU     = 0.01      # weight cho latency
+LAMBDA_E       = 0.01      # weight cho energy (scaled để cân bằng)
 
 # Model params (YOLOv12-N student)
 NUM_PARAMS_FULL  = 2_695_948   # tổng params
@@ -122,11 +125,12 @@ def compute_flat_fl(pload_kb: float, flop_mult: float):
     for i in range(topo.N):
         d = dist3(topo.auv_positions[i], topo.gateway_position)
         e = tx_energy(pload_kb, d)
+        e_recv = e_rx(pload_kb * 1024 * 8, R_BPS, P_C_RX)
         t = tx_latency(pload_kb, d)
         
-        total_e_comm += e
+        total_e_comm += e + e_recv
         
-        # Max energy for a single AUV
+        # Max energy for a single AUV (chỉ tính tx và comp của nó)
         auv_e = e_comp_1 + e
         if auv_e > max_e_auv:
             max_e_auv = auv_e
@@ -150,13 +154,17 @@ def compute_hfl(pload_kb_auv: float, pload_kb_relay: float,
     total_e_a2r        = 0.0
     max_e_auv          = 0.0
 
+    relay_recv_energy = {m: 0.0 for m in range(topo.M)}
+
     for i in range(topo.N):
         m = topo.hfl_association.get(i, 0)
         d = dist3(topo.auv_positions[i], topo.relay_positions[m])
         e = tx_energy(pload_kb_auv, d)
+        e_recv = e_rx(pload_kb_auv * 1024 * 8, R_BPS, P_C_RX)
         t = tx_latency(pload_kb_auv, d)
         
-        total_e_a2r += e
+        total_e_a2r += e + e_recv
+        relay_recv_energy[m] += e_recv
         
         auv_e = e_comp_1 + e
         if auv_e > max_e_auv:
@@ -171,8 +179,13 @@ def compute_hfl(pload_kb_auv: float, pload_kb_relay: float,
     for m in range(topo.M):
         d   = dist3(topo.relay_positions[m], topo.gateway_position)
         e   = tx_energy(pload_kb_relay, d)
+        e_recv = e_rx(pload_kb_relay * 1024 * 8, R_BPS, P_C_RX)
         t   = tx_latency(pload_kb_relay, d)
-        total_e_r2g += e
+        total_e_r2g += e + e_recv
+
+        relay_total_e = e_comp_1 + relay_recv_energy[m] + e
+        if relay_total_e > max_e_auv:
+            max_e_auv = relay_total_e
 
         relay_total = tau_comp + relay_max_tau_comm[m] + tau_svd_v + t
         if relay_total > round_max_latency:
@@ -296,6 +309,48 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
         sur = survival_rounds(max_e)
         f.write(f"| {name} | {p_auv:.1f} | {tau:.1f} | {eng:.1f} | {jc:.4f} | {sur:.1f} |\n")
 
+    # Bổ sung section 5.6: Phân tích chi tiết Năng lượng & Trễ từng chặng (Per-Device Breakdown)
+    f.write("\n## 5.6 Per-Device Energy & Latency Breakdown (FedKDL)\n\n")
+    f.write("Tính toán chi tiết cho AUV 0 và Relay phụ trách (Sử dụng đúng các hàm vật lý gốc).\n\n")
+    
+    auv_id = 0
+    relay_id = topo.hfl_association.get(auv_id, 0)
+    d_a2r = dist3(topo.auv_positions[auv_id], topo.relay_positions[relay_id])
+    d_r2g = dist3(topo.relay_positions[relay_id], topo.gateway_position)
+    
+    pload_auv = LORA_INT8
+    S_bits_auv = pload_auv * 1024 * 8
+    
+    # 1. Tính toán tại AUV
+    tau_comp_auv = comp_delay_dynamic(AVG_SAMPLES, LOCAL_EPOCHS, FLOPS_SAMPLE, 1.5, F_CPU, N_CORES, FPC)
+    e_comp_auv_val = e_comp(AVG_SAMPLES, LOCAL_EPOCHS, FLOPS_SAMPLE, EPS_OP, 1.5, F_CPU)
+    
+    # 2. Truyền AUV -> Relay
+    tau_comm_a2r = comm_delay(S_bits_auv, R_BPS, d_a2r, C_S)
+    SL_min_a2r = min_source_level(d_a2r, F_KHZ, B_hz, SNR_dB, IL, SPREADING, WIND, SHIPPING)
+    e_tx_auv = e_tx(S_bits_auv, R_BPS, SL_min_a2r, ETA_EA, P_C_TX)
+    e_rx_relay = e_rx(S_bits_auv, R_BPS, P_C_RX)
+    
+    # 3. Tính toán tại Relay (SVD)
+    tau_svd_relay = relay_comp_delay(256, 128, 1, F_CPU, N_CORES, FPC)
+    from physics_models.energy import e_svd
+    e_svd_relay = e_svd(256, 128, 1, EPS_OP)
+    
+    # 4. Truyền Relay -> Gateway
+    S_bits_relay = S_bits_auv
+    tau_comm_r2g = comm_delay(S_bits_relay, R_BPS, d_r2g, C_S)
+    SL_min_r2g = min_source_level(d_r2g, F_KHZ, B_hz, SNR_dB, IL, SPREADING, WIND, SHIPPING)
+    e_tx_relay = e_tx(S_bits_relay, R_BPS, SL_min_r2g, ETA_EA, P_C_TX)
+    
+    f.write("| Thiết bị | Chặng | Trễ (s) | Năng lượng (J) | Chi tiết |\n")
+    f.write("|---|---|---|---|---|\n")
+    f.write(f"| **AUV 0** | Huấn luyện cục bộ (LoRA) | {tau_comp_auv:.2f} | {e_comp_auv_val:.2f} | Local training |\n")
+    f.write(f"| **AUV 0** | Truyền AUV -> Relay | {tau_comm_a2r:.2f} | {e_tx_auv:.2f} | Khoảng cách: {d_a2r:.0f}m |\n")
+    f.write(f"| **Relay {relay_id}** | Nhận từ AUV 0 | - | {e_rx_relay:.2f} | Mạch thu: {P_C_RX}W |\n")
+    f.write(f"| **Relay {relay_id}** | Tổng hợp SVD | {tau_svd_relay:.4f} | {e_svd_relay:.6f} | D_out=256, D_in=128 |\n")
+    f.write(f"| **Relay {relay_id}** | Truyền Relay -> Gateway | {tau_comm_r2g:.2f} | {e_tx_relay:.2f} | Khoảng cách: {d_r2g:.0f}m |\n")
+    f.write("\n")
+
 print("Done -> theoretical_metrics.md")
 
 # ─────────────────────────────────────────────────────────────────────
@@ -305,7 +360,7 @@ import os
 import random
 import pandas as pd
 from tasks.detection_2d.baselines import parse_baseline_config
-from physics_models.comm import build_network_graph
+from utils.env_manager import EnvironmentManager
 
 def get_centralized_metrics():
     csv_path = os.path.join("results", "lora_vs_nolora", "results_yolo12n_lora.csv")
@@ -332,7 +387,7 @@ def calc_flat_physics(baseline):
     max_latency = 0.0
     total_payload_mb = 0.0
     
-    G, _, _ = build_network_graph(topo.auv_positions, topo.relay_positions, topo.gateway_position)
+    G = EnvironmentManager.restore_graph(topo)
     
     flop_mult = 3.0 if cfg.full_param else 1.5
     

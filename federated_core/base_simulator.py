@@ -309,6 +309,18 @@ class BaseSimulator(ABC):
                         e_a2r_total += e_tx_cost
                         e_comp_total += e_comp_cost
 
+            # TÍNH NĂNG LƯỢNG NHẬN (E_RX) CHO CÁC RELAY KHI NHẬN TỪ MEMBER
+            from physics_models.energy import e_rx
+            for sid, payload in payloads.items():
+                m = self.association.get(sid, -1)
+                if m != -1 and m in self.relays:
+                    link_key = ('auv', sid, 'relay', m)
+                    if link_key in self.G:
+                        s_bits = len(payload) * 8 if self.baseline_cfg.use_int8 else len(payload) * 32
+                        link = self.G[link_key]
+                        e_recv = e_rx(s_bits, link.R_bps, self.en_cfg.P_C_RX)
+                        self.relays[m].deduct_battery(e_recv, min_battery=self.en_cfg.RELAY_E_MIN)
+
             # --- Phase 2: Relay Tier ---
             e_r2r_total = 0.0
             e_r2g_total = 0.0
@@ -324,7 +336,7 @@ class BaseSimulator(ABC):
             # Nội cụm (Intra-cluster) + deduct SVD energy from Relay battery
             # [OPTION A] Song song hóa relay SVD aggregation bằng ThreadPoolExecutor
             # Mỗi relay hoàn toàn độc lập → thread-safe.
-            from physics_models.energy import e_tx, e_svd
+            from physics_models.energy import e_tx, e_svd, e_rx
             dead_relays = []
             e_svd_total = 0.0
             svd_calls_by_relay = {}
@@ -421,8 +433,9 @@ class BaseSimulator(ABC):
                     key = link_key_fwd if link_key_fwd in self.G else (link_key_bwd if link_key_bwd in self.G else None)
                     if key:
                         link = self.G[key]
+                        s_bits = self._compute_relay_model_bits()
                         e_coop_tx = e_tx(
-                            self._compute_relay_model_bits(), link.R_bps, link.SL_min,
+                            s_bits, link.R_bps, link.SL_min,
                             self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
                         )
                         e_r2r_total += e_coop_tx
@@ -430,6 +443,10 @@ class BaseSimulator(ABC):
                             e_coop_tx,
                             min_battery=self.en_cfg.RELAY_E_MIN,
                         )
+                        
+                        # Trừ pin nhận (e_rx) cho Relay m (người yêu cầu hợp tác)
+                        e_coop_rx = e_rx(s_bits, link.R_bps, self.en_cfg.P_C_RX)
+                        self.relays[m].deduct_battery(e_coop_rx, min_battery=self.en_cfg.RELAY_E_MIN)
             
             # Tính năng lượng gửi Relay -> Gateway và trừ vào pin Relay
             if not self.is_flat:

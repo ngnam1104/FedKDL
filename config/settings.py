@@ -47,13 +47,13 @@ class EnergyConfig:
     RELAY_E_INIT: float = float('inf')
     E_MIN: float = 5000.0            # J — ngưỡng dự trữ khẩn cấp (AUV)
     RELAY_E_MIN: float = 5000.0      # J — ngưỡng dự trữ khẩn cấp (Relay)
-    EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-28, "2D": 1.0e-28})
+    EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-28, "2D": 5.0e-30})
     F_CPU: float = 1.5e9             # Hz — CPU Max Freq. (Jetson Orin Nano Datasheet r4)
     N_CORES: int = 6                 # Số lõi (Jetson Orin Nano Datasheet r4: 6-core ARM Cortex-A78AE)
     FLOPS_PER_CYCLE: float = 4.0     # Số FLOPs/chu kỳ/lõi (ARM Cortex-A78AE NEON SIMD, ước tính)
     # T_comp = FLOPs / (F_CPU × N_CORES × FLOPS_PER_CYCLE)
-    P_C_TX: float = 10.0             # W — mạch phát Acoustic Modem (VD: Evologics S2C)
-    P_C_RX: float = 1.0              # W — mạch thu
+    P_C_TX: float = 0.1              # W — mạch phát Acoustic Modem
+    P_C_RX: float = 0.05             # W — mạch thu
     ETA_EA: float = 0.25             # Hiệu suất điện-âm
 
 
@@ -66,8 +66,8 @@ class FedKDLConfig:
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 8        # Trả về 8 theo yêu cầu để giảm tải GPU/VRAM cho AUV
     LOCAL_LR: float = 5e-4
-    LOCAL_HEAD_LR_MULT: float = 4.0   # FL Local SGD: Head LR = LOCAL_LR × multiplier
-    LOCAL_LORA_LR_MULT: float = 1.0   # FL Local SGD: LoRA LR = LOCAL_LR × multiplier
+    LOCAL_HEAD_LR_MULT: float = 10.0  # Head LR = 5e-4 * 10 = 0.005
+    LOCAL_LORA_LR_MULT: float = 2.0   # LoRA LR = 5e-4 * 2 = 0.001
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
     LOCAL_DATALOADER_WORKERS: int = 0 # FL local YOLO dataloader workers (0 để tránh overhead spawn process chậm 20s)
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
@@ -158,8 +158,8 @@ class FedKDLConfig:
     CENTRAL_LORA_LR_MULT: float = 0.5 # Centralized LoRA: LoRA LR = lr0 × multiplier
 
     # ── Joint optimisation / latency budget (base_simulator logs) ───────────
-    LAMBDA_E: float = 1e-3
-    LAMBDA_TAU: float = 1e-3
+    LAMBDA_E: float = 0.01
+    LAMBDA_TAU: float = 0.01
     TAU_MAX: float = float('inf')    # Bài toán P1 nới lỏng giới hạn
     TAU_MAX_REF: float = 1800.0      # s — Ngưỡng tham chiếu (Lớp 3)
     SERVER_MIX_BETA: float = 0.90    # FedKDL-only: old global 0.10 + new aggregate 0.90
