@@ -26,7 +26,7 @@ from federated_core.aggregator import (
 )
 from federated_core.hfl_rules import blend_state_dicts
 from federated_core.hfl_rules import find_coop_partner
-from federated_core.metrics import LatencyTracker
+from federated_core.metrics import EnergyTracker, LatencyTracker, physical_joint_cost
 from federated_core.workers import BaseGateway
 from tasks.detection_2d.baselines import (
     BASELINE_CONFIGS,
@@ -50,6 +50,7 @@ from tasks.detection_2d.knowledge_compression.topk_sparsification import (
     unflatten_state_dict,
 )
 from config.settings import fed_cfg
+from physics_models.latency import max_participant_samples
 
 
 @dataclass
@@ -761,6 +762,60 @@ def test_latency_keeps_relay_paths_coupled() -> None:
     assert_scalar(metrics['tau_r2g'], 10.0, "max relay-to-gateway latency")
 
 
+def test_physics_accounting_contracts() -> None:
+    tracker = EnergyTracker()
+    tracker.add_round(
+        round_idx=1,
+        e_a2r=12.0,
+        e_r2r=7.0,
+        e_r2g=5.0,
+        e_comp=3.0,
+        e_svd=1.0,
+        e_a2r_rx=2.0,
+        e_r2r_rx=1.5,
+        e_r2g_rx=0.5,
+    )
+    row = tracker.history[-1]
+    assert_scalar(row['e_rx'], 4.0, "total RX energy")
+    assert_scalar(row['round_total'], 28.0, "TX+RX+computation round energy")
+    assert_scalar(tracker.cumulative_energy, 28.0, "cumulative energy")
+
+    max_samples = max_participant_samples([80, 125, 100])
+    if max_samples != 125:
+        raise AssertionError(f"tau_comp workload must use max=125, got {max_samples}")
+    if max_participant_samples([]) != 100:
+        raise AssertionError("empty participant workload must use the documented default")
+
+    cost = physical_joint_cost(
+        energy=28.0,
+        latency=11.0,
+        lambda_e=0.01,
+        lambda_tau=0.02,
+    )
+    assert_scalar(cost, 0.50, "physical joint cost")
+
+    class Link:
+        def __init__(self, rate: float):
+            self.R_bps = rate
+            self.distance = 0.0
+
+    graph_with_missing_r2g = {
+        ('auv', 0, 'relay', 0): Link(10.0),
+        ('auv', 1, 'relay', 1): Link(20.0),
+        ('relay', 0, 'gateway', 0): Link(10.0),
+    }
+    metrics = LatencyTracker().compute_round_latency(
+        G=graph_with_missing_r2g,
+        association={0: 0, 1: 1},
+        cooperation_partners={},
+        tau_comp=2.0,
+        tau_svd=1.0,
+        auv_payload_bits=100.0,
+        relay_model_bits=100.0,
+    )
+    assert_scalar(metrics['tau_round'], 23.0, "missing R2G link is skipped")
+
+
 def test_baseline_contracts() -> None:
     expected = {
         'fedavg': dict(hfl=False, full_param=True, fedprox=False),
@@ -940,6 +995,7 @@ def main() -> None:
     test_kd_component_contributions()
     test_nearest_and_selective_partner_rules()
     test_latency_keeps_relay_paths_coupled()
+    test_physics_accounting_contracts()
 
     results = {}
     baselines = list(STANDARD_BASELINES)

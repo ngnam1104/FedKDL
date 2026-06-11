@@ -165,6 +165,9 @@ class EnergyTracker:
         e_r2g: float,
         e_comp: float,
         e_svd: float = 0.0,
+        e_a2r_rx: float = 0.0,
+        e_r2r_rx: float = 0.0,
+        e_r2g_rx: float = 0.0,
     ):
         """Ghi nhận hóa đơn năng lượng của 1 round."""
         round_total = e_a2r + e_r2r + e_r2g + e_comp + e_svd
@@ -175,6 +178,10 @@ class EnergyTracker:
             'e_a2r': e_a2r,
             'e_r2r': e_r2r,
             'e_r2g': e_r2g,
+            'e_a2r_rx': e_a2r_rx,
+            'e_r2r_rx': e_r2r_rx,
+            'e_r2g_rx': e_r2g_rx,
+            'e_rx': e_a2r_rx + e_r2r_rx + e_r2g_rx,
             'e_comp': e_comp,
             'e_svd': e_svd,
             'round_total': round_total,
@@ -184,6 +191,16 @@ class EnergyTracker:
     def get_dataframe(self) -> pd.DataFrame:
         """Trả về lịch sử dưới dạng DataFrame."""
         return pd.DataFrame(self.history)
+
+
+def physical_joint_cost(
+    energy: float,
+    latency: float,
+    lambda_e: float,
+    lambda_tau: float,
+) -> float:
+    """Weighted physical objective used by the system model."""
+    return lambda_e * energy + lambda_tau * latency
 
 
 class LatencyTracker:

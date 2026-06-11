@@ -7,6 +7,11 @@ import numpy as np
 from typing import Dict, List
 
 
+def max_participant_samples(sample_counts, default: int = 100) -> int:
+    """Return the synchronous local-computation bottleneck workload."""
+    return int(max(sample_counts, default=default))
+
+
 def comm_delay(S_bits: float, R_bps: float,
                d_m: float, c_s: float = 1500.0) -> float:
     """

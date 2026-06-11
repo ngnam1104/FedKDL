@@ -12,15 +12,20 @@ import pickle
 
 from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
 from physics_models.communication import min_source_level, shannon_capacity
-from physics_models.energy import e_tx, e_comp, e_rx
+from physics_models.energy import e_tx, e_comp, e_rx, e_svd, total_energy_round
 from physics_models.latency import comm_delay, comp_delay_dynamic, relay_comp_delay
+from utils.env_manager import EnvironmentManager
 
 # ─────────────────────────────────────────────────────────────────────
 # 1. Load Topology
 # ─────────────────────────────────────────────────────────────────────
 TOPO_PATH = "environments/2d/topo/N_30/topo_N30_seed1104.pkl"
+DATA_PATH = "environments/2d/data/URPC/N_30/data_N30_URPC_a1p0_seed1104.pkl"
 with open(TOPO_PATH, "rb") as f:
     topo = pickle.load(f)
+with open(DATA_PATH, "rb") as f:
+    data_partition = pickle.load(f)
+G = EnvironmentManager.restore_graph(topo)
 
 # ─────────────────────────────────────────────────────────────────────
 # 2. System / Physics Constants  (tất cả lấy từ settings, không hard-code)
@@ -56,15 +61,18 @@ TAU_MAX        = fed_cfg.TAU_MAX                         # 1800 s
 # Để F = lambda_tau * tau + lambda_E * E có hai hạng tử cùng bậc đại lượng:
 #   lambda_tau = 1e-3  (s^-1)
 #   lambda_E   = 1e-4  (J^-1)
-LAMBDA_TAU     = 0.01      # weight cho latency
-LAMBDA_E       = 0.01      # weight cho energy (scaled để cân bằng)
+LAMBDA_TAU     = fed_cfg.LAMBDA_TAU
+LAMBDA_E       = fed_cfg.LAMBDA_E
 
 # Model params (YOLOv12-N student)
 NUM_PARAMS_FULL  = 2_695_948   # tổng params
 NUM_PARAMS_LORA  = 389_772     # trainable (Full backbone r=4, Neck r=8 + Head)
 
-# Avg samples per AUV (dùng cho tau_comp / e_comp)
-AVG_SAMPLES = 100   # ước tính trung bình (URPC ~3000 train / 30 AUVs = 100 ảnh)
+SAMPLE_COUNTS = {
+    auv_id: len(indices)
+    for auv_id, indices in data_partition.auv_data_indices.items()
+}
+MAX_SAMPLES = max(SAMPLE_COUNTS.values())
 
 # ─────────────────────────────────────────────────────────────────────
 # 3. Helper Functions
@@ -97,12 +105,32 @@ def tx_latency(payload_kb_val: float, d: float) -> float:
     S_bits = payload_kb_val * 1024 * 8
     return comm_delay(S_bits, R_BPS, d, C_S)
 
-def local_comp_delay(flop_mult: float, n_samples: int = AVG_SAMPLES) -> float:
+def link_physics(payload_kb_val: float, d: float, link):
+    """Return latency, TX energy, and RX energy using a restored graph link."""
+    s_bits = payload_kb_val * 1024 * 8
+    latency = comm_delay(s_bits, link.R_bps, d, C_S)
+    tx = e_tx(s_bits, link.R_bps, link.SL_min, ETA_EA, P_C_TX, 1025.0, C_S)
+    rx = e_rx(s_bits, link.R_bps, P_C_RX)
+    return latency, tx, rx
+
+def nearest_relay_partner(relay_id: int):
+    candidates = []
+    for other_id in range(topo.M):
+        if other_id == relay_id:
+            continue
+        key_fwd = ('relay', relay_id, 'relay', other_id)
+        key_bwd = ('relay', other_id, 'relay', relay_id)
+        if key_fwd in G or key_bwd in G:
+            d = dist3(topo.relay_positions[relay_id], topo.relay_positions[other_id])
+            candidates.append((d, other_id, key_fwd if key_fwd in G else key_bwd))
+    return min(candidates) if candidates else None
+
+def local_comp_delay(flop_mult: float, n_samples: int = MAX_SAMPLES) -> float:
     """tau_comp cho một AUV."""
     return comp_delay_dynamic(n_samples, LOCAL_EPOCHS, FLOPS_SAMPLE,
                                flop_mult, F_CPU, N_CORES, FPC)
 
-def local_comp_energy(flop_mult: float, n_samples: int = AVG_SAMPLES) -> float:
+def local_comp_energy(flop_mult: float, n_samples: int = MAX_SAMPLES) -> float:
     """e_comp cho một AUV."""
     return e_comp(n_samples, LOCAL_EPOCHS, FLOPS_SAMPLE, EPS_OP, flop_mult, F_CPU)
 
@@ -116,22 +144,24 @@ def svd_delay() -> float:
 
 def compute_flat_fl(pload_kb: float, flop_mult: float):
     tau_comp = local_comp_delay(flop_mult)
-    e_comp_1 = local_comp_energy(flop_mult)
-
     total_e_comm = 0.0
+    total_e_comp = 0.0
     max_tau_comm = 0.0
     max_e_auv = 0.0
 
     for i in range(topo.N):
         d = dist3(topo.auv_positions[i], topo.gateway_position)
-        e = tx_energy(pload_kb, d)
-        e_recv = e_rx(pload_kb * 1024 * 8, R_BPS, P_C_RX)
-        t = tx_latency(pload_kb, d)
+        key = ('auv', i, 'gateway', 0)
+        if key not in G:
+            continue
+        t, e, e_recv = link_physics(pload_kb, d, G[key])
+        e_comp_i = local_comp_energy(flop_mult, SAMPLE_COUNTS[i])
         
         total_e_comm += e + e_recv
+        total_e_comp += e_comp_i
         
         # Max energy for a single AUV (chỉ tính tx và comp của nó)
-        auv_e = e_comp_1 + e
+        auv_e = e_comp_i + e
         if auv_e > max_e_auv:
             max_e_auv = auv_e
             
@@ -139,19 +169,28 @@ def compute_flat_fl(pload_kb: float, flop_mult: float):
             max_tau_comm = t
 
     tau_round    = tau_comp + max_tau_comm
-    total_e_comp = e_comp_1 * topo.N
     total_energy = total_e_comp + total_e_comm
     return tau_round, total_energy, max_e_auv
 
 
 def compute_hfl(pload_kb_auv: float, pload_kb_relay: float,
-                flop_mult: float, has_svd: bool = False):
+                flop_mult: float, has_svd: bool = False,
+                has_coop: bool = False):
     tau_comp  = local_comp_delay(flop_mult)
-    e_comp_1  = local_comp_energy(flop_mult)
-    tau_svd_v = svd_delay() if has_svd else 0.0
+    svd_calls = 2 if has_coop else 1
+    tau_svd_v = (
+        relay_comp_delay(
+            n_svd_calls=svd_calls,
+            f_cpu=F_CPU,
+            n_cores=N_CORES,
+            flops_per_cycle=FPC,
+        )
+        if has_svd else 0.0
+    )
 
     relay_max_tau_comm = {m: 0.0 for m in range(topo.M)}
     total_e_a2r        = 0.0
+    total_e_comp       = 0.0
     max_e_auv          = 0.0
 
     relay_recv_energy = {m: 0.0 for m in range(topo.M)}
@@ -159,40 +198,66 @@ def compute_hfl(pload_kb_auv: float, pload_kb_relay: float,
     for i in range(topo.N):
         m = topo.hfl_association.get(i, 0)
         d = dist3(topo.auv_positions[i], topo.relay_positions[m])
-        e = tx_energy(pload_kb_auv, d)
-        e_recv = e_rx(pload_kb_auv * 1024 * 8, R_BPS, P_C_RX)
-        t = tx_latency(pload_kb_auv, d)
+        key = ('auv', i, 'relay', m)
+        if key not in G:
+            raise KeyError(f"Missing topology link: {key}")
+        t, e, e_recv = link_physics(pload_kb_auv, d, G[key])
+        e_comp_i = local_comp_energy(flop_mult, SAMPLE_COUNTS[i])
         
         total_e_a2r += e + e_recv
+        total_e_comp += e_comp_i
         relay_recv_energy[m] += e_recv
         
-        auv_e = e_comp_1 + e
+        auv_e = e_comp_i + e
         if auv_e > max_e_auv:
             max_e_auv = auv_e
             
         if t > relay_max_tau_comm[m]:
             relay_max_tau_comm[m] = t
 
+    total_e_r2r      = 0.0
+    relay_r2r_latency = {m: 0.0 for m in range(topo.M)}
+    relay_r2r_energy = {m: 0.0 for m in range(topo.M)}
+    if has_coop:
+        for m in range(topo.M):
+            partner = nearest_relay_partner(m)
+            if partner is None:
+                continue
+            d, partner_id, key = partner
+            t, e_tx_cost, e_rx_cost = link_physics(pload_kb_relay, d, G[key])
+            relay_r2r_latency[m] = t
+            relay_r2r_energy[m] = e_tx_cost + e_rx_cost
+            total_e_r2r += e_tx_cost + e_rx_cost
+
     total_e_r2g      = 0.0
     round_max_latency = 0.0
 
     for m in range(topo.M):
         d   = dist3(topo.relay_positions[m], topo.gateway_position)
-        e   = tx_energy(pload_kb_relay, d)
-        e_recv = e_rx(pload_kb_relay * 1024 * 8, R_BPS, P_C_RX)
-        t   = tx_latency(pload_kb_relay, d)
-        total_e_r2g += e + e_recv
+        key = ('relay', m, 'gateway', 0)
+        t = e = e_recv = 0.0
+        if key in G:
+            t, e, e_recv = link_physics(pload_kb_relay, d, G[key])
+            total_e_r2g += e + e_recv
 
-        relay_total_e = e_comp_1 + relay_recv_energy[m] + e
+        relay_total_e = relay_recv_energy[m] + relay_r2r_energy[m] + e
         if relay_total_e > max_e_auv:
             max_e_auv = relay_total_e
 
-        relay_total = tau_comp + relay_max_tau_comm[m] + tau_svd_v + t
+        relay_total = (
+            tau_comp + relay_max_tau_comm[m] + tau_svd_v
+            + relay_r2r_latency[m] + t
+        )
         if relay_total > round_max_latency:
             round_max_latency = relay_total
 
-    total_e_comp  = e_comp_1 * topo.N
-    total_energy  = total_e_comp + total_e_a2r + total_e_r2g
+    total_e_svd = (
+        topo.M * e_svd(256, 128, EPS_OP, svd_calls, F_CPU)
+        if has_svd else 0.0
+    )
+    total_energy = total_energy_round(
+        total_e_a2r, total_e_r2r, total_e_r2g, total_e_comp, total_e_svd
+    )
     return round_max_latency, total_energy, max_e_auv
 
 
@@ -202,6 +267,73 @@ def joint_cost(tau: float, energy: float) -> float:
 
 def survival_rounds(max_e_auv: float) -> float:
     return E_INIT_REF / max_e_auv if max_e_auv > 0 else float('inf')
+
+def print_stage_physics(payload_auv_kb: float, payload_relay_kb: float):
+    """Print every physical term for one FedKDL communication round."""
+    print("\n[Physics breakdown]")
+    print(
+        f"{'Stage':7} {'Link':15} {'d(m)':>8} {'R(bps)':>10} {'SL(dB)':>9} "
+        f"{'tx(s)':>10} {'prop(s)':>9} {'total(s)':>10} "
+        f"{'E_tx(J)':>10} {'E_rx(J)':>10}"
+    )
+
+    def emit(stage, label, payload_kb_val, d, link):
+        total_delay, tx_energy, rx_energy = link_physics(payload_kb_val, d, link)
+        bits = payload_kb_val * 1024 * 8
+        tx_delay = bits / link.R_bps
+        prop_delay = d / C_S
+        print(
+            f"{stage:7} {label:15} {d:8.2f} {link.R_bps:10.2f} "
+            f"{link.SL_min:9.2f} {tx_delay:10.4f} {prop_delay:9.4f} "
+            f"{total_delay:10.4f} {tx_energy:10.4f} {rx_energy:10.4f}"
+        )
+        return total_delay, tx_energy, rx_energy
+
+    totals = {
+        stage: {'latency': 0.0, 'tx': 0.0, 'rx': 0.0}
+        for stage in ('A2R', 'R2R', 'R2G')
+    }
+    for i in range(topo.N):
+        m = topo.hfl_association.get(i, 0)
+        key = ('auv', i, 'relay', m)
+        d = dist3(topo.auv_positions[i], topo.relay_positions[m])
+        delay, tx, rx = emit('A2R', f'AUV{i}->R{m}', payload_auv_kb, d, G[key])
+        totals['A2R']['latency'] = max(totals['A2R']['latency'], delay)
+        totals['A2R']['tx'] += tx
+        totals['A2R']['rx'] += rx
+
+    for m in range(topo.M):
+        partner = nearest_relay_partner(m)
+        if partner is None:
+            continue
+        d, partner_id, key = partner
+        delay, tx, rx = emit(
+            'R2R', f'R{partner_id}->R{m}', payload_relay_kb, d, G[key]
+        )
+        totals['R2R']['latency'] = max(totals['R2R']['latency'], delay)
+        totals['R2R']['tx'] += tx
+        totals['R2R']['rx'] += rx
+
+    for m in range(topo.M):
+        key = ('relay', m, 'gateway', 0)
+        d = dist3(topo.relay_positions[m], topo.gateway_position)
+        if key not in G:
+            print(f"{'R2G':7} {f'R{m}->GW':15} {d:8.2f} {'N/A':>10} "
+                  f"{'N/A':>9} {'SKIPPED: infeasible link':>41}")
+            continue
+        delay, tx, rx = emit('R2G', f'R{m}->GW', payload_relay_kb, d, G[key])
+        totals['R2G']['latency'] = max(totals['R2G']['latency'], delay)
+        totals['R2G']['tx'] += tx
+        totals['R2G']['rx'] += rx
+
+    print("\n[Stage totals: bottleneck latency, accumulated energy]")
+    for stage, values in totals.items():
+        print(
+            f"{stage}: tau={values['latency']:.4f}s | "
+            f"E_tx={values['tx']:.4f}J | E_rx={values['rx']:.4f}J | "
+            f"E_link={values['tx'] + values['rx']:.4f}J"
+        )
+    return totals
 
 # ─────────────────────────────────────────────────────────────────────
 # 5. Pre-compute payload sizes
@@ -222,6 +354,7 @@ print(f"[Comp]    tau_comp(Full, flop×3.0) = {local_comp_delay(3.0):.2f} s")
 print(f"[Comp]    tau_comp(LoRA, flop×1.5) = {local_comp_delay(1.5):.2f} s")
 print(f"[Comp]    tau_svd                  = {svd_delay():.4f} s")
 print()
+PHYSICS_BREAKDOWN = print_stage_physics(LORA_INT8, LORA_INT8)
 
 # ─────────────────────────────────────────────────────────────────────
 # 6. Write Markdown
@@ -232,7 +365,7 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
     f.write(f"- **Model**: YOLOv12-N (Student) — {NUM_PARAMS_FULL:,} total params\n")
     f.write(f"- **Topology**: N={topo.N} AUVs, M={topo.M} Relays (from `{TOPO_PATH.split('/')[-1]}`)\n")
     f.write(f"- **Shannon Capacity** R = {R_BPS:.0f} bps\n")
-    f.write(f"- **Avg samples/AUV** ≈ {AVG_SAMPLES} (URPC ~3000 train ÷ {topo.N} AUVs)\n\n")
+    f.write(f"- **Max samples/AUV** = {MAX_SAMPLES} (from `{DATA_PATH.split('/')[-1]}`)\n\n")
 
     # ── 5.2 Dual Compression ─────────────────────────────────────────
     f.write("## 5.2 Dual Compression\n\n")
@@ -259,12 +392,12 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
     f.write("|---|---|---|---|---|---|---|\n")
 
     rows_53 = [
-        ("FedAvg-LoRA (no relay)",    LORA_INT8, LORA_INT8, "Average",        False, 3.0),
-        ("Naive SVD-LoRA",            LORA_INT8, LORA_INT8, "SVD (no coop)",  True,  1.5),
-        ("FedKDL Relay (SVD+Coop)",   LORA_INT8, LORA_INT8, "SVD + Coop",    True,  1.5),
+        ("FedAvg-LoRA (no relay)",    LORA_INT8, LORA_INT8, "Average",        False, False, 3.0),
+        ("Naive SVD-LoRA",            LORA_INT8, LORA_INT8, "SVD (no coop)",  True,  False, 1.5),
+        ("FedKDL Relay (SVD+Coop)",   LORA_INT8, LORA_INT8, "SVD + Coop",     True,  True,  1.5),
     ]
-    for name, p_auv, p_relay, relay_op, has_svd, fm in rows_53:
-        tau, eng, _ = compute_hfl(p_auv, p_relay, fm, has_svd)
+    for name, p_auv, p_relay, relay_op, has_svd, has_coop, fm in rows_53:
+        tau, eng, _ = compute_hfl(p_auv, p_relay, fm, has_svd, has_coop)
         tau_s = svd_delay() if has_svd else 0.0
         f.write(f"| {name} | {p_auv:.1f} | {relay_op} | {tau_s:.4f} | {tau:.1f} | {eng:.1f} | {joint_cost(tau, eng):.4f} |\n")
 
@@ -281,7 +414,9 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
         ("LoRA-Proj KD", LORA_INT8, "None (proj only)",  1.5),
     ]
     for name, pload, overhead, fm in rows_54:
-        tau, eng, _ = compute_hfl(pload, pload, fm, has_svd=True)
+        tau, eng, _ = compute_hfl(
+            pload, pload, fm, has_svd=True, has_coop=True
+        )
         f.write(f"| {name} | {pload:.1f} | {overhead} | {tau:.1f} | {eng:.1f} | {joint_cost(tau, eng):.4f} |\n")
 
     # ── 5.5 Latency-Energy-Accuracy Tradeoff ─────────────────────────
@@ -302,7 +437,9 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
     ]
     for name, p_auv, p_relay, fm, has_svd, is_hfl in rows_55:
         if is_hfl:
-            tau, eng, max_e = compute_hfl(p_auv, p_relay, fm, has_svd)
+            tau, eng, max_e = compute_hfl(
+                p_auv, p_relay, fm, has_svd, has_coop=has_svd
+            )
         else:
             tau, eng, max_e = compute_flat_fl(p_auv, fm)
         jc  = joint_cost(tau, eng)
@@ -311,6 +448,14 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
 
     # Bổ sung section 5.6: Phân tích chi tiết Năng lượng & Trễ từng chặng (Per-Device Breakdown)
     f.write("\n## 5.6 Per-Device Energy & Latency Breakdown (FedKDL)\n\n")
+    f.write("| Chặng | Độ trễ bottleneck (s) | E_tx (J) | E_rx (J) | E_link (J) |\n")
+    f.write("|---|---:|---:|---:|---:|\n")
+    for stage, values in PHYSICS_BREAKDOWN.items():
+        f.write(
+            f"| {stage} | {values['latency']:.4f} | {values['tx']:.4f} | "
+            f"{values['rx']:.4f} | {values['tx'] + values['rx']:.4f} |\n"
+        )
+    f.write("\n")
     f.write("Tính toán chi tiết cho AUV 0 và Relay phụ trách (Sử dụng đúng các hàm vật lý gốc).\n\n")
     
     auv_id = 0
@@ -322,25 +467,30 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
     S_bits_auv = pload_auv * 1024 * 8
     
     # 1. Tính toán tại AUV
-    tau_comp_auv = comp_delay_dynamic(AVG_SAMPLES, LOCAL_EPOCHS, FLOPS_SAMPLE, 1.5, F_CPU, N_CORES, FPC)
-    e_comp_auv_val = e_comp(AVG_SAMPLES, LOCAL_EPOCHS, FLOPS_SAMPLE, EPS_OP, 1.5, F_CPU)
+    tau_comp_auv = comp_delay_dynamic(SAMPLE_COUNTS[auv_id], LOCAL_EPOCHS, FLOPS_SAMPLE, 1.5, F_CPU, N_CORES, FPC)
+    e_comp_auv_val = e_comp(SAMPLE_COUNTS[auv_id], LOCAL_EPOCHS, FLOPS_SAMPLE, EPS_OP, 1.5, F_CPU)
     
     # 2. Truyền AUV -> Relay
-    tau_comm_a2r = comm_delay(S_bits_auv, R_BPS, d_a2r, C_S)
-    SL_min_a2r = min_source_level(d_a2r, F_KHZ, B_hz, SNR_dB, IL, SPREADING, WIND, SHIPPING)
-    e_tx_auv = e_tx(S_bits_auv, R_BPS, SL_min_a2r, ETA_EA, P_C_TX)
-    e_rx_relay = e_rx(S_bits_auv, R_BPS, P_C_RX)
+    link_a2r = G[('auv', auv_id, 'relay', relay_id)]
+    tau_comm_a2r, e_tx_auv, e_rx_relay = link_physics(
+        pload_auv, d_a2r, link_a2r
+    )
     
     # 3. Tính toán tại Relay (SVD)
     tau_svd_relay = relay_comp_delay(256, 128, 1, F_CPU, N_CORES, FPC)
-    from physics_models.energy import e_svd
-    e_svd_relay = e_svd(256, 128, 1, EPS_OP)
+    e_svd_relay = e_svd(256, 128, EPS_OP, 1, F_CPU)
     
     # 4. Truyền Relay -> Gateway
     S_bits_relay = S_bits_auv
-    tau_comm_r2g = comm_delay(S_bits_relay, R_BPS, d_r2g, C_S)
-    SL_min_r2g = min_source_level(d_r2g, F_KHZ, B_hz, SNR_dB, IL, SPREADING, WIND, SHIPPING)
-    e_tx_relay = e_tx(S_bits_relay, R_BPS, SL_min_r2g, ETA_EA, P_C_TX)
+    r2g_key = ('relay', relay_id, 'gateway', 0)
+    if r2g_key in G:
+        tau_comm_r2g, e_tx_relay, e_rx_gateway = link_physics(
+            pload_auv, d_r2g, G[r2g_key]
+        )
+        r2g_detail = f"Khoảng cách: {d_r2g:.0f}m"
+    else:
+        tau_comm_r2g = e_tx_relay = e_rx_gateway = 0.0
+        r2g_detail = "Liên kết không khả thi; không truyền"
     
     f.write("| Thiết bị | Chặng | Trễ (s) | Năng lượng (J) | Chi tiết |\n")
     f.write("|---|---|---|---|---|\n")
@@ -348,7 +498,8 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
     f.write(f"| **AUV 0** | Truyền AUV -> Relay | {tau_comm_a2r:.2f} | {e_tx_auv:.2f} | Khoảng cách: {d_a2r:.0f}m |\n")
     f.write(f"| **Relay {relay_id}** | Nhận từ AUV 0 | - | {e_rx_relay:.2f} | Mạch thu: {P_C_RX}W |\n")
     f.write(f"| **Relay {relay_id}** | Tổng hợp SVD | {tau_svd_relay:.4f} | {e_svd_relay:.6f} | D_out=256, D_in=128 |\n")
-    f.write(f"| **Relay {relay_id}** | Truyền Relay -> Gateway | {tau_comm_r2g:.2f} | {e_tx_relay:.2f} | Khoảng cách: {d_r2g:.0f}m |\n")
+    f.write(f"| **Relay {relay_id}** | Truyền Relay -> Gateway | {tau_comm_r2g:.2f} | {e_tx_relay:.2f} | {r2g_detail} |\n")
+    f.write(f"| **Gateway** | Nhận từ Relay {relay_id} | - | {e_rx_gateway:.2f} | Mạch thu: {P_C_RX}W |\n")
     f.write("\n")
 
 print("Done -> theoretical_metrics.md")
@@ -387,37 +538,23 @@ def calc_flat_physics(baseline):
     max_latency = 0.0
     total_payload_mb = 0.0
     
-    G = EnvironmentManager.restore_graph(topo)
-    
     flop_mult = 3.0 if cfg.full_param else 1.5
     
     for s_id in range(topo.N):
-        # Giả định trung bình 100 samples
-        n_samples = AVG_SAMPLES
+        n_samples = SAMPLE_COUNTS[s_id]
         S_bits = auv_kb * 1024 * 8
-        total_payload_mb += auv_kb / 1024.0
-        
         link_key = ('auv', s_id, 'gateway', 0)
-        if link_key in G:
-            link = G[link_key]
-            R_bps_val = link.R_bps
-            SL_min_val = link.SL_min
-        else:
-            dist = dist3(topo.auv_positions[s_id], topo.gateway_position)
-            TL = 15 * np.log10(dist) + 0.05 * dist if dist > 0 else 0
-            SNR = 160 - TL - 50
-            SNR_linear = 10**(SNR/10)
-            R_bps_val = 5000 * np.log2(1 + SNR_linear) if SNR > 0 else 100
-            SL_min_val = 150
-            
-        e_tx_cost = e_tx(S_bits, R_bps_val, SL_min_val, ETA_EA, P_C_TX, 1025.0, C_S)
-        t_tx = S_bits / max(1, R_bps_val)
+        if link_key not in G:
+            continue
+        total_payload_mb += auv_kb / 1024.0
+        dist = dist3(topo.auv_positions[s_id], topo.gateway_position)
+        t_comm, e_tx_cost, e_rx_cost = link_physics(auv_kb, dist, G[link_key])
         
         e_comp_cost = local_comp_energy(flop_mult, n_samples)
         t_comp = local_comp_delay(flop_mult, n_samples)
         
-        total_energy += e_tx_cost + e_comp_cost
-        auv_latency = t_comp + t_tx
+        total_energy += e_tx_cost + e_rx_cost + e_comp_cost
+        auv_latency = t_comp + t_comm
         if auv_latency > max_latency:
             max_latency = auv_latency
             

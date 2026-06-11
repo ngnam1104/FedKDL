@@ -5,7 +5,12 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple
 
 from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
-from federated_core.metrics import EnergyTracker, LatencyTracker, MetricsLogger
+from federated_core.metrics import (
+    EnergyTracker,
+    LatencyTracker,
+    MetricsLogger,
+    physical_joint_cost,
+)
 from federated_core.hfl_rules import compute_mean_cluster_size, compute_q1_relay_distance
 try:
     from tasks.detection_2d.baselines import (
@@ -311,6 +316,7 @@ class BaseSimulator(ABC):
 
             # TÍNH NĂNG LƯỢNG NHẬN (E_RX) CHO CÁC RELAY KHI NHẬN TỪ MEMBER
             from physics_models.energy import e_rx
+            e_a2r_rx_total = 0.0
             for sid, payload in payloads.items():
                 m = self.association.get(sid, -1)
                 if m != -1 and m in self.relays:
@@ -319,11 +325,15 @@ class BaseSimulator(ABC):
                         s_bits = len(payload) * 8 if self.baseline_cfg.use_int8 else len(payload) * 32
                         link = self.G[link_key]
                         e_recv = e_rx(s_bits, link.R_bps, self.en_cfg.P_C_RX)
+                        e_a2r_rx_total += e_recv
                         self.relays[m].deduct_battery(e_recv, min_battery=self.en_cfg.RELAY_E_MIN)
+            e_a2r_total += e_a2r_rx_total
 
             # --- Phase 2: Relay Tier ---
             e_r2r_total = 0.0
             e_r2g_total = 0.0
+            e_r2r_rx_total = 0.0
+            e_r2g_rx_total = 0.0
             cooperation_partners = {}
 
             cluster_sizes = {
@@ -446,6 +456,8 @@ class BaseSimulator(ABC):
                         
                         # Trừ pin nhận (e_rx) cho Relay m (người yêu cầu hợp tác)
                         e_coop_rx = e_rx(s_bits, link.R_bps, self.en_cfg.P_C_RX)
+                        e_r2r_rx_total += e_coop_rx
+                        e_r2r_total += e_coop_rx
                         self.relays[m].deduct_battery(e_coop_rx, min_battery=self.en_cfg.RELAY_E_MIN)
             
             # Tính năng lượng gửi Relay -> Gateway và trừ vào pin Relay
@@ -463,6 +475,13 @@ class BaseSimulator(ABC):
                             self.en_cfg.ETA_EA, self.en_cfg.P_C_TX,
                         )
                         e_r2g_total += e_r2g_cost
+                        e_gateway_rx = e_rx(
+                            self._compute_relay_model_bits(),
+                            link.R_bps,
+                            self.en_cfg.P_C_RX,
+                        )
+                        e_r2g_rx_total += e_gateway_rx
+                        e_r2g_total += e_gateway_rx
                         relay.deduct_battery(e_r2g_cost, min_battery=self.en_cfg.RELAY_E_MIN)
 
             # --- Phase 3: Global Aggregation ---
@@ -505,6 +524,9 @@ class BaseSimulator(ABC):
                 e_r2g_total,
                 e_comp_total,
                 e_svd_total,
+                e_a2r_rx=e_a2r_rx_total,
+                e_r2r_rx=e_r2r_rx_total,
+                e_r2g_rx=e_r2g_rx_total,
             )
             
             avg_payload_bits = self._compute_payload_bits(payloads)
@@ -513,11 +535,11 @@ class BaseSimulator(ABC):
             payload_kb = avg_payload_bits / 8.0 / 1024.0
             cumulative_payload += payload_kb
             
-            # Tính tau_comp trung bình của round
-            from physics_models.latency import comp_delay_dynamic
-            avg_n_samples = np.mean(list(auv_n_samples.values())) if auv_n_samples else 100
+            # Đồng bộ FL phải chờ AUV tham gia có khối lượng tính toán lớn nhất.
+            from physics_models.latency import comp_delay_dynamic, max_participant_samples
+            max_n_samples = max_participant_samples(auv_n_samples.values())
             tau_comp = comp_delay_dynamic(
-                n_samples=int(avg_n_samples),
+                n_samples=int(max_n_samples),
                 n_local_epochs=self.fed_cfg.LOCAL_EPOCHS,
                 flops_per_sample=self.fed_cfg.MODEL_FLOPS_PER_SAMPLE[self.task_key],
                 flop_multiplier=self.get_flop_multiplier(),
@@ -577,9 +599,8 @@ class BaseSimulator(ABC):
             self._round_metrics_history.append(eval_metrics)
 
             # ── Eq. 22: Joint Optimisation Cost ──────────────────────────────────────
-            # min  F(θ^T) + λ_E · Σ E_round^t  +  λ_τ · Σ τ_round^t
-            # joint_cost_round là đóng góp của round t vào tổng trên (chưa gộp F(θ^T)).
-            # F(θ^T) = avg validation/training loss tại round T  —  đại diện bằng 'loss'.
+            # min λ_E · Σ E_round^t + λ_τ · Σ τ_round^t
+            # joint_cost_round là đóng góp vật lý của round t vào tổng mục tiêu.
             # ─────────────────────────────────────────────────────────────────────────
             # Năng lượng vòng = Truyền thông + Tính toán AUV + Tính toán Relay
             e_round_total = e_a2r_total + e_r2r_total + e_r2g_total + e_comp_total + e_svd_total
@@ -587,7 +608,12 @@ class BaseSimulator(ABC):
             lambda_e      = self.fed_cfg.LAMBDA_E
             lambda_tau    = self.fed_cfg.LAMBDA_TAU
 
-            joint_cost_round  = round_loss + lambda_e * e_round_total + lambda_tau * tau_round
+            joint_cost_round = physical_joint_cost(
+                e_round_total,
+                tau_round,
+                lambda_e,
+                lambda_tau,
+            )
             cumulative_joint_cost += joint_cost_round
 
             metrics = {
@@ -612,15 +638,19 @@ class BaseSimulator(ABC):
 
                 # ── Energy (raw, Joules) — bóc tách từng chặng ───────────────────
                 'e_total': e_round_total,
-                'e_a2r':   e_a2r_total,   # AUV → Relay TX energy
-                'e_r2r':   e_r2r_total,   # Relay ↔ Relay cooperation TX energy
-                'e_r2g':   e_r2g_total,   # Relay → Gateway TX energy
+                'e_a2r':   e_a2r_total,   # AUV → Relay TX + RX energy
+                'e_r2r':   e_r2r_total,   # Relay ↔ Relay TX + RX energy
+                'e_r2g':   e_r2g_total,   # Relay → Gateway TX + RX energy
+                'e_a2r_rx': e_a2r_rx_total,
+                'e_r2r_rx': e_r2r_rx_total,
+                'e_r2g_rx': e_r2g_rx_total,
+                'e_rx': e_a2r_rx_total + e_r2r_rx_total + e_r2g_rx_total,
                 'e_comp':  e_comp_total,  # Local computation energy (all active auvs)
                 'e_svd':   e_svd_total,   # Relay SVD computation energy
                 'e_cumul': self.energy_tracker.cumulative_energy,
 
                 # ── Joint Cost — Eq. 22 (λ_E, λ_τ weighted) ─────────────────────
-                # joint_cost_round  = loss_t + λ_E·E_round^t + λ_τ·τ_round^t
+                # joint_cost_round  = λ_E·E_round^t + λ_τ·τ_round^t
                 # joint_cost_cumul  = Σ_{s=1}^{t} joint_cost_round_s  (running sum)
                 'lambda_e':           lambda_e,
                 'lambda_tau':         lambda_tau,

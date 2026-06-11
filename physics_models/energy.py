@@ -147,11 +147,16 @@ def e_svd(d_out: int, d_in: int,
 #  Tổng hợp năng lượng theo tầng (Layer-based Energy Decomposition)
 # ──────────────────────────────────────────────────────────────────────
 
-def total_energy_round(e_a2r: float, e_r2r: float,
-                       e_r2g: float, e_comp_total: float) -> float:
+def total_energy_round(
+    e_a2r: float,
+    e_r2r: float,
+    e_r2g: float,
+    e_comp_total: float,
+    e_svd_total: float = 0.0,
+) -> float:
     """
     Tổng năng lượng tiêu thụ toàn mạng tại vòng t  —  Eq. 27.
 
     E_total = E_a2r + E_r2r + E_r2g + Σ E_comp
     """
-    return e_a2r + e_r2r + e_r2g + e_comp_total
+    return e_a2r + e_r2r + e_r2g + e_comp_total + e_svd_total
