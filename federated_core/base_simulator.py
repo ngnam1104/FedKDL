@@ -77,6 +77,13 @@ class BaseSimulator(ABC):
         self.relay_positions = self.topology.relay_positions
         self.gateway_position = self.topology.gateway_position
         self.G = EnvironmentManager.restore_graph(topo)
+        from physics_models.topology import gateway_disconnected_relays
+        missing_gateway_relays = gateway_disconnected_relays(self.topology, self.G)
+        if missing_gateway_relays:
+            print(
+                "[Warning] Relay(s) without a feasible gateway uplink: "
+                f"{missing_gateway_relays}. Their R2G transmission is skipped."
+            )
         
         if self.baseline in DETECTION_BASELINE_CONFIGS:
             self.is_flat = not parse_2d_baseline_config(self.baseline).hfl
@@ -483,6 +490,11 @@ class BaseSimulator(ABC):
                         e_r2g_rx_total += e_gateway_rx
                         e_r2g_total += e_gateway_rx
                         relay.deduct_battery(e_r2g_cost, min_battery=self.en_cfg.RELAY_E_MIN)
+                    else:
+                        print(
+                            f"[Warning] Relay {m} has no feasible gateway uplink; "
+                            "skipping R2G transmission for this round."
+                        )
 
             # --- Phase 3: Global Aggregation ---
             relay_final = {

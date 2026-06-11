@@ -22,6 +22,17 @@ def main():
     parser.add_argument('--dataset', type=str, help="Chi chay dataset nay (vd: SMD)")
     parser.add_argument('--m-relays', type=int, help="Override so luong relay nodes khi sinh topology")
     parser.add_argument('--force-topo', action='store_true', help="Ghi de topology da ton tai")
+    parser.add_argument(
+        '--find-gateway-seed',
+        action='store_true',
+        help="Tim seed dau tien ma tat ca relay co uplink kha thi toi gateway",
+    )
+    parser.add_argument(
+        '--seed-search-limit',
+        type=int,
+        default=10000,
+        help="So seed toi da can thu khi dung --find-gateway-seed",
+    )
     parser.add_argument('--alphas', nargs='+', type=float, help="Danh sach cac gia tri alpha, vi du: --alphas 0.5 1.0")
     parser.add_argument('--seeds', nargs='+', type=int, help="Danh sach random seed")
     args = parser.parse_args()
@@ -47,6 +58,35 @@ def main():
     
     net_cfg = NetworkConfig()
     ac_cfg = AcousticChannelConfig()
+
+    if args.find_gateway_seed:
+        from physics_models.topology import (
+            Topology3D,
+            build_feasibility_graph,
+            gateway_disconnected_relays,
+        )
+
+        net_cfg.N_AUVS = N_LIST[0]
+        net_cfg.M_RELAYS = (
+            args.m_relays
+            if args.m_relays is not None
+            else net_cfg.M_RELAYS_2D
+        )
+        start_seed = SEEDS[0]
+        found_seed = None
+        for candidate in range(start_seed, start_seed + args.seed_search_limit):
+            candidate_topo = Topology3D(net_cfg, ac_cfg, candidate)
+            candidate_graph = build_feasibility_graph(candidate_topo, ac_cfg)
+            if not gateway_disconnected_relays(candidate_topo, candidate_graph):
+                found_seed = candidate
+                break
+        if found_seed is None:
+            raise RuntimeError(
+                f"No fully gateway-connected topology found in "
+                f"[{start_seed}, {start_seed + args.seed_search_limit})"
+            )
+        SEEDS = [found_seed]
+        print(f"  [seed] All {net_cfg.M_RELAYS} relays reach gateway: {found_seed}")
     
     print(f"Bắt đầu sinh file cấu hình cho Giai đoạn 5 (Decoupled)...")
     
@@ -66,7 +106,21 @@ def main():
         
         for seed in SEEDS:
             topo_path = EnvironmentManager.topo_path(task_type, n, seed)
-            if args.force_topo or not topo_path.exists():
+            topology_mismatch = False
+            if topo_path.exists() and not args.force_topo:
+                existing_topo = EnvironmentManager.load_topology(topo_path)
+                topology_mismatch = (
+                    existing_topo.N != net_cfg.N_AUVS
+                    or existing_topo.M != net_cfg.M_RELAYS
+                )
+                if topology_mismatch:
+                    print(
+                        f"  [stale]   {topo_path.name}: "
+                        f"N={existing_topo.N}, M={existing_topo.M}; "
+                        f"expected N={net_cfg.N_AUVS}, M={net_cfg.M_RELAYS}"
+                    )
+
+            if args.force_topo or not topo_path.exists() or topology_mismatch:
                 if not args.dry_run:
                     topo = EnvironmentManager.generate_topology(net_cfg, ac_cfg, seed)
                     EnvironmentManager.save_topology(topo, task_type)

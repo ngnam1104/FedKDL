@@ -208,6 +208,15 @@ def flat_topology_association(topology: Topology3D, G: Dict) -> Dict[int, int]:
     return association
 
 
+def gateway_disconnected_relays(topology: Topology3D, G: Dict) -> List[int]:
+    """Return relay IDs without a feasible uplink to the gateway."""
+    return [
+        relay_id
+        for relay_id in range(topology.M)
+        if ('relay', relay_id, 'gateway', 0) not in G
+    ]
+
+
 def build_clusters(association: Dict[int, int], M: int) -> Dict[int, List[int]]:
     """Xây dựng danh sách cụm từ association map."""
     clusters = {m: [] for m in range(M)}

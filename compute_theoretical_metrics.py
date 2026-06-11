@@ -23,6 +23,12 @@ TOPO_PATH = "environments/2d/topo/N_30/topo_N30_seed1104.pkl"
 DATA_PATH = "environments/2d/data/URPC/N_30/data_N30_URPC_a1p0_seed1104.pkl"
 with open(TOPO_PATH, "rb") as f:
     topo = pickle.load(f)
+if topo.N != network_cfg.N_AUVS or topo.M != network_cfg.M_RELAYS_2D:
+    raise ValueError(
+        f"Stale topology {TOPO_PATH}: N={topo.N}, M={topo.M}; "
+        f"expected N={network_cfg.N_AUVS}, M={network_cfg.M_RELAYS_2D}. "
+        "Regenerate it with utils/generate_all_envs.py before computing metrics."
+    )
 with open(DATA_PATH, "rb") as f:
     data_partition = pickle.load(f)
 G = EnvironmentManager.restore_graph(topo)
@@ -270,6 +276,7 @@ def survival_rounds(max_e_auv: float) -> float:
 
 def print_stage_physics(payload_auv_kb: float, payload_relay_kb: float):
     """Print every physical term for one FedKDL communication round."""
+    link_rows = []
     print("\n[Physics breakdown]")
     print(
         f"{'Stage':7} {'Link':15} {'d(m)':>8} {'R(bps)':>10} {'SL(dB)':>9} "
@@ -282,6 +289,19 @@ def print_stage_physics(payload_auv_kb: float, payload_relay_kb: float):
         bits = payload_kb_val * 1024 * 8
         tx_delay = bits / link.R_bps
         prop_delay = d / C_S
+        link_rows.append({
+            'stage': stage,
+            'link': label,
+            'distance': d,
+            'rate': link.R_bps,
+            'source_level': link.SL_min,
+            'tx_delay': tx_delay,
+            'prop_delay': prop_delay,
+            'total_delay': total_delay,
+            'tx_energy': tx_energy,
+            'rx_energy': rx_energy,
+            'status': 'feasible',
+        })
         print(
             f"{stage:7} {label:15} {d:8.2f} {link.R_bps:10.2f} "
             f"{link.SL_min:9.2f} {tx_delay:10.4f} {prop_delay:9.4f} "
@@ -318,6 +338,12 @@ def print_stage_physics(payload_auv_kb: float, payload_relay_kb: float):
         key = ('relay', m, 'gateway', 0)
         d = dist3(topo.relay_positions[m], topo.gateway_position)
         if key not in G:
+            link_rows.append({
+                'stage': 'R2G',
+                'link': f'R{m}->GW',
+                'distance': d,
+                'status': 'infeasible',
+            })
             print(f"{'R2G':7} {f'R{m}->GW':15} {d:8.2f} {'N/A':>10} "
                   f"{'N/A':>9} {'SKIPPED: infeasible link':>41}")
             continue
@@ -333,7 +359,7 @@ def print_stage_physics(payload_auv_kb: float, payload_relay_kb: float):
             f"E_tx={values['tx']:.4f}J | E_rx={values['rx']:.4f}J | "
             f"E_link={values['tx'] + values['rx']:.4f}J"
         )
-    return totals
+    return totals, link_rows
 
 # ─────────────────────────────────────────────────────────────────────
 # 5. Pre-compute payload sizes
@@ -354,7 +380,29 @@ print(f"[Comp]    tau_comp(Full, flop×3.0) = {local_comp_delay(3.0):.2f} s")
 print(f"[Comp]    tau_comp(LoRA, flop×1.5) = {local_comp_delay(1.5):.2f} s")
 print(f"[Comp]    tau_svd                  = {svd_delay():.4f} s")
 print()
-PHYSICS_BREAKDOWN = print_stage_physics(LORA_INT8, LORA_INT8)
+PHYSICS_BREAKDOWN, PHYSICS_LINK_ROWS = print_stage_physics(
+    LORA_INT8,
+    LORA_INT8,
+)
+PHYSICS_TAU_COMP = local_comp_delay(1.5)
+PHYSICS_E_COMP = sum(
+    local_comp_energy(1.5, sample_count)
+    for sample_count in SAMPLE_COUNTS.values()
+)
+PHYSICS_TAU_SVD = relay_comp_delay(
+    n_svd_calls=2,
+    f_cpu=F_CPU,
+    n_cores=N_CORES,
+    flops_per_cycle=FPC,
+)
+PHYSICS_E_SVD = topo.M * e_svd(256, 128, EPS_OP, 2, F_CPU)
+PHYSICS_TAU_ROUND, PHYSICS_E_ROUND, _ = compute_hfl(
+    LORA_INT8,
+    LORA_INT8,
+    1.5,
+    has_svd=True,
+    has_coop=True,
+)
 
 # ─────────────────────────────────────────────────────────────────────
 # 6. Write Markdown
@@ -454,6 +502,55 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
         f.write(
             f"| {stage} | {values['latency']:.4f} | {values['tx']:.4f} | "
             f"{values['rx']:.4f} | {values['tx'] + values['rx']:.4f} |\n"
+        )
+    f.write(
+        f"| Local computation | {PHYSICS_TAU_COMP:.4f} | N/A | N/A | "
+        f"{PHYSICS_E_COMP:.4f} |\n"
+    )
+    f.write(
+        f"| Relay SVD | {PHYSICS_TAU_SVD:.6f} | N/A | N/A | "
+        f"{PHYSICS_E_SVD:.6f} |\n"
+    )
+    f.write(
+        f"| **Round total** | **{PHYSICS_TAU_ROUND:.4f}** | N/A | N/A | "
+        f"**{PHYSICS_E_ROUND:.4f}** |\n"
+    )
+    f.write("\n")
+    f.write("### Breakdown tính toán theo AUV\n\n")
+    f.write("| AUV | Số mẫu | tau_comp (s) | E_comp (J) |\n")
+    f.write("|---:|---:|---:|---:|\n")
+    for auv_id in sorted(SAMPLE_COUNTS):
+        sample_count = SAMPLE_COUNTS[auv_id]
+        f.write(
+            f"| {auv_id} | {sample_count} | "
+            f"{local_comp_delay(1.5, sample_count):.4f} | "
+            f"{local_comp_energy(1.5, sample_count):.4f} |\n"
+        )
+    f.write(
+        f"| **Tổng / bottleneck** | **{sum(SAMPLE_COUNTS.values())}** | "
+        f"**{PHYSICS_TAU_COMP:.4f}** | **{PHYSICS_E_COMP:.4f}** |\n"
+    )
+    f.write("\n")
+    f.write("### Chi tiết vật lý từng liên kết\n\n")
+    f.write(
+        "| Chặng | Liên kết | d (m) | R (bps) | SL (dB) | "
+        "tau_tx (s) | tau_prop (s) | tau_total (s) | E_tx (J) | E_rx (J) |\n"
+    )
+    f.write("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+    for row in PHYSICS_LINK_ROWS:
+        if row['status'] == 'infeasible':
+            f.write(
+                f"| {row['stage']} | {row['link']} | {row['distance']:.2f} | "
+                "N/A | N/A | N/A | N/A | N/A | N/A | N/A "
+                "(liên kết không khả thi) |\n"
+            )
+            continue
+        f.write(
+            f"| {row['stage']} | {row['link']} | {row['distance']:.2f} | "
+            f"{row['rate']:.2f} | {row['source_level']:.2f} | "
+            f"{row['tx_delay']:.4f} | {row['prop_delay']:.4f} | "
+            f"{row['total_delay']:.4f} | {row['tx_energy']:.4f} | "
+            f"{row['rx_energy']:.4f} |\n"
         )
     f.write("\n")
     f.write("Tính toán chi tiết cho AUV 0 và Relay phụ trách (Sử dụng đúng các hàm vật lý gốc).\n\n")

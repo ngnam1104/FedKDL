@@ -13,7 +13,8 @@ from typing import Dict, List, Optional, Tuple
 
 from physics_models.topology import (
     Topology3D, build_feasibility_graph,
-    nearest_feasible_association, flat_topology_association, build_clusters
+    nearest_feasible_association, flat_topology_association, build_clusters,
+    gateway_disconnected_relays,
 )
 
 
@@ -69,6 +70,12 @@ class EnvironmentManager:
     def generate_topology(cls, net_cfg, ac_cfg, seed: int) -> TopologySnapshot:
         topology = Topology3D(net_cfg, ac_cfg, seed)
         G_raw = build_feasibility_graph(topology, ac_cfg)
+        missing_gateway_relays = gateway_disconnected_relays(topology, G_raw)
+        if missing_gateway_relays:
+            print(
+                "  [warning] Relays without a feasible gateway uplink: "
+                f"{missing_gateway_relays}"
+            )
 
         graph_items = []
         for key, link in G_raw.items():
@@ -471,5 +478,4 @@ class EnvironmentManager:
         for key, d in topo.feasibility_graph_items:
             G[key] = SimpleNamespace(**d)
         return G
-
 

@@ -51,6 +51,7 @@ from tasks.detection_2d.knowledge_compression.topk_sparsification import (
 )
 from config.settings import fed_cfg
 from physics_models.latency import max_participant_samples
+from physics_models.topology import gateway_disconnected_relays
 
 
 @dataclass
@@ -814,6 +815,19 @@ def test_physics_accounting_contracts() -> None:
         relay_model_bits=100.0,
     )
     assert_scalar(metrics['tau_round'], 23.0, "missing R2G link is skipped")
+
+    class Topology:
+        M = 3
+
+    gateway_graph = {
+        ('relay', 0, 'gateway', 0): object(),
+        ('relay', 2, 'gateway', 0): object(),
+    }
+    missing_relays = gateway_disconnected_relays(Topology(), gateway_graph)
+    if missing_relays != [1]:
+        raise AssertionError(
+            f"Expected relay 1 to lack gateway connectivity, got {missing_relays}"
+        )
 
 
 def test_baseline_contracts() -> None:
