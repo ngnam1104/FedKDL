@@ -34,7 +34,8 @@ accuracy_bars = accuracy_axis.bar(
     label="Best mAP@0.5",
 )
 
-ax.set_xticks(x, [LABELS[method] for method in methods])
+labels = [LABELS[method] if method != "fedkdl" else "FedKDL-Nearest" for method in methods]
+ax.set_xticks(x, labels)
 ax.set_xlabel("Relay Cooperation Strategy")
 ax.set_ylabel("Joint Objective Cost")
 accuracy_axis.set_ylabel("Mean Average Precision")
