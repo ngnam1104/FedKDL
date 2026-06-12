@@ -764,6 +764,13 @@ def test_latency_keeps_relay_paths_coupled() -> None:
 
 
 def test_physics_accounting_contracts() -> None:
+    expected_lora_payload_kb = fed_cfg.LORA_INT8_PAYLOAD_BYTES_2D / 1024.0
+    assert_scalar(
+        expected_lora_payload_kb,
+        504.87109375,
+        "current serialized LoRA+Head+BN INT8 payload",
+    )
+
     tracker = EnergyTracker()
     tracker.add_round(
         round_idx=1,

@@ -34,6 +34,7 @@ class TopologySnapshot:
     hfl_association: Dict[int, int]    # auv_id -> relay_id
     flat_association: Dict[int, int]   # auv_id -> -1
     clusters: Dict[int, List[int]]     # relay_id -> [auv_ids]
+    topology_view: str = "shared"      # shared | flat | hfl
 
 
 @dataclass
@@ -57,8 +58,24 @@ class EnvironmentManager:
     ENVS_DIR = Path("environments")
 
     @staticmethod
-    def topo_path(task_type: str, N: int, seed: int) -> Path:
-        return EnvironmentManager.ENVS_DIR / task_type / "topo" / f"N_{N}" / f"topo_N{N}_seed{seed}.pkl"
+    def topo_path(
+        task_type: str,
+        N: int,
+        seed: int,
+        topology_view: str = "shared",
+    ) -> Path:
+        if topology_view == "shared":
+            return EnvironmentManager.ENVS_DIR / task_type / "topo" / f"N_{N}" / f"topo_N{N}_seed{seed}.pkl"
+        if topology_view not in {"flat", "hfl"}:
+            raise ValueError(f"Unsupported topology view: {topology_view}")
+        return (
+            EnvironmentManager.ENVS_DIR
+            / task_type
+            / "topo"
+            / topology_view
+            / f"N_{N}"
+            / f"topo_{topology_view}_N{N}_seed{seed}.pkl"
+        )
 
     @staticmethod
     def data_path(task_type: str, N: int, dataset: str, alpha: float, seed: int) -> Path:
@@ -67,7 +84,13 @@ class EnvironmentManager:
 
     # --- TOPOLOGY ---
     @classmethod
-    def generate_topology(cls, net_cfg, ac_cfg, seed: int) -> TopologySnapshot:
+    def generate_topology(
+        cls,
+        net_cfg,
+        ac_cfg,
+        seed: int,
+        topology_view: str = "shared",
+    ) -> TopologySnapshot:
         topology = Topology3D(net_cfg, ac_cfg, seed)
         G_raw = build_feasibility_graph(topology, ac_cfg)
         missing_gateway_relays = gateway_disconnected_relays(topology, G_raw)
@@ -102,11 +125,18 @@ class EnvironmentManager:
             hfl_association=dict(hfl_assoc),
             flat_association=dict(flat_assoc),
             clusters={k: list(v) for k, v in clusters.items()},
+            topology_view=topology_view,
         )
 
     @classmethod
-    def save_topology(cls, topo: TopologySnapshot, task_type: str):
-        path = cls.topo_path(task_type, topo.N, topo.seed)
+    def save_topology(
+        cls,
+        topo: TopologySnapshot,
+        task_type: str,
+        topology_view: Optional[str] = None,
+    ):
+        view = topology_view or getattr(topo, "topology_view", "shared")
+        path = cls.topo_path(task_type, topo.N, topo.seed, view)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
             pickle.dump(topo, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -257,7 +287,7 @@ class EnvironmentManager:
             raise RuntimeError(
                 f"[ENV ERROR] Tìm thấy thư mục ảnh nhưng KHÔNG CÓ ẢNH NÀO (jpg/png) trong '{img_dir}'."
             )
-        print(f"  [images] Tìm thấy {num_samples} ảnh trong {img_dir}")
+        print(f"  [images] Found {num_samples} images in {img_dir}")
         all_images = list(all_images)
         
         # 2. Đọc file label để phân loại ảnh vào 4 Habitat Bucket
@@ -478,4 +508,3 @@ class EnvironmentManager:
         for key, d in topo.feasibility_graph_items:
             G[key] = SimpleNamespace(**d)
         return G
-

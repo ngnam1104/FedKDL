@@ -266,7 +266,7 @@ class KDDetectionTrainer(DetectionTrainer):
         self.teacher_model: Optional[nn.Module] = None
         self.student_wrapper = None
         self.kd_temperature: float = 4.0
-        self.kd_lambda: float = 0.5
+        self.kd_lambda: float = 1.0
         self.kd_balance_by_supervised: bool = False
         self.kd_balance_scale_min: float = 0.001
         self.kd_balance_scale_max: float = 4.0

@@ -18,10 +18,30 @@ from config.settings import NetworkConfig, AcousticChannelConfig
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true', help="Khong chay gi ca, chi in ra")
-    parser.add_argument('--n', type=int, help="Chi chay cho N nay (vd: 50)")
+    parser.add_argument('--n', type=int, help="Chi chay cho mot N (vd: 50)")
+    parser.add_argument(
+        '--n-list',
+        nargs='+',
+        type=int,
+        help="Sinh nhieu quy mo, vi du: --n-list 30 40 50 60",
+    )
     parser.add_argument('--dataset', type=str, help="Chi chay dataset nay (vd: SMD)")
     parser.add_argument('--m-relays', type=int, help="Override so luong relay nodes khi sinh topology")
     parser.add_argument('--force-topo', action='store_true', help="Ghi de topology da ton tai")
+    parser.add_argument(
+        '--topology-view',
+        choices=('shared', 'flat', 'hfl', 'both'),
+        default='shared',
+        help=(
+            "shared: file cu chua ca hai association; flat/hfl: file view rieng; "
+            "both: sinh hai view tren cung mot geometry"
+        ),
+    )
+    parser.add_argument(
+        '--topology-only',
+        action='store_true',
+        help="Chi sinh topology, khong sinh data partition",
+    )
     parser.add_argument(
         '--find-gateway-seed',
         action='store_true',
@@ -51,7 +71,11 @@ def main():
     #     SEEDS = [42, 123, 2024]
     #     task_type = '1d'
 
-    if args.n:
+    if args.n is not None and args.n_list is not None:
+        parser.error("Chi dung mot trong --n hoac --n-list")
+    if args.n_list:
+        N_LIST = args.n_list
+    elif args.n:
         N_LIST = [args.n]
         
     os.makedirs(EnvironmentManager.ENVS_DIR, exist_ok=True)
@@ -88,9 +112,16 @@ def main():
         SEEDS = [found_seed]
         print(f"  [seed] All {net_cfg.M_RELAYS} relays reach gateway: {found_seed}")
     
-    print(f"Bắt đầu sinh file cấu hình cho Giai đoạn 5 (Decoupled)...")
+    print(f"Starting to generate config files for Stage 5 (Decoupled)...")
     
-    # 1. Sinh Topology
+    topology_views = (
+        ('flat', 'hfl')
+        if args.topology_view == 'both'
+        else (args.topology_view,)
+    )
+
+    # 1. Sinh Topology. Khi dung "both", hai view duoc tao tu cung N/seed,
+    # nen toa do vat ly giong nhau va chi khac duong truyen duoc baseline su dung.
     topo_count = 0
     for n in N_LIST:
         net_cfg.N_AUVS = n
@@ -105,33 +136,69 @@ def main():
         print(f"  [topology] N={n} -> M_RELAYS={net_cfg.M_RELAYS}")
         
         for seed in SEEDS:
-            topo_path = EnvironmentManager.topo_path(task_type, n, seed)
-            topology_mismatch = False
-            if topo_path.exists() and not args.force_topo:
-                existing_topo = EnvironmentManager.load_topology(topo_path)
-                topology_mismatch = (
-                    existing_topo.N != net_cfg.N_AUVS
-                    or existing_topo.M != net_cfg.M_RELAYS
+            generated_topo = None
+            for topology_view in topology_views:
+                topo_path = EnvironmentManager.topo_path(
+                    task_type, n, seed, topology_view
                 )
-                if topology_mismatch:
-                    print(
-                        f"  [stale]   {topo_path.name}: "
-                        f"N={existing_topo.N}, M={existing_topo.M}; "
-                        f"expected N={net_cfg.N_AUVS}, M={net_cfg.M_RELAYS}"
+                topology_mismatch = False
+                if topo_path.exists() and not args.force_topo:
+                    existing_topo = EnvironmentManager.load_topology(topo_path)
+                    topology_mismatch = (
+                        existing_topo.N != net_cfg.N_AUVS
+                        or existing_topo.M != net_cfg.M_RELAYS
+                        or getattr(existing_topo, 'topology_view', 'shared') != topology_view
                     )
+                    if topology_mismatch:
+                        print(
+                            f"  [stale]   {topo_path.name}: "
+                            f"N={existing_topo.N}, M={existing_topo.M}, "
+                            f"view={getattr(existing_topo, 'topology_view', 'shared')}; "
+                            f"expected N={net_cfg.N_AUVS}, M={net_cfg.M_RELAYS}, "
+                            f"view={topology_view}"
+                        )
 
-            if args.force_topo or not topo_path.exists() or topology_mismatch:
-                if not args.dry_run:
-                    topo = EnvironmentManager.generate_topology(net_cfg, ac_cfg, seed)
-                    EnvironmentManager.save_topology(topo, task_type)
+                if args.force_topo or not topo_path.exists() or topology_mismatch:
+                    if not args.dry_run:
+                        if generated_topo is None:
+                            generated_topo = EnvironmentManager.generate_topology(
+                                net_cfg, ac_cfg, seed, topology_view=topology_view
+                            )
+                        else:
+                            from dataclasses import replace
+                            generated_topo = replace(
+                                generated_topo, topology_view=topology_view
+                            )
+                        EnvironmentManager.save_topology(
+                            generated_topo, task_type, topology_view
+                        )
+                        flat_count = len(generated_topo.flat_association)
+                        hfl_count = len(generated_topo.hfl_association)
+                        print(
+                            f"    [coverage] flat={flat_count}/{n}, "
+                            f"hfl={hfl_count}/{n}"
+                        )
+                    else:
+                        print(
+                            f"  [dry-run] se sinh "
+                            f"topo_{topology_view}_N{n}_seed{seed}.pkl"
+                        )
+                    topo_count += 1
                 else:
-                    print(f"  [dry-run] se sinh topo_N{n}_seed{seed}.pkl")
-                topo_count += 1
-            else:
-                print(f"  [skip]    {topo_path.name}")
+                    print(f"  [skip]    {topo_path.name}")
                 
     # 2. Sinh Data Partition
     data_count = 0
+    if args.topology_only:
+        print(f"\n[Completed] Generated {topo_count} Topologies.")
+        return
+
+    if args.topology_view != 'shared':
+        parser.error(
+            "Data partition generation currently uses the shared topology path. "
+            "Use --topology-only with flat/hfl/both, or use --topology-view shared."
+        )
+
     for n in N_LIST:
         net_cfg.N_AUVS = n
         
@@ -145,7 +212,7 @@ def main():
                                 # Bắt buộc phải load topo trước để biết Depth Z
                                 topo_path_for_data = EnvironmentManager.topo_path(task_type, n, seed)
                                 if not topo_path_for_data.exists():
-                                    print(f"  [error] Không tìm thấy topo: {topo_path_for_data.name}. Chạy --force-topo trước!")
+                                    print(f"  [error] Missing topo: {topo_path_for_data.name}. Run --force-topo first!")
                                     continue
                                 topo = EnvironmentManager.load_topology(topo_path_for_data)
 
@@ -154,7 +221,7 @@ def main():
                                     base_yaml_path="datasets/URPC2020.yaml"
                                 )
                             else:
-                                print(f"  [error] Dataset {ds} không được hỗ trợ (chỉ hỗ trợ URPC).")
+                                print(f"  [error] Dataset {ds} is not supported (only URPC).")
                                 continue
                             EnvironmentManager.save_data_partition(data_part, task_type)
                         else:
@@ -163,7 +230,7 @@ def main():
                     else:
                         print(f"  [skip]    {data_path.name}")
                         
-    print(f"\n[Hoan thanh] Đã sinh {topo_count} Topologies và {data_count} Data Partitions.")
+    print(f"\n[Completed] Generated {topo_count} Topologies and {data_count} Data Partitions.")
 
 if __name__ == "__main__":
     main()

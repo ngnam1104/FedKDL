@@ -66,8 +66,8 @@ class FedKDLConfig:
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 8        # Trả về 8 theo yêu cầu để giảm tải GPU/VRAM cho AUV
     LOCAL_LR: float = 5e-4
-    LOCAL_HEAD_LR_MULT: float = 10.0  # Head LR = 5e-4 * 10 = 0.005
-    LOCAL_LORA_LR_MULT: float = 2.0   # LoRA LR = 5e-4 * 2 = 0.001
+    LOCAL_HEAD_LR_MULT: float = 4.0   # Head LR
+    LOCAL_LORA_LR_MULT: float = 0.5   # LoRA LR
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
     LOCAL_DATALOADER_WORKERS: int = 0 # FL local YOLO dataloader workers (0 để tránh overhead spawn process chậm 20s)
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
@@ -93,7 +93,12 @@ class FedKDLConfig:
     FLOP_MULTIPLIER: dict = field(default_factory=lambda: {"1D": 3.0, "2D": 1.5})
 
     # ── LoRA + INT8 payload ───────────────────────────────────────────────────
-    LORA_RANK: int = 8               # Phải khớp Teacher (rank=8); payload ~127KB INT8 @ adaptive
+    LORA_RANK: int = 8               # Adaptive rank: backbone r=2, neck r=8
+    MODEL_TOTAL_PARAMS_2D: int = 2_731_912
+    LORA_TRAINABLE_PARAMS_2D: int = 356_312
+    # Measured from pack_payload() for the current LoRA+Head+BN state:
+    # INT8 tensors carry an 8-byte header; BN tensors remain FP32.
+    LORA_INT8_PAYLOAD_BYTES_2D: int = 517_988
     QUANTIZATION_BITS: int = 8       # int8_quantization.py
     INT8_DELTA_PAYLOAD: bool = True  # Quantize updates instead of repeatedly quantizing absolute weights
     TARGET_PAYLOAD_KB: float = 300.0
@@ -117,7 +122,7 @@ class FedKDLConfig:
 
     # ── Gateway Knowledge Distillation ──────────────────────────────────────
     KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
-    KD_STU_LAMBDA: float = 0.50     # Absolute supervised-loss scale during gateway KD
+    KD_STU_LAMBDA: float = 0.20     # Absolute supervised-loss scale during gateway KD
     KD_HEAD_LR_MULT: float = 4.0    # Gateway KD Head LR = 4e-3 when KD_LR=1e-3
     KD_LORA_LR_MULT: float = 1.0    # Gateway KD LoRA LR = KD_LR
     KD_EPOCHS: int = 1
@@ -139,8 +144,8 @@ class FedKDLConfig:
     KD_DFL_WEIGHT: float = 1.0
     KD_CIOU_WEIGHT: float = 0.5
     KD_PHASE1_END_FRAC: float = 1.0 / 3.0  # KD every 2 rounds
-    KD_STOP_FRAC: float = 2.0 / 3.0        # Phase 2: every 4 rounds; then pure FL
-    KD_ADAPTIVE_DROPOUT_ENABLED: bool = True
+    KD_STOP_FRAC: float = 1.0        # Phase 2: every 4 rounds; then pure FL
+    KD_ADAPTIVE_DROPOUT_ENABLED: bool = False
     KD_ADAPTIVE_DROP_THRESHOLD: int = 5
     LOCAL_KD_STU_LAMBDA: float = 0.20
     LOCAL_KD_LAMBDA: float = 1.0
@@ -158,7 +163,7 @@ class FedKDLConfig:
     CENTRAL_LORA_LR_MULT: float = 0.5 # Centralized LoRA: LoRA LR = lr0 × multiplier
 
     # ── Joint optimisation / latency budget (base_simulator logs) ───────────
-    LAMBDA_E: float = 0.01
+    LAMBDA_E: float = 0.005
     LAMBDA_TAU: float = 0.01
     TAU_MAX: float = float('inf')    # Bài toán P1 nới lỏng giới hạn
     TAU_MAX_REF: float = 1800.0      # s — Ngưỡng tham chiếu (Lớp 3)

@@ -54,6 +54,9 @@ checkpoints/
 *.log
 logs/
 runs/
+*.txt
+*.csv
+*.png
 
 # === IDE & Editor ===
 .vscode/
