@@ -199,7 +199,11 @@ class BaseSimulator(ABC):
                     if self.is_flat:
                         print("    (Flat Topology: AUVs connect directly or via relays to Gateway)")
                     for relay_id, relay in self.relays.items():
-                        print(f"    - Relay {relay_id} manages auvs: {relay.cluster_members}")
+                        auv_details = []
+                        for sid in relay.cluster_members:
+                            n_imgs = self.auvs[sid].n_samples if sid in self.auvs else '?'
+                            auv_details.append(f"{sid} ({n_imgs} imgs)")
+                        print(f"    - Relay {relay_id} manages auvs: [{', '.join(auv_details)}]")
                     print("="*60 + "\n")
             else:
                 print(
