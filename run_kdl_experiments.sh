@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Scenario 2/3 (2D OD): grid train + plot.
-# Phase 5 defaults: N=30, M=5, Non-IID alpha=1.0, seed=1104
+# Phase 5 defaults: N=30, M=5, Non-IID alpha=1.0, seeds=1109 1116 1117
 # Baseline groups follow experiment_design.md (4 RQs).
 set -euo pipefail
 
@@ -33,7 +33,7 @@ DS="URPC"
 M_RELAYS_2D=8
 N_AUVS=30
 read -r -a ALPHA_VALUES <<< "${ALPHAS:-${ALPHA:-1.0}}"
-read -r -a SEED_VALUES <<< "${SEEDS:-${SEED:-1104 42 2024}}"
+read -r -a SEED_VALUES <<< "${SEEDS:-${SEED:-1109 1116 1117}}"
 # =========================================================
 
 echo "[KDL] Generating topologies and data partitions..."
