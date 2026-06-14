@@ -266,9 +266,11 @@ class BaseSimulator(ABC):
 
             if self.task_key == "2D":
                 if missing_auvs:
-                    print(f"[!] BỎ QUA {len(missing_auvs)} AUVS (Out of Range / Mất kết nối): {missing_auvs}")
+                    missing_details = [f"{sid} ({self.auvs[sid].n_samples if sid in self.auvs else '?'} imgs)" for sid in missing_auvs]
+                    print(f"[!] BỎ QUA {len(missing_auvs)} AUVS (Out of Range / Mất kết nối): [{', '.join(missing_details)}]")
                 if dead_auvs:
-                    print(f"[!] BỎ QUA {len(dead_auvs)} AUVS (Đã chết / Hết pin): {dead_auvs}")
+                    dead_details = [f"{sid} ({self.auvs[sid].n_samples if sid in self.auvs else '?'} imgs)" for sid in dead_auvs]
+                    print(f"[!] BỎ QUA {len(dead_auvs)} AUVS (Đã chết / Hết pin): [{', '.join(dead_details)}]")
                 print(f"[*] AUVS ĐANG HOẠT ĐỘNG ({len(alive_auvs)}): {alive_auvs}\n")
             else:
                 total = self.N_actual
