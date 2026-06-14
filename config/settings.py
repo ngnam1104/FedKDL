@@ -82,7 +82,7 @@ class FedKDLConfig:
     LOCAL_FLIPLR: float = 0.50
     GRAD_DIAGNOSTICS: bool = False   # Expensive per-batch GPU sync; enable only when debugging NaN/Inf
     CLEAR_CUDA_CACHE_PER_AUV: bool = False
-    LOG_ROUND_TOPOLOGY: bool = False
+    LOG_ROUND_TOPOLOGY: bool = True
     LOG_TRAJECTORIES: bool = False
     PREWARM_YOLO_LABEL_CACHE: bool = False # Tắt tính năng tự động tạo cache song song lúc đầu để tránh rác màn hình
 
