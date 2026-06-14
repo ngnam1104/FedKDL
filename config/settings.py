@@ -122,10 +122,10 @@ class FedKDLConfig:
 
     # ── Gateway Knowledge Distillation ──────────────────────────────────────
     KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
-    KD_STU_LAMBDA: float = 0.20     # Absolute supervised-loss scale during gateway KD
+    KD_STU_LAMBDA: float = 0.30     # Absolute supervised-loss scale during gateway KD
     KD_HEAD_LR_MULT: float = 4.0    # Gateway KD Head LR = 4e-3 when KD_LR=1e-3
     KD_LORA_LR_MULT: float = 1.0    # Gateway KD LoRA LR = KD_LR
-    KD_EPOCHS: int = 1
+    KD_EPOCHS: int = 2
     KD_BATCH_SIZE: int = 4
     KD_WORKERS: int = 0
     KD_AMP: bool = True
@@ -136,9 +136,9 @@ class FedKDLConfig:
     KD_BALANCE_BY_SUPERVISED: bool = True
     KD_BALANCE_SCALE_MIN: float = 0.001
     KD_BALANCE_SCALE_MAX: float = 20.0  # Allows weak KL/projection branches to reach their target share
-    KD_CLS_WEIGHT: float = 0.45
-    KD_BOX_WEIGHT: float = 0.35
-    KD_PROJ_WEIGHT: float = 0.20
+    KD_CLS_WEIGHT: float = 0.15
+    KD_BOX_WEIGHT: float = 0.15
+    KD_PROJ_WEIGHT: float = 0.70
     KD_CONF_THRESHOLD: float = 0.10
     KD_CONF_GAMMA: float = 2.0
     KD_DFL_WEIGHT: float = 1.0
