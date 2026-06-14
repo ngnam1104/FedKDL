@@ -8,6 +8,15 @@ Triển khai Eq. 37 trong Research Proposal:
 
 Dùng sau Top-K để encode topk_values → INT8.
 Payload cuối: ≈ 1.3 kbit (với K ≈ 68 entries cho AE 1350 params).
+
+Precision Pipeline (end-to-end numeric type trace):
+    TX:    state_dict (FP32) → delta (FP32) → quantize → INT8 bytes
+    RX:    INT8 bytes → dequantize → FP32 delta → FP32 state
+    AGG:   FP32 states → W = B @ A (FP64) → SVD (FP64) → truncated → new A/B (FP32)
+    RE-TX: new state (FP32) → delta → requantize → INT8 bytes
+
+    BatchNorm tensors bypass quantization entirely and remain in FP32.
+    Accumulation always occurs at ≥ FP32 precision; INT8 exists only on the wire.
 """
 
 import torch

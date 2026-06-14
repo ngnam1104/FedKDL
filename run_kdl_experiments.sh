@@ -30,10 +30,10 @@ export PYTHONIOENCODING=utf-8
 # =========================================================
 ROUNDS="${ROUNDS:-60}"
 DS="URPC"
-M_RELAYS_2D=5
+M_RELAYS_2D=8
 N_AUVS=30
 read -r -a ALPHA_VALUES <<< "${ALPHAS:-${ALPHA:-1.0}}"
-read -r -a SEED_VALUES <<< "${SEEDS:-${SEED:-1104}}"
+read -r -a SEED_VALUES <<< "${SEEDS:-${SEED:-1104 42 2024}}"
 # =========================================================
 
 echo "[KDL] Generating topologies and data partitions..."
@@ -139,17 +139,17 @@ RQ2_BASELINES=("fedavg_hfl" "topk_grad" "flora")
 RQ3_BASELINES=("fedavg_hfl" "scaffold" "flora" "fedkdl_nocoop" "fedkdl_selective")
 
 # Ablation extras (neu con thoi gian)
-ABLATION_BASELINES=("fedprox_kdl" "fedkdl_nolora" "fedkdl_proxy_ft" "fedkd" "fedprox_hfl" "naive_lora")
+ABLATION_BASELINES=("fedprox_kdl" "fedkdl_32bit" "fedkdl_proxy_ft" "fedkd" "fedprox_hfl" "naive_lora")
 
 # RQ4: Gateway KD Ablation - TAT CA HFL
 # fedkdl_nokd = HFL + LoRA INT8, khong KD
 # fedkdl_proxy_ft = HFL + LoRA INT8, thay KD bang Gateway Finetune
 # logit_kd    = HFL + LoRA INT8 + Logit KD (KL-divergence)
 # fedkdl      = HFL + LoRA INT8 + Projection KD (da chay)
-RQ4_BASELINES=("fedkdl_proxy_ft" "fedkdl_nokd" "logit_kd")
+RQ4_BASELINES=("fedkdl_proxy_ft" "fedkdl_nokd" "logit_kd" "logit_box_kd" "logit_proj_kd")
 
 # Reference and component ablations.
-REFERENCE_BASELINES=("centralized" "fedkd" "fedprox_kdl" "fedkdl_nolora" "fedprox_hfl")
+REFERENCE_BASELINES=("centralized" "fedkd" "fedprox_kdl" "fedkdl_32bit" "fedprox_hfl")
 
 # Unique default suite: 16 baselines. fedkdl_proxy_ft is optional because it is
 # an auxiliary supervised proxy experiment, not a required experiment_gaps RQ.
@@ -167,9 +167,11 @@ RUN_BASELINES=(
   "fedkdl_proxy_ft"
   "fedkdl_nokd"
   "logit_kd"
+  "logit_box_kd"
+  "logit_proj_kd"
   "centralized"
   "fedprox_kdl"
-  "fedkdl_nolora"
+  "fedkdl_32bit"
   "fedkd"
   "fedprox_hfl"
 )

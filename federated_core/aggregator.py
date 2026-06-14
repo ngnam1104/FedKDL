@@ -213,6 +213,13 @@ def svd_lora_aggregate(
     """
     if not client_sds:
         return {}
+    # [Reviewer Response] Log the numeric precision used at each aggregation stage.
+    # This runs once to confirm: W=B@A in fp64, SVD in fp64, output cast to original dtype.
+    if not getattr(svd_lora_aggregate, '_logged_precision', False):
+        print("[SVD Aggregator] Precision: effective-weight W=B@A in fp64, "
+              "SVD in fp64, output factors cast to original dtype. "
+              "INT8 only exists on the communication wire.")
+        svd_lora_aggregate._logged_precision = True
     if len(client_sds) != len(weights):
         raise ValueError(f"Expected one weight per client, got {len(client_sds)} clients and {len(weights)} weights.")
 

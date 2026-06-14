@@ -913,13 +913,13 @@ class Simulator2D(BaseSimulator):
         stop_round = max(phase1_end, round(total_r * self.fed_cfg.KD_STOP_FRAC))
 
         # Preserve KD coverage for very short smoke tests. Normal experiments
-        # use every 2 rounds in phase 1, every 4 in phase 2, then pure FL.
+        # use every round in phase 1, every 2 in phase 2, then pure FL.
         if total_r < 6:
             kd_interval = 1
         elif current_r <= phase1_end:
-            kd_interval = 2
+            kd_interval = 1
         else:
-            kd_interval = 4
+            kd_interval = 2
 
         skip_reason = None
         if current_r > stop_round:

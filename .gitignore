@@ -87,3 +87,7 @@ datasets/*.cache
 .docs/
 *.tex
 *.pdf
+
+# === Antigravity IDE Artifacts ===
+implementation_plan.md
+walkthrough.md

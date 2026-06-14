@@ -501,10 +501,11 @@ with open("theoretical_metrics.md", "w", encoding="utf-8") as f:
     f.write("|---|---|---|---|---|---|\n")
 
     rows_54 = [
-        ("No KD",        LORA_INT8, "None",              1.5),
-        ("Logit KD",     LORA_INT8, "+ Output logits",   1.5),
-        ("Feature KD",   LORA_INT8, "+ Dense features",  1.5),
-        ("LoRA-Proj KD", LORA_INT8, "None (proj only)",  1.5),
+        ("No KD",              LORA_INT8, "None",              1.5),
+        ("Logit KD",           LORA_INT8, "+ Logit (KL)",      1.5),
+        ("Logit + Box KD",     LORA_INT8, "+ Logit + Box",     1.5),
+        ("Logit + Proj KD",    LORA_INT8, "+ Logit + Proj",    1.5),
+        ("FedKDL (full KD)",   LORA_INT8, "+ Logit+Box+Proj",  1.5),
     ]
     for name, pload, overhead, fm in rows_54:
         tau, eng, _ = compute_hfl(

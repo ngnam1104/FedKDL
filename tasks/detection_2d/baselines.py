@@ -14,7 +14,10 @@ class BaselineConfig:
     hfl: bool = True
     coop_rule: str = 'nocoop'
     scaffold: bool = False
+    # KD ablation controls
     logit_kd_only: bool = False
+    logit_box_kd_only: bool = False
+    logit_proj_kd_only: bool = False
     lora_aggregation: str = 'svd'
     server_mix: bool = False
 
@@ -51,9 +54,11 @@ BASELINE_CONFIGS = {
     # ── RQ4: KD ablation ──────────────────────────────────────────────────
     'fedkdl_nokd':      BaselineConfig(full_param=False, use_lora=True,  use_int8=True,  use_gateway_kd=False, coop_rule='nearest', server_mix=True),
     'logit_kd':         BaselineConfig(full_param=False, use_lora=True,  use_int8=True,  use_gateway_kd=True,  coop_rule='nearest', logit_kd_only=True, server_mix=True),
+    'logit_box_kd':     BaselineConfig(full_param=False, use_lora=True,  use_int8=True,  use_gateway_kd=True,  coop_rule='nearest', logit_box_kd_only=True, server_mix=True),
+    'logit_proj_kd':    BaselineConfig(full_param=False, use_lora=True,  use_int8=True,  use_gateway_kd=True,  coop_rule='nearest', logit_proj_kd_only=True, server_mix=True),
 
     # ── Ablation: component removal ────────────────────────────────────────
-    'fedkdl_nolora':    BaselineConfig(full_param=True,  use_lora=False, use_int8=False, use_gateway_kd=True,  coop_rule='nearest', server_mix=True),
+    'fedkdl_32bit':    BaselineConfig(full_param=True,  use_lora=False, use_int8=False, use_gateway_kd=True,  coop_rule='nearest', server_mix=True),
     'fedkdl_proxy_ft':  BaselineConfig(full_param=False, use_lora=True,  use_int8=True,  use_gateway_kd=False, use_gateway_proxy_ft=True, coop_rule='nearest', server_mix=True),
     'fedprox_kdl':      BaselineConfig(full_param=False, use_lora=True,  use_int8=True,  use_gateway_kd=True,  coop_rule='nearest', fedprox=True, server_mix=True),
 
@@ -77,9 +82,11 @@ STANDARD_BASELINES = (
     'fedkdl_nokd',
     'fedkdl_proxy_ft',
     'logit_kd',
+    'logit_box_kd',
+    'logit_proj_kd',
     'centralized',
     'fedprox_kdl',
-    'fedkdl_nolora',
+    'fedkdl_32bit',
     'fedkd',
     'fedprox_hfl',
 )

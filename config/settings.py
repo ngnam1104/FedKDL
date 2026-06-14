@@ -15,9 +15,9 @@ from typing import Tuple
 class NetworkConfig:
     """Topology — dùng bởi physics_models/topology.py, env_manager, generate_all_envs."""
     N_AUVS: int = 30
-    M_RELAYS: int = 5           # Ghi đè runtime từ topo .pkl (base_simulator)
-    M_RELAYS_1D: int = 5        # generate_all_envs (1D)
-    M_RELAYS_2D: int = 5        # generate_all_envs (2D URPC, run_kdl_experiments.sh)
+    M_RELAYS: int = 8           # Ghi đè runtime từ topo .pkl (base_simulator)
+    M_RELAYS_1D: int = 8        # generate_all_envs (1D)
+    M_RELAYS_2D: int = 8        # generate_all_envs (2D URPC, run_kdl_experiments.sh)
     AREA_X: float = 2000.0
     AREA_Y: float = 2000.0
     AUV_DEPTH: Tuple[float, float] = (500.0, 1000.0)
@@ -65,9 +65,9 @@ class FedKDLConfig:
     GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 60})
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 8        # Trả về 8 theo yêu cầu để giảm tải GPU/VRAM cho AUV
-    LOCAL_LR: float = 5e-4
-    LOCAL_HEAD_LR_MULT: float = 4.0   # Head LR
-    LOCAL_LORA_LR_MULT: float = 0.5   # LoRA LR
+    LOCAL_LR: float = 8e-4
+    LOCAL_HEAD_LR_MULT: float = 5.0   # Head LR
+    LOCAL_LORA_LR_MULT: float = 1.0   # LoRA LR
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
     LOCAL_DATALOADER_WORKERS: int = 0 # FL local YOLO dataloader workers (0 để tránh overhead spawn process chậm 20s)
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
@@ -143,8 +143,8 @@ class FedKDLConfig:
     KD_CONF_GAMMA: float = 2.0
     KD_DFL_WEIGHT: float = 1.0
     KD_CIOU_WEIGHT: float = 0.5
-    KD_PHASE1_END_FRAC: float = 1.0 / 3.0  # KD every 2 rounds
-    KD_STOP_FRAC: float = 1.0        # Phase 2: every 4 rounds; then pure FL
+    KD_PHASE1_END_FRAC: float = 0.5        # KD every round in phase 1
+    KD_STOP_FRAC: float = 1.0        # Phase 2: every 2 rounds; then pure FL
     KD_ADAPTIVE_DROPOUT_ENABLED: bool = False
     KD_ADAPTIVE_DROP_THRESHOLD: int = 5
     LOCAL_KD_STU_LAMBDA: float = 0.20

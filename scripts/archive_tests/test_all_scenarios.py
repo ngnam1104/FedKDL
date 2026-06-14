@@ -290,6 +290,13 @@ def run_dummy_pipeline(baseline: str) -> DummyResult:
         map50 -= 0.02
     if cfg.topk_grad:
         map50 -= 0.03
+    # Component ablation baselines use partial KD — slightly lower than full KD.
+    if getattr(cfg, 'logit_kd_only', False):
+        map50 -= 0.05
+    elif getattr(cfg, 'logit_box_kd_only', False):
+        map50 -= 0.03
+    elif getattr(cfg, 'logit_proj_kd_only', False):
+        map50 -= 0.04
 
     lora_product = None
     if cfg.use_lora:
@@ -309,8 +316,12 @@ def run_dummy_pipeline(baseline: str) -> DummyResult:
         gateway_mode = "centralized_train"
     elif cfg.use_gateway_proxy_ft:
         gateway_mode = "proxy_finetune"
-    elif cfg.logit_kd_only:
+    elif getattr(cfg, 'logit_kd_only', False):
         gateway_mode = "logit_kd"
+    elif getattr(cfg, 'logit_box_kd_only', False):
+        gateway_mode = "logit_box_kd"
+    elif getattr(cfg, 'logit_proj_kd_only', False):
+        gateway_mode = "logit_proj_kd"
     elif cfg.use_gateway_kd:
         gateway_mode = "projection_kd" if cfg.use_lora else "full_model_kd"
     else:
@@ -402,6 +413,13 @@ def expected_for(baseline: str) -> DummyResult:
         map50 -= 0.02
     if cfg.topk_grad:
         map50 -= 0.03
+    # Component ablation baselines use partial KD — slightly lower than full KD.
+    if getattr(cfg, 'logit_kd_only', False):
+        map50 -= 0.05
+    elif getattr(cfg, 'logit_box_kd_only', False):
+        map50 -= 0.03
+    elif getattr(cfg, 'logit_proj_kd_only', False):
+        map50 -= 0.04
 
     scaffold_c = torch.tensor([0.025, 0.025]) if cfg.scaffold else None
     return DummyResult(expected_head, expected_lora, payload_kb=0.0, map50=map50, scaffold_c=scaffold_c)
@@ -767,7 +785,7 @@ def test_physics_accounting_contracts() -> None:
     expected_lora_payload_kb = fed_cfg.LORA_INT8_PAYLOAD_BYTES_2D / 1024.0
     assert_scalar(
         expected_lora_payload_kb,
-        504.87109375,
+        505.84765625,
         "current serialized LoRA+Head+BN INT8 payload",
     )
 
@@ -875,13 +893,15 @@ def test_baseline_contracts() -> None:
             server_mix=True,
         ),
         'logit_kd': dict(hfl=True, use_gateway_kd=True, logit_kd_only=True, coop_rule='nearest', server_mix=True),
+        'logit_box_kd': dict(hfl=True, use_gateway_kd=True, logit_box_kd_only=True, coop_rule='nearest', server_mix=True),
+        'logit_proj_kd': dict(hfl=True, use_gateway_kd=True, logit_proj_kd_only=True, coop_rule='nearest', server_mix=True),
         'fedprox_kdl': dict(hfl=True, use_lora=True, use_int8=True, use_gateway_kd=True, fedprox=True, server_mix=True),
-        'fedkdl_nolora': dict(hfl=True, full_param=True, use_lora=False, use_gateway_kd=True, server_mix=True),
+        'fedkdl_32bit': dict(hfl=True, full_param=True, use_lora=False, use_gateway_kd=True, server_mix=True),
         'fedkd': dict(hfl=False, full_param=True, use_gateway_kd=True, local_kd=False),
         'centralized': dict(hfl=False, use_lora=True, full_param=False, use_gateway_kd=False),
     }
-    if len(STANDARD_BASELINES) != 18:
-        raise AssertionError(f"Expected 18 standard baselines, got {len(STANDARD_BASELINES)}")
+    if len(STANDARD_BASELINES) != 20:
+        raise AssertionError(f"Expected 20 standard baselines, got {len(STANDARD_BASELINES)}")
     if set(expected) != set(STANDARD_BASELINES):
         raise AssertionError("STANDARD_BASELINES does not match the experiment contract table")
     if set(STANDARD_BASELINES) & set(OPTIONAL_BASELINES):
@@ -971,8 +991,12 @@ def test_baseline(baseline: str) -> bool:
         expected_gateway_mode = "centralized_train"
     elif cfg.use_gateway_proxy_ft:
         expected_gateway_mode = "proxy_finetune"
-    elif cfg.logit_kd_only:
+    elif getattr(cfg, 'logit_kd_only', False):
         expected_gateway_mode = "logit_kd"
+    elif getattr(cfg, 'logit_box_kd_only', False):
+        expected_gateway_mode = "logit_box_kd"
+    elif getattr(cfg, 'logit_proj_kd_only', False):
+        expected_gateway_mode = "logit_proj_kd"
     elif cfg.use_gateway_kd:
         expected_gateway_mode = "projection_kd" if cfg.use_lora else "full_model_kd"
     else:
