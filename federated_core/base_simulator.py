@@ -492,8 +492,10 @@ class BaseSimulator(ABC):
                         relay.deduct_battery(e_r2g_cost, min_battery=self.en_cfg.RELAY_E_MIN)
                     else:
                         print(
-                            f"[Warning] Relay {m} has no feasible gateway uplink; "
-                            "skipping R2G transmission for this round."
+                            f"\n{'='*60}\n"
+                            f"[! WARNING !] Relay {m} has no feasible gateway uplink.\n"
+                            f"-> Skipping R2G transmission for this round!\n"
+                            f"{'='*60}\n"
                         )
 
             # --- Phase 3: Global Aggregation ---
