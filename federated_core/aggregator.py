@@ -39,6 +39,8 @@ def fedavg_intra_cluster(
     if total_samples == 0:
         return copy.deepcopy(global_state_dict)
 
+    print(f"[Debug-Relay] Aggregating {len(auv_deltas)} AUVs intra-cluster with total_samples={total_samples}")
+
     # Tính weighted average Δθ
     total_params = sum(p.numel() for p in model_template.parameters())
     device = next(iter(global_state_dict.values())).device if global_state_dict else 'cpu'
@@ -85,6 +87,8 @@ def fedavg_global(
         weights = [1.0 / len(relay_state_dicts)] * len(relay_state_dicts)
     else:
         weights = [n / N for n in cluster_total_samples]
+
+    print(f"[Debug-Gateway] Aggregating {len(relay_state_dicts)} relays at Gateway, total_samples={N}, lora_agg={lora_aggregation}")
 
     # FedKDL aggregates effective LoRA weights through SVD. The naive-LoRA
     # control intentionally averages A/B independently to expose cross-terms.
@@ -233,6 +237,8 @@ def svd_lora_aggregate(
     all_keys = set().union(*(sd.keys() for sd in client_sds))
     lora_B_keys = sorted(k for k in all_keys if 'lora_B' in k)
     lora_A_keys = {k.replace('lora_B', 'lora_A') for k in lora_B_keys}
+    
+    svd_errors = []
 
     for key in sorted(all_keys):
         if key in lora_B_keys or key in lora_A_keys:
@@ -305,6 +311,11 @@ def svd_lora_aggregate(
             A_new = torch.zeros((rank, in_features), dtype=torch.float32, device=Vh_r.device)
             B_new[:, :keep] = U_r * sqrt_S.unsqueeze(0)
             A_new[:keep, :] = sqrt_S.unsqueeze(1) * Vh_r
+            
+            W_recon = torch.matmul(B_new.double(), A_new.double())
+            err = (torch.norm(W_avg - W_recon, p='fro') / torch.norm(W_avg, p='fro').clamp_min(1e-8)).item()
+            svd_errors.append(err)
+            
         except Exception as exc:
             raise RuntimeError(f"SVD factorization failed for LoRA layer {b_key}: {exc}") from exc
 
@@ -313,5 +324,10 @@ def svd_lora_aggregate(
 
         aggregated_sd[b_key] = B_new.to(original_dtype_B)
         aggregated_sd[a_key] = A_new.to(original_dtype_A)
+
+    if svd_errors:
+        avg_err = sum(svd_errors) / len(svd_errors)
+        max_err = max(svd_errors)
+        print(f"[Debug-SVD] Factorized {len(svd_errors)} LoRA layers. Reconstruction Error (Frobenius): Mean={avg_err:.4e}, Max={max_err:.4e}")
 
     return aggregated_sd
