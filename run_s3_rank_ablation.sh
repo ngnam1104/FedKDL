@@ -28,8 +28,8 @@ RUN_RANK_ABLATION=1
 if [[ "${RUN_RANK_ABLATION:-1}" == "1" ]]; then
   RANK_ROUNDS="${RANK_ROUNDS:-$ROUNDS}"
   RANK_BASELINE="${RANK_BASELINE:-fedkdl}"
-  RANK_OUT_DIR="${RANK_OUT_DIR:-results/lora_rank_ablation/logs/N_${N}/M_${M}}"
-  RANK_LOG_DIR="${RANK_LOG_DIR:-results/lora_rank_ablation/train_logs/N_${N}/M_${M}}"
+  RANK_OUT_DIR="${RANK_OUT_DIR:-$OUT_DIR}"
+  RANK_LOG_DIR="${RANK_LOG_DIR:-$LOG_DIR}"
   VARIANT_LABELS=("r4_4" "r2_4")
   BACKBONE_RANKS=("4" "2")
   NECK_RANKS=("4" "4")

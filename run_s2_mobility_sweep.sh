@@ -28,8 +28,8 @@ RUN_MOBILITY_SWEEP=1
 if [[ "${RUN_MOBILITY_SWEEP:-1}" == "1" ]]; then
   MOBILITY_ROUNDS="${MOBILITY_ROUNDS:-$ROUNDS}"
   MOBILITY_BASELINE="${MOBILITY_BASELINE:-fedkdl}"
-  MOBILITY_OUT_DIR="${MOBILITY_OUT_DIR:-results/mobility_velocity/logs/N_${N}/M_${M}}"
-  MOBILITY_LOG_DIR="${MOBILITY_LOG_DIR:-results/mobility_velocity/train_logs/N_${N}/M_${M}}"
+  MOBILITY_OUT_DIR="${MOBILITY_OUT_DIR:-$OUT_DIR}"
+  MOBILITY_LOG_DIR="${MOBILITY_LOG_DIR:-$LOG_DIR}"
   SPEED_LABELS=("normal" "fast")
   SPEEDS=("0.8333" "1.6667")
   MAX_SPEEDS=("2.0" "4.0")
