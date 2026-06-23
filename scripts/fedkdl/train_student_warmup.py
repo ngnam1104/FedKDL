@@ -1,0 +1,429 @@
+"""
+train_student_warmup.py
+Warm-up Student Model (yolo12n) với LoRA trên Proxy Data (15% URPC) trong N epochs.
+
+Flow:
+  1. Inject LoRA vào yolo12n.pt
+  2. Train trên 15% Proxy Data (Habitat-proportional)
+  3. Bake LoRA vào backbone → lưu FP32 checkpoint sạch (không còn LoRAConv2d)
+  4. Validate bằng cách load lại checkpoint đã bake từ disk
+
+Các mode: warmup-only | centralized-lora | centralized-full | centralized-topk
+"""
+import sys
+import argparse
+import torch
+from pathlib import Path
+from ultralytics import YOLO
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tasks.detection_2d.models.yolo_wrapper import StudentModel
+from tasks.detection_2d.trainer import CustomDetectionTrainer
+from config.settings import fed_cfg
+
+
+def _warmup_paths() -> tuple[Path, Path]:
+    suffix = str(getattr(fed_cfg, "STUDENT_WARMUP_SUFFIX", "") or "")
+    if suffix and not suffix.startswith("_"):
+        suffix = f"_{suffix}"
+    return (
+        REPO_ROOT / f"yolo12n_warmup{suffix}.pt",
+        REPO_ROOT / f"yolo12n_head_warmup{suffix}.pt",
+    )
+
+
+def run_warmup(epochs: int):
+    print("==================================================")
+    print(f"[Student Warmup LoRA] Warm-up YOLO12n + LoRA")
+    print("==================================================")
+
+    rank = fed_cfg.LORA_RANK
+    print(f"-> LoRA Rank: {rank}")
+
+    # Sử dụng proxy dataset (15% URPC) để warmup
+    proxy_yaml = REPO_ROOT / "datasets/URPC2020_proxy.yaml"
+
+    save_path, baked_path = _warmup_paths()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    print(f"-> Loading yolo12n.pt và tiêm LoRA (rank={rank})...")
+    student = StudentModel(
+        ckpt="yolo12n.pt",
+        rank=rank,
+        nc=4,
+        full_param=False,
+        use_lora=True,
+    )
+
+
+    overrides = {
+        'model': "yolo12n.pt",
+        'data': str(proxy_yaml),
+        'epochs': epochs,
+        'batch': 8,          # Giảm xuống 8 để tránh OOM khi chạy song song Teacher+Student trên T4 15GB
+        'workers': 2,
+        'lr0': 2e-3,
+        'warmup_bias_lr': 2e-3,
+        'optimizer': 'AdamW',
+        'warmup_epochs': 0.0,
+        'lrf': 1.0,
+        'cos_lr': False,
+        'device': device,
+        'amp': True,          # Bật AMP để tiết kiệm VRAM ~30%
+        'project': str(REPO_ROOT / "runs/student_warmup_lora"),
+        'name': 'yolo12n_lora_warmup',
+        'exist_ok': True,
+        'verbose': True,
+        'save': True,
+        'val': False,
+        'plots': False,
+        'close_mosaic': 0,
+    }
+
+    trainer = CustomDetectionTrainer(
+        overrides=overrides,
+        student_wrapper=student,
+        cached_optimizer_state=None,
+    )
+    trainer._fl_injected_model = student.yolo.model
+    trainer.model = student.yolo.model
+    
+    # [WARMUP] Đồng nhất LR với centralized LoRA.
+    trainer.head_lr_multiplier = getattr(fed_cfg, 'WARMUP_HEAD_LR_MULT', 2.5)
+    trainer.lora_lr_multiplier = getattr(fed_cfg, 'WARMUP_LORA_LR_MULT', 0.5)
+
+    warmup_lora_lr = overrides['lr0'] * trainer.lora_lr_multiplier
+    warmup_head_lr = overrides['lr0'] * trainer.head_lr_multiplier
+    print(
+        f"\n-> Bắt đầu warm-up {epochs} epochs trên: {proxy_yaml.name} "
+        f"(LoRA lr={warmup_lora_lr:.1e} | Head lr={warmup_head_lr:.1e})"
+    )
+    if epochs > 0:
+        trainer.train()
+    else:
+        print("\n-> [SKIP] epochs=0, bỏ qua quá trình train trên Proxy data, chỉ khởi tạo Head!")
+
+    # Step 1: Lưu model GỐC (còn LoRAConv2d) để FL kế thừa warmup LoRA direction
+    # Lý do: LoRA_A, LoRA_B đã học được low-rank direction phù hợp underwater domain.
+    # Nếu bake rồi inject lại (fresh), FL sẽ phải học lại từ đầu → tốn thêm vài vòng FL.
+    student.yolo.model.float()  # Đảm bảo FP32
+    ckpt = {"model": student.yolo.model, "epoch": epochs}
+    torch.save(ckpt, save_path)
+    print(f"\n[Thành công] Đã lưu Student LoRA warmup (FP32, có LoRA) tại: {save_path}")
+
+    # Step 2: Bake một bản COPY riêng chỉ để validate
+    # (Ultralytics fuse() không hiểu LoRAConv2d → phải bake copy trước khi val)
+    print("\n[Đánh giá] Bake bản copy để validate (không ảnh hưởng file warmup gốc)...")
+    import copy
+    student_copy = copy.deepcopy(student)
+    student_copy.bake_lora()
+
+    # Lưu bản baked tạm vào disk để YOLO load lại (tránh fuse() bug)
+    student_copy.yolo.model.float()
+    torch.save({"model": student_copy.yolo.model, "epoch": epochs}, baked_path)
+    del student_copy  # Giải phóng bộ nhớ
+
+    from ultralytics import YOLO as _YOLO
+    val_model = _YOLO(str(baked_path))
+    full_yaml_test = REPO_ROOT / "datasets/URPC2020.yaml"
+    print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã bake LoRA vào weights)...")
+    val_model.val(
+        data=str(full_yaml_test),
+        imgsz=640,
+        batch=16,
+        device=device,
+        verbose=True,
+        split="val",
+    )
+    print(f"[Warmup] Saved baked checkpoint for non-LoRA baselines: {baked_path}")
+
+
+def build_baked_warmup() -> Path:
+    """Bake the shared LoRA warmup without performing additional training."""
+    source_path, baked_path = _warmup_paths()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Shared LoRA warmup does not exist: {source_path}")
+
+    print(f"[Warmup] Baking {source_path.name}; no additional warmup epochs.")
+    student = StudentModel(
+        ckpt=str(source_path),
+        rank=fed_cfg.LORA_RANK,
+        nc=4,
+        full_param=False,
+        use_lora=True,
+    )
+    student.bake_lora()
+    student.yolo.model.float()
+
+    source_ckpt = torch.load(source_path, map_location="cpu", weights_only=False)
+    source_epoch = source_ckpt.get(
+        "epoch",
+        getattr(fed_cfg, "STUDENT_WARMUP_EPOCHS", 5),
+    )
+    torch.save({"model": student.yolo.model, "epoch": source_epoch}, baked_path)
+    print(f"[Warmup] Saved original-architecture checkpoint: {baked_path}")
+    return baked_path
+
+
+def ensure_warmup_checkpoints(epochs: int | None = None) -> tuple[Path, Path]:
+    """Return the LoRA and baked views of one shared warmup run."""
+    lora_path, baked_path = _warmup_paths()
+    warmup_epochs = (
+        epochs
+        if epochs is not None
+        else getattr(fed_cfg, "STUDENT_WARMUP_EPOCHS", 5)
+    )
+    if not lora_path.exists():
+        run_warmup(epochs=warmup_epochs)
+    if not baked_path.exists():
+        build_baked_warmup()
+    return lora_path, baked_path
+
+
+def run_warmup_fullparam(epochs: int):
+    """Compatibility entry point: derive a baked view, never train twice."""
+    del epochs
+    ensure_warmup_checkpoints()
+
+
+def run_centralized_lora(
+    epochs: int,
+    patience: int = 30,
+    resume: bool = False,
+    data_yaml: str | Path | None = None,
+    project: str | Path | None = None,
+    name: str = "lora_finetune",
+    device: str | None = None,
+):
+    print("\n" + "="*50)
+    print(f"[Centralized LoRA] Train LoRA + Head trong {epochs} epochs (Upper Bound)")
+    if resume: print("[Resume] Tiếp tục train từ last.pt...")
+    print("="*50)
+    
+    full_yaml = Path(data_yaml) if data_yaml is not None else REPO_ROOT / "datasets/URPC2020.yaml"
+    rank = fed_cfg.LORA_RANK
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    project = Path(project) if project is not None else REPO_ROOT / "runs" / "centralized"
+    
+    warmup_pt = REPO_ROOT / "yolo12n_warmup.pt"
+    ckpt_path = str(warmup_pt)
+    
+    if not warmup_pt.exists():
+        print(f"[Cảnh báo] Không tìm thấy {warmup_pt}. Tiến hành Warmup trước khi chạy Centralized LoRA...")
+        run_warmup(epochs=5)  # Tối thiểu 5 epochs để head hội tụ trước centralized phase
+        
+    if resume:
+        last_pt = REPO_ROOT / "runs" / "centralized" / "lora_finetune" / "weights" / "last.pt"
+        if last_pt.exists():
+            ckpt_path = str(last_pt)
+        else:
+            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ warmup model!")
+            resume = False
+            
+    student = StudentModel(
+        ckpt=ckpt_path,
+        rank=rank,
+        nc=4,
+        full_param=False,
+        use_lora=True,
+    )
+    
+    overrides = {
+        'model': ckpt_path,
+        'data': str(full_yaml),
+        'epochs': epochs,
+        'batch': getattr(fed_cfg, 'LOCAL_BATCH_SIZE', 16),
+        'workers': getattr(fed_cfg, 'DATALOADER_WORKERS', 4),
+        # [OPTIMIZATION] LoRA cần LR lớn hơn Full Finetune khoảng 5-10 lần để hội tụ cùng tốc độ.
+        # Ở Full FT ta dùng 1e-3, nên LoRA nên dùng 2e-3.
+        'lr0': 2e-3,  
+        'warmup_bias_lr': 2e-3,
+        'optimizer': 'AdamW',
+        'warmup_epochs': 3.0,
+        'lrf': 0.01,
+        'cos_lr': True,
+        'device': device,
+        'amp': False,
+        'project': str(project),
+        'name': name,
+        'exist_ok': True,
+        'verbose': True,
+        'save': True,
+        'val': True,
+        'plots': True,
+        'close_mosaic': 0,
+        'resume': resume,
+        'patience': patience,
+    }
+
+    trainer = CustomDetectionTrainer(
+        overrides=overrides,
+        student_wrapper=student,
+        cached_optimizer_state=None,
+    )
+    trainer._fl_injected_model = student.yolo.model
+    trainer.model = student.yolo.model
+    # [CRITICAL] Centralized LoRA LR config: keep aligned with warmup.
+    trainer.head_lr_multiplier = getattr(fed_cfg, 'CENTRAL_HEAD_LR_MULT', 2.5)
+    trainer.lora_lr_multiplier = getattr(fed_cfg, 'CENTRAL_LORA_LR_MULT', 0.5)
+
+    trainer.train()
+    
+    save_path = REPO_ROOT / "yolo12n_lora_centralized.pt"
+    ckpt = {"model": student.yolo.model.half(), "epoch": epochs}
+    torch.save(ckpt, save_path)
+    print(f"[Thành công] Đã lưu mô hình LoRA Centralized tại: {save_path}")
+    return {
+        "save_dir": Path(trainer.save_dir),
+        "results_csv": Path(trainer.save_dir) / "results.csv",
+        "checkpoint": save_path,
+    }
+
+
+def run_centralized_full(epochs: int, patience: int = 30, resume: bool = False):
+    print("\n" + "="*50)
+    print(f"[Centralized Full] Train 100% Parameter (No LoRA) trong {epochs} epochs")
+    if resume: print("[Resume] Tiếp tục train từ last.pt...")
+    print("="*50)
+    
+    full_yaml = REPO_ROOT / "datasets/URPC2020.yaml"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    ckpt_path = "yolo12n.pt"
+    if resume:
+        last_pt = REPO_ROOT / "runs" / "centralized" / "full_finetune" / "weights" / "last.pt"
+        if last_pt.exists():
+            ckpt_path = str(last_pt)
+        else:
+            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ đầu!")
+            resume = False
+            
+    model = YOLO(ckpt_path)
+    
+    model.train(
+        data=str(full_yaml),
+        epochs=epochs,
+        batch=16,
+        workers=4,
+        device=device,
+        project=str(REPO_ROOT / "runs" / "centralized"),
+        name="full_finetune",
+        optimizer="AdamW", # Bắt buộc phải set optimizer thì YOLO mới không đè mất lr0
+        lr0=0.001,  # Set lr0 to 0.001 (giống Top-K)
+        exist_ok=True,
+        verbose=True,
+        save=True,
+        val=True,
+        plots=True,
+        resume=resume,
+        patience=patience
+    )
+    
+    print(f"[Thành công] Đã lưu mô hình Full Finetune tại: runs/centralized/full_finetune/weights/best.pt")
+
+
+def run_centralized_topk_grad(epochs: int, patience: int = 30, resume: bool = False, topk_ratio: float = 0.05):
+    print("\n" + "="*50)
+    print(f"[Centralized Top-K Grad] Train với Top-{topk_ratio*100}% Gradient trong {epochs} epochs")
+    if resume: print("[Resume] Tiếp tục train từ last.pt...")
+    print("="*50)
+    
+    full_yaml = REPO_ROOT / "datasets/URPC2020.yaml"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    ckpt_path = "yolo12n.pt"
+    if resume:
+        last_pt = REPO_ROOT / "runs" / "centralized" / "topk_grad_finetune" / "weights" / "last.pt"
+        if last_pt.exists():
+            ckpt_path = str(last_pt)
+        else:
+            print(f"[Cảnh báo] Không tìm thấy {last_pt}. Train từ đầu!")
+            resume = False
+
+    # Khởi tạo mô hình student KHÔNG dùng LoRA (full parameter mode)
+    print(f"-> Loading yolo12n.pt (Full Parameter, cắt Gradient {topk_ratio*100}%)...")
+    student = StudentModel(
+        ckpt=ckpt_path,
+        rank=0,
+        nc=4,
+        full_param=True,
+        use_lora=False,
+    )
+
+    overrides = {
+        'model': ckpt_path,
+        'data': str(full_yaml),
+        'epochs': epochs,
+        'batch': 16,
+        'workers': 4,
+        'lr0': 1e-3,
+        'warmup_bias_lr': 1e-3,
+        'optimizer': 'AdamW',
+        'lrf': 0.01,
+        'cos_lr': True,
+        'device': device,
+        'project': str(REPO_ROOT / "runs" / "centralized"),
+        'name': 'topk_grad_finetune',
+        'exist_ok': True,
+        'verbose': True,
+        'save': True,
+        'val': True,
+        'plots': True,
+        'resume': resume,
+        'patience': patience,
+    }
+
+    trainer = CustomDetectionTrainer(
+        overrides=overrides,
+        student_wrapper=student,
+        cached_optimizer_state=None,
+    )
+    trainer._fl_injected_model = student.yolo.model
+    trainer.model = student.yolo.model
+    trainer.topk_grad_ratio = topk_ratio
+
+    trainer.train()
+    
+    save_path = REPO_ROOT / "yolo12n_topk_grad_centralized.pt"
+    ckpt = {"model": student.yolo.model.half(), "epoch": epochs}
+    torch.save(ckpt, save_path)
+    print(f"[Thành công] Đã lưu mô hình Top-K Grad Centralized tại: {save_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Chạy Warmup hoặc Centralized Baselines")
+    parser.add_argument("--mode", type=str, default="all", choices=["warmup", "warmup_fullparam", "centralized_lora", "centralized_full", "centralized_topk", "all"],
+                        help="Chế độ chạy (mặc định: all)")
+    parser.add_argument(
+        "--epochs-warmup",
+        type=int,
+        default=fed_cfg.STUDENT_WARMUP_EPOCHS,
+        help="Số epoch cho warmup dùng chung",
+    )
+    parser.add_argument("--epochs-centralized", type=int, default=150, help="Số epoch cho centralized tests")
+    parser.add_argument("--patience", type=int, default=30, help="Early stopping patience")
+    parser.add_argument("--resume", action="store_true", help="Resume training từ last.pt nếu server bị sập")
+    parser.add_argument("--topk-ratio", type=float, default=0.05, help="Tỉ lệ gradient giữ lại cho chế độ topk (mặc định 0.05 = 5%)")
+    args = parser.parse_args()
+
+    if args.mode in ["warmup", "all"]:
+        run_warmup(epochs=args.epochs_warmup)
+
+    if args.mode in ["warmup_fullparam", "all"]:
+        run_warmup_fullparam(epochs=args.epochs_warmup)
+        
+    if args.mode in ["centralized_lora", "all"]:
+        run_centralized_lora(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume)
+        
+    if args.mode in ["centralized_full", "all"]:
+        run_centralized_full(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume)
+        
+    if args.mode in ["centralized_topk", "all"]:
+        run_centralized_topk_grad(epochs=args.epochs_centralized, patience=args.patience, resume=args.resume, topk_ratio=args.topk_ratio)
+
+
+if __name__ == "__main__":
+    main()
