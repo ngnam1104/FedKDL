@@ -31,8 +31,8 @@ if [[ "${RUN_MOBILITY_SWEEP:-1}" == "1" ]]; then
   MOBILITY_OUT_DIR="${MOBILITY_OUT_DIR:-$OUT_DIR}"
   MOBILITY_LOG_DIR="${MOBILITY_LOG_DIR:-$LOG_DIR}"
   SPEED_LABELS=("normal" "fast")
-  SPEEDS=("0.8333" "1.6667")
-  MAX_SPEEDS=("2.0" "4.0")
+  SPEEDS=("1.6667" "3.3333")
+  MAX_SPEEDS=("4.0" "7.0")
   if [[ "${INCLUDE_STRESS:-0}" == "1" ]]; then
     SPEED_LABELS+=("stress")
     SPEEDS+=("3.0")
