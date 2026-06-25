@@ -3,88 +3,132 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FedKDL - Underwater FL Dashboard</title>
+    <title>FedKDL Underwater FL Demo</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body>
-    <div class="app-container">
-        <!-- SIDEBAR -->
-        <aside class="sidebar glass-panel">
-            <div class="sidebar-header">
-                <h2><i class="fa-solid fa-water"></i> FedKDL</h2>
-                <p>Gateway Dashboard</p>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fa-solid fa-water"></i>
+                <div>
+                    <h1>FedKDL</h1>
+                    <p>IoUT object detection demo</p>
+                </div>
             </div>
-            
-            <div class="auv-list-container">
-                <h3><i class="fa-solid fa-satellite-dish"></i> Active AUVs</h3>
-                <ul id="auv-list" class="auv-list">
-                    <!-- AUVs injected by JS -->
-                </ul>
-            </div>
+
+            <nav class="tabs" aria-label="Demo sections">
+                <button class="tab-btn active" data-tab="detect"><i class="fa-solid fa-camera"></i> Detection</button>
+                <button class="tab-btn" data-tab="centralized"><i class="fa-solid fa-database"></i> Centralized</button>
+                <button class="tab-btn" data-tab="fedavg"><i class="fa-solid fa-network-wired"></i> FedAvg</button>
+                <button class="tab-btn" data-tab="fedkdl"><i class="fa-solid fa-sitemap"></i> FedKDL</button>
+            </nav>
+
+            <section class="side-card">
+                <h2>Active AUVs</h2>
+                <ul id="auv-list" class="auv-list"></ul>
+            </section>
         </aside>
 
-        <!-- MAIN AREA -->
-        <main class="main-content">
-            <header class="topbar glass-panel">
-                <div class="status-indicator">
-                    <span class="pulse-dot"></span> System Online
+        <main class="main">
+            <header class="topbar">
+                <div>
+                    <span class="status-dot"></span>
+                    <span>Replay from experiment CSV</span>
                 </div>
-                <div class="metrics">
-                    <div class="metric-item"><i class="fa-solid fa-server"></i> Server: Local</div>
-                    <div class="metric-item"><i class="fa-solid fa-wave-square"></i> Comm: Acoustic</div>
+                <div class="api-config">
+                    <label for="api-base-input">API</label>
+                    <input id="api-base-input" type="url" spellcheck="false" placeholder="http://localhost:5000/api">
+                    <button id="api-connect-btn" class="icon-btn" type="button" title="Connect to backend">
+                        <i class="fa-solid fa-plug"></i>
+                    </button>
                 </div>
+                <div id="model-path" class="model-path">Model: loading...</div>
             </header>
 
-            <div class="dashboard-grid">
-                <!-- CAMERA VIEW -->
-                <div class="camera-panel glass-panel">
-                    <div class="panel-header">
-                        <h3 id="current-auv-name">Select an AUV AUV</h3>
-                        <label class="upload-btn">
-                            <i class="fa-solid fa-upload"></i> Upload Image
-                            <input type="file" id="image-upload" accept="image/*" style="display: none;">
-                        </label>
-                    </div>
-                    
-                    <div class="camera-feed" id="camera-feed">
-                        <div class="empty-state">
-                            <i class="fa-solid fa-camera"></i>
-                            <p>No Image Uploaded</p>
+            <section id="tab-detect" class="tab-panel active">
+                <div class="panel detection-layout">
+                    <div class="viewer">
+                        <div class="section-title">
+                            <h2>Centralized YOLO12n-LoRA Inference</h2>
+                            <label class="upload-btn">
+                                <i class="fa-solid fa-upload"></i> Upload image
+                                <input type="file" id="image-upload" accept="image/*">
+                            </label>
                         </div>
-                        <img id="preview-img" style="display: none;" alt="Preview">
-                        <div class="scan-line"></div>
-                    </div>
-                    
-                    <div class="controls">
-                        <button id="btn-detect" class="btn-primary" disabled>
-                            <i class="fa-solid fa-radar"></i> Run Detection
+                        <div id="camera-feed" class="camera-feed">
+                            <div class="empty-state">
+                                <i class="fa-solid fa-image"></i>
+                                <p>Select an AUV and upload an underwater image.</p>
+                            </div>
+                            <img id="preview-img" alt="Detection preview">
+                            <div class="scan-line"></div>
+                        </div>
+                        <button id="btn-detect" class="primary-btn" disabled>
+                            <i class="fa-solid fa-radar"></i> Run detection
                         </button>
                     </div>
+                    <div class="result-panel">
+                        <h3>Inference Results</h3>
+                        <div id="results-box" class="results-box">No image processed yet.</div>
+                        <div class="metric-grid compact">
+                            <div class="metric-card">
+                                <span>Selected AUV</span>
+                                <strong id="selected-auv">None</strong>
+                            </div>
+                            <div class="metric-card">
+                                <span>Latency</span>
+                                <strong id="tel-latency">-- ms</strong>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </section>
 
-                <!-- INFO PANEL -->
-                <div class="info-panel glass-panel">
-                    <h3><i class="fa-solid fa-microchip"></i> Inference Results</h3>
-                    
-                    <div class="results-box" id="results-box">
-                        <p class="placeholder-text">Run detection to see results...</p>
-                    </div>
-                    
-                    <div class="telemetry">
-                        <h4>Telemetry Simulator</h4>
-                        <div class="telemetry-row">
-                            <span>Latency:</span>
-                            <span id="tel-latency" class="highlight">-- ms</span>
+            <section id="tab-centralized" class="tab-panel">
+                <div class="panel replay-layout">
+                    <div>
+                        <div class="section-title">
+                            <h2>Centralized Raw-Data Upload</h2>
                         </div>
-                        <div class="telemetry-row">
-                            <span>Payload:</span>
-                            <span id="tel-payload" class="highlight">~131 KB (INT8)</span>
+                        <div class="pipeline centralized-flow">
+                            <div class="node">AUV raw images</div>
+                            <div class="arrow">→</div>
+                            <div class="node">Gateway dataset</div>
+                            <div class="arrow">→</div>
+                            <div class="node">YOLO12n-LoRA train</div>
+                            <div class="arrow">→</div>
+                            <div class="node">Detector</div>
                         </div>
                     </div>
+                    <aside>
+                        <div id="centralized-metrics" class="metric-grid"></div>
+                        <p id="centralized-note" class="note"></p>
+                    </aside>
                 </div>
-            </div>
+            </section>
+
+            <section id="tab-fedavg" class="tab-panel">
+                <div class="panel">
+                    <div class="section-title">
+                        <h2>FedAvg Full-Model Round Replay</h2>
+                        <div id="fedavg-rounds" class="round-selector"></div>
+                    </div>
+                    <div id="fedavg-replay" class="replay-grid"></div>
+                </div>
+            </section>
+
+            <section id="tab-fedkdl" class="tab-panel">
+                <div class="panel">
+                    <div class="section-title">
+                        <h2>FedKDL LoRA/INT8 Round Replay</h2>
+                        <div id="fedkdl-rounds" class="round-selector"></div>
+                    </div>
+                    <div id="fedkdl-replay" class="replay-grid"></div>
+                </div>
+            </section>
         </main>
     </div>
 
