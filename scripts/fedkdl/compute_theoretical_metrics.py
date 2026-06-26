@@ -821,7 +821,7 @@ def calc_physics_for_baseline(baseline):
 # 8. Three-seed physics-only scalability evaluation
 # ---------------------------------------------------------------------------
 
-SCALABILITY_N = (30, 40, 50, 60)
+SCALABILITY_N = (30, 40, 50, 60, 70, 80, 90, 100)
 SCALABILITY_SEEDS = (220, 1252, 2419)
 SCALABILITY_M_RELAYS = 8
 SCALABILITY_BASELINES = STANDARD_BASELINES
