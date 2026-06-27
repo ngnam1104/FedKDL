@@ -68,12 +68,13 @@ Mỗi tab có nội dung riêng:
 
 Backend ưu tiên tìm model trong `demo/`:
 
-1. `demo/yolo12n_lora_centralized.pt`
-2. `demo/yolo12n_centralized.pt`
-3. `demo/best.pt`
-4. `demo/yolo12n_warmup.pt`
-5. repo root `yolo12n_warmup.pt`
-6. fallback `yolo12n.pt`
+1. `demo/student_lora_best.pt`
+2. `demo/yolo12n_lora_centralized.pt`
+3. `demo/yolo12n_centralized.pt`
+4. `demo/best.pt`
+5. `demo/yolo12n_warmup.pt`
+6. repo root `yolo12n_warmup.pt`
+7. fallback `yolo12n.pt`
 
 Nhờ vậy sau này chỉ cần thả file `.pt` vào `demo/` là demo tự dùng.
 

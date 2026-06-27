@@ -19,6 +19,7 @@ REPO_ROOT = DEMO_DIR.parent
 STATIC_DIR = DEMO_DIR / "static"
 
 MODEL_CANDIDATES = [
+    DEMO_DIR / "student_lora_best.pt",
     DEMO_DIR / "yolo12n_lora_centralized.pt",
     DEMO_DIR / "yolo12n_centralized.pt",
     DEMO_DIR / "best.pt",

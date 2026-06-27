@@ -1230,6 +1230,11 @@ def generate_scalability_metrics():
         for column in summary.columns
     ]
 
+    # Round all float columns to 3 decimal places
+    for col in summary.columns:
+        if summary[col].dtype == np.float64:
+            summary[col] = summary[col].round(3)
+
     output_dir = "results"
     os.makedirs(output_dir, exist_ok=True)
     raw_path = os.path.join(output_dir, "scalability_physics_raw.csv")

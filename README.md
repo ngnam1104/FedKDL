@@ -316,7 +316,32 @@ PYTHONUNBUFFERED=1 WANDB_MODE=disabled python -u main_trainer_od.py \
   --log-dir results/train_logs/rank/r2_4
 ```
 
-## 10. Demo UI
+## 10. Vẽ Đồ Thị Và Bảng Kết Quả
+
+Sau khi chạy xong các thực nghiệm và có đầy đủ log dưới thư mục `results/`, bạn có thể vẽ toàn bộ đồ thị (tiếng Anh & tiếng Việt) và sinh các bảng LaTeX/Markdown/PDF.
+
+Vẽ toàn bộ 8 hình và 3 bảng:
+
+```bash
+python scripts/fedkdl/plot/plot_all.py
+```
+
+Hoặc chạy riêng lẻ từng hình/bảng:
+
+```bash
+# Vẽ hình 1
+python scripts/fedkdl/plot/fig1.py
+
+# Vẽ hình 2
+python scripts/fedkdl/plot/fig2.py
+
+# Sinh bảng 2
+python scripts/fedkdl/plot/table2.py
+```
+
+Các hình ảnh đầu ra được lưu vào `.images/en/` và `.images/vi/`. Các bảng kết quả được lưu dưới `results/metrics_final/tables_paper/`.
+
+## 11. Demo UI
 
 Demo nằm trong `demo/`.
 
@@ -344,7 +369,7 @@ Nếu mở frontend local nhưng backend ở server/tunnel, nhập API URL:
 http://localhost:5000/api
 ```
 
-## 11. Kết Quả Và Git Ignore
+## 12. Kết Quả Và Git Ignore
 
 Toàn bộ kết quả thực nghiệm nằm dưới `results/` và **không được commit vào git**. README chỉ mô tả cách chạy; log, JSON, CSV, ảnh plot và model output cần lưu ngoài git hoặc tải riêng khi phân tích.
 
@@ -360,7 +385,7 @@ runs/...
 
 `results/` đã nằm trong `.gitignore`, nên sau khi train xong có thể nén/tải về để phân tích nhưng không đưa trực tiếp lên repository.
 
-## 12. Cấu Trúc Repo
+## 13. Cấu Trúc Repo
 
 ```text
 FedKDL/
@@ -386,6 +411,7 @@ FedKDL/
 │       └── knowledge_compression/
 ├── scripts/
 │   ├── fedkdl/
+│   │   └── plot/                # Module chứa toàn bộ script vẽ đồ thị và sinh bảng
 │   └── archive_tests/
 ├── utils/
 │   ├── download_datasets.py
@@ -396,10 +422,10 @@ FedKDL/
 └── requirements.txt
 ```
 
-## 13. Ghi Chú Thực Nghiệm
+## 14. Ghi Chú Thực Nghiệm
 
 - `centralized` là centralized LoRA upper bound; `--rounds` được hiểu như số epoch.
 - `fedkdl_nokd` dùng cùng đường truyền LoRA/INT8 nhưng tắt gateway KD.
 - `flora` dùng LoRA không INT8, thường là mốc quan trọng để đo khoảng cách do nén INT8.
 - Mobility energy hiện được log riêng qua `e_move`, không cộng vào `e_total`/joint cost mặc định.
-- Khi chạy trên server yếu CPU/I/O, `LOCAL_DATALOADER_WORKERS=0` và `LOCAL_CACHE_DATASET=True` thường ổn định hơn.
+- Khi chạy trên server yếu CPU/I/O, `LOCAL_DATALOADER_WORKERS=0` and `LOCAL_CACHE_DATASET=True` thường ổn định hơn.
