@@ -9,128 +9,151 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body>
-    <div class="app-shell">
-        <aside class="sidebar">
-            <div class="brand">
-                <i class="fa-solid fa-water"></i>
-                <div>
-                    <h1>FedKDL</h1>
-                    <p>IoUT object detection demo</p>
-                </div>
+    <header class="taskbar">
+        <div class="brand">
+            <i class="fa-solid fa-water"></i>
+            <div>
+                <h1>FedKDL</h1>
+                <p>Underwater federated learning demo</p>
             </div>
+        </div>
 
-            <nav class="tabs" aria-label="Demo sections">
-                <button class="tab-btn active" data-tab="detect"><i class="fa-solid fa-camera"></i> Detection</button>
-                <button class="tab-btn" data-tab="centralized"><i class="fa-solid fa-database"></i> Centralized</button>
-                <button class="tab-btn" data-tab="fedavg"><i class="fa-solid fa-network-wired"></i> FedAvg</button>
-                <button class="tab-btn" data-tab="fedkdl"><i class="fa-solid fa-sitemap"></i> FedKDL</button>
-            </nav>
+        <nav class="scenario-tabs" aria-label="Demo scenarios">
+            <button class="scenario-btn active" data-scenario="detect">
+                <i class="fa-solid fa-camera"></i><span>Detection</span>
+            </button>
+            <button class="scenario-btn" data-scenario="centralized">
+                <i class="fa-solid fa-database"></i><span>Centralized</span>
+            </button>
+            <button class="scenario-btn" data-scenario="fedavg">
+                <i class="fa-solid fa-network-wired"></i><span>FedAvg</span>
+            </button>
+            <button class="scenario-btn" data-scenario="fedkdl">
+                <i class="fa-solid fa-sitemap"></i><span>FedKDL</span>
+            </button>
+        </nav>
 
-            <section class="side-card">
-                <h2>Active AUVs</h2>
-                <ul id="auv-list" class="auv-list"></ul>
-            </section>
-        </aside>
+        <div class="backend-state">
+            <span id="backend-dot" class="status-dot"></span>
+            <div>
+                <strong id="backend-label">Connecting</strong>
+                <span id="model-path">Global model</span>
+            </div>
+        </div>
+    </header>
 
-        <main class="main">
-            <header class="topbar">
-                <div>
-                    <span class="status-dot"></span>
-                    <span>Replay from experiment CSV</span>
-                </div>
-                <div class="api-config">
-                    <label for="api-base-input">API</label>
-                    <input id="api-base-input" type="url" spellcheck="false" placeholder="http://localhost:5000/api">
-                    <button id="api-connect-btn" class="icon-btn" type="button" title="Connect to backend">
-                        <i class="fa-solid fa-plug"></i>
+    <main class="workspace">
+        <section id="detect-view" class="view active">
+            <div class="detection-layout">
+                <div class="viewer">
+                    <div class="section-title">
+                        <div>
+                            <span class="eyebrow">Global student model</span>
+                            <h2>Underwater object detection</h2>
+                        </div>
+                        <label class="upload-btn">
+                            <i class="fa-solid fa-upload"></i>
+                            <span>Upload image</span>
+                            <input type="file" id="image-upload" accept="image/*">
+                        </label>
+                    </div>
+
+                    <div id="camera-feed" class="camera-feed">
+                        <div class="empty-state">
+                            <i class="fa-regular fa-image"></i>
+                            <p>Upload an URPC image</p>
+                        </div>
+                        <img id="preview-img" alt="Detection preview">
+                        <div class="scan-line"></div>
+                    </div>
+
+                    <button id="btn-detect" class="primary-btn" disabled>
+                        <i class="fa-solid fa-crosshairs"></i>
+                        <span>Run inference</span>
                     </button>
                 </div>
-                <div id="model-path" class="model-path">Model: loading...</div>
-            </header>
 
-            <section id="tab-detect" class="tab-panel active">
-                <div class="panel detection-layout">
-                    <div class="viewer">
-                        <div class="section-title">
-                            <h2>Centralized YOLO12n-LoRA Inference</h2>
-                            <label class="upload-btn">
-                                <i class="fa-solid fa-upload"></i> Upload image
-                                <input type="file" id="image-upload" accept="image/*">
-                            </label>
-                        </div>
-                        <div id="camera-feed" class="camera-feed">
-                            <div class="empty-state">
-                                <i class="fa-solid fa-image"></i>
-                                <p>Select an AUV and upload an underwater image.</p>
-                            </div>
-                            <img id="preview-img" alt="Detection preview">
-                            <div class="scan-line"></div>
-                        </div>
-                        <button id="btn-detect" class="primary-btn" disabled>
-                            <i class="fa-solid fa-radar"></i> Run detection
-                        </button>
-                    </div>
-                    <div class="result-panel">
-                        <h3>Inference Results</h3>
-                        <div id="results-box" class="results-box">No image processed yet.</div>
-                        <div class="metric-grid compact">
-                            <div class="metric-card">
-                                <span>Selected AUV</span>
-                                <strong id="selected-auv">None</strong>
-                            </div>
-                            <div class="metric-card">
-                                <span>Latency</span>
-                                <strong id="tel-latency">-- ms</strong>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section id="tab-centralized" class="tab-panel">
-                <div class="panel replay-layout">
+                <aside class="result-panel">
                     <div>
-                        <div class="section-title">
-                            <h2>Centralized Raw-Data Upload</h2>
+                        <span class="eyebrow">Inference output</span>
+                        <h2>Detections</h2>
+                    </div>
+                    <div id="results-box" class="results-box">
+                        <p class="muted">No image processed.</p>
+                    </div>
+                    <div class="metric-grid compact">
+                        <div class="metric-card">
+                            <span>Execution</span>
+                            <strong>GPU server</strong>
                         </div>
-                        <div class="pipeline centralized-flow">
-                            <div class="node">AUV raw images</div>
-                            <div class="arrow">→</div>
-                            <div class="node">Gateway dataset</div>
-                            <div class="arrow">→</div>
-                            <div class="node">YOLO12n-LoRA train</div>
-                            <div class="arrow">→</div>
-                            <div class="node">Detector</div>
+                        <div class="metric-card">
+                            <span>Latency</span>
+                            <strong id="tel-latency">-- ms</strong>
                         </div>
                     </div>
-                    <aside>
-                        <div id="centralized-metrics" class="metric-grid"></div>
-                        <p id="centralized-note" class="note"></p>
-                    </aside>
-                </div>
-            </section>
+                </aside>
+            </div>
+        </section>
 
-            <section id="tab-fedavg" class="tab-panel">
-                <div class="panel">
-                    <div class="section-title">
-                        <h2>FedAvg Full-Model Round Replay</h2>
-                        <div id="fedavg-rounds" class="round-selector"></div>
+        <section id="simulation-view" class="view">
+            <div class="simulation-layout">
+                <section class="simulation-main">
+                    <div class="simulation-header">
+                        <div>
+                            <span id="scenario-eyebrow" class="eyebrow">Communication simulation</span>
+                            <h2 id="scenario-title">Centralized raw-data upload</h2>
+                        </div>
+                        <div class="simulation-actions">
+                            <span id="round-label" class="round-label">Upload cycle</span>
+                            <button id="reset-simulation" class="icon-btn" type="button" title="Reset simulation">
+                                <i class="fa-solid fa-rotate-left"></i>
+                            </button>
+                            <button id="run-simulation" class="primary-btn inline" type="button">
+                                <i class="fa-solid fa-play"></i>
+                                <span>Run simulation</span>
+                            </button>
+                        </div>
                     </div>
-                    <div id="fedavg-replay" class="replay-grid"></div>
-                </div>
-            </section>
 
-            <section id="tab-fedkdl" class="tab-panel">
-                <div class="panel">
-                    <div class="section-title">
-                        <h2>FedKDL LoRA/INT8 Round Replay</h2>
-                        <div id="fedkdl-rounds" class="round-selector"></div>
+                    <div id="ocean-scene" class="ocean-scene" aria-label="Underwater network simulation">
+                        <div class="surface-band"></div>
+                        <div class="surface-label">Surface gateway</div>
+                        <div id="gateway" class="device gateway-device">
+                            <i class="fa-solid fa-satellite-dish"></i>
+                            <span>Gateway</span>
+                        </div>
+
+                        <div class="depth-line depth-one"><span>Relay layer</span></div>
+                        <div id="relay-layer" class="relay-layer"></div>
+                        <div id="auv-layer" class="auv-layer"></div>
+                        <div class="seabed-band"></div>
+                        <div id="communication-layer" class="communication-layer"></div>
+
+                        <div class="scene-status">
+                            <span id="phase-index">Ready</span>
+                            <strong id="phase-label">Select Run simulation</strong>
+                        </div>
                     </div>
-                    <div id="fedkdl-replay" class="replay-grid"></div>
-                </div>
-            </section>
-        </main>
-    </div>
+
+                    <div id="phase-timeline" class="phase-timeline"></div>
+                </section>
+
+                <aside class="telemetry-panel">
+                    <div>
+                        <span class="eyebrow">Measured experiment data</span>
+                        <h2>Round telemetry</h2>
+                    </div>
+                    <div id="scenario-metrics" class="metric-grid"></div>
+                    <div class="legend">
+                        <div><span class="legend-line raw"></span>Raw images</div>
+                        <div><span class="legend-line full"></span>Full model</div>
+                        <div><span class="legend-line lora"></span>LoRA/INT8</div>
+                    </div>
+                    <p class="time-note">Animation time is compressed. Physical latency remains the value reported in telemetry.</p>
+                </aside>
+            </div>
+        </section>
+    </main>
 
     <script src="main.js"></script>
 </body>
