@@ -292,15 +292,26 @@ function openNodeInspector(nodeType, nodeId) {
                 </figure>
             `;
         }).join("");
+        const facts = [
+            ["Status", detail.connected ? "Connected" : "Out of range"],
+            ["Route", detail.route],
+            ["Local images", Number(detail.image_count).toLocaleString()],
+            ["Local loss", localLoss],
+        ];
+        if (detail.loss_components) {
+            facts.push([
+                "Loss components",
+                `box ${Number(detail.loss_components.box).toFixed(3)} / `
+                + `cls ${Number(detail.loss_components.cls).toFixed(3)} / `
+                + `dfl ${Number(detail.loss_components.dfl).toFixed(3)}`,
+            ]);
+        }
+        facts.push(
+            ["Model state", detail.model_state],
+            ["Transmits", detail.transmitted_object],
+        );
         body.innerHTML = `
-            ${factRows([
-                ["Status", detail.connected ? "Connected" : "Out of range"],
-                ["Route", detail.route],
-                ["Local images", Number(detail.image_count).toLocaleString()],
-                ["Local loss", localLoss],
-                ["Model state", detail.model_state],
-                ["Transmits", detail.transmitted_object],
-            ])}
+            ${factRows(facts)}
             ${sampleImages ? `<div class="sample-images">${sampleImages}</div>` : ""}
         `;
     } else {

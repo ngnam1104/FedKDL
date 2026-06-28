@@ -237,17 +237,6 @@ def _metric_row(case_name: str, round_id: int) -> dict[str, str]:
     return positive_rounds[min(max(round_id - 1, 0), len(positive_rounds) - 1)] if positive_rounds else rows[0]
 
 
-def _loss_row(case_name: str, round_id: int) -> dict[str, str]:
-    cfg = CASE_CONFIGS[case_name]
-    rows = _read_csv_rows(cfg["loss"])
-    if not rows:
-        return {}
-    candidates = [row for row in rows if _safe_int(row.get("Round")) == round_id]
-    if candidates:
-        return candidates[0]
-    return rows[min(max(round_id - 1, 0), len(rows) - 1)]
-
-
 def _available_rounds(case_name: str) -> list[int]:
     rows = _read_csv_rows(CASE_CONFIGS[case_name]["metrics"])
     rounds = sorted({_safe_int(row.get("Round")) for row in rows if _safe_int(row.get("Round")) > 0})
@@ -255,7 +244,29 @@ def _available_rounds(case_name: str) -> list[int]:
 
 
 def _loss_items(case_name: str, round_id: int) -> list[dict[str, Any]]:
-    row = _loss_row(case_name, round_id)
+    rows = _read_csv_rows(CASE_CONFIGS[case_name]["loss"])
+    if not rows:
+        return []
+    matching_rows = [row for row in rows if _safe_int(row.get("Round")) == round_id]
+    if "AUV" in rows[0]:
+        items = []
+        for row in matching_rows:
+            components = {
+                "box": _safe_float(row.get("box_loss")),
+                "cls": _safe_float(row.get("cls_loss")),
+                "dfl": _safe_float(row.get("dfl_loss")),
+            }
+            items.append({
+                "id": _safe_int(row.get("AUV")),
+                "name": f"AUV_{_safe_int(row.get('AUV'))}",
+                "loss": round(sum(components.values()), 4),
+                "components": components,
+            })
+        return sorted(items, key=lambda item: item["id"])
+
+    row = matching_rows[0] if matching_rows else rows[
+        min(max(round_id - 1, 0), len(rows) - 1)
+    ]
     items = []
     for key, value in row.items():
         if not key.startswith("AUV_"):
@@ -584,6 +595,11 @@ def _network_node_details(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     manifest = _centralized_raw_manifest()
     loss_by_id = {int(item["id"]): float(item["loss"]) for item in losses}
+    loss_components_by_id = {
+        int(item["id"]): item.get("components")
+        for item in losses
+        if item.get("components")
+    }
     per_auv = manifest.get("per_auv", {})
     auv_details = []
     for auv in topology["auvs"]:
@@ -614,6 +630,7 @@ def _network_node_details(
             "route": route,
             "image_count": int(local_data.get("images", 0)),
             "local_loss": loss_by_id.get(auv_id),
+            "loss_components": loss_components_by_id.get(auv_id),
             "model_state": model_state,
             "transmitted_object": transmitted_object,
             "sample_names": local_data.get("sample_names", []),
