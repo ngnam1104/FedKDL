@@ -7,7 +7,8 @@ const API_BASE = normalizeApiBase(
 
 const SCENARIO_COLORS = {
     centralized: "#ff7a72",
-    fedavg: "#f6c85f",
+    fedavg_flat: "#4d8eff",
+    fedavg_hfl: "#f6c85f",
     fedkdl: "#32d3d8",
 };
 
@@ -16,6 +17,9 @@ let activeScenario = "detect";
 let currentRound = 1;
 let scenarioData = null;
 let simulationRunning = false;
+let simulationPaused = false;
+let simulationStopRequested = false;
+let replayAllRunning = false;
 
 function normalizeApiBase(value) {
     const text = String(value || "").trim().replace(/\/+$/, "");
@@ -122,8 +126,14 @@ function setupDetection() {
             if (!response.ok) throw new Error("Detection request failed");
             const data = await response.json();
             preview.src = `data:image/jpeg;base64,${data.image_b64}`;
-            resultsBox.innerHTML = renderDetections(data.detections, data.model_path);
-            document.getElementById("tel-latency").textContent = `${(performance.now() - startedAt).toFixed(0)} ms`;
+            const endToEndMs = performance.now() - startedAt;
+            resultsBox.innerHTML = renderDetections(
+                data.detections,
+                data.model_path,
+                data.server_inference_ms,
+                endToEndMs,
+            );
+            document.getElementById("tel-latency").textContent = `${endToEndMs.toFixed(0)} ms`;
         } catch (error) {
             resultsBox.innerHTML = `<p class="error">Inference failed. Check the GPU backend and SSH tunnel.</p>`;
         } finally {
@@ -134,7 +144,7 @@ function setupDetection() {
     });
 }
 
-function renderDetections(detections, modelPath) {
+function renderDetections(detections, modelPath, serverInferenceMs, endToEndMs) {
     const rows = detections.length
         ? detections.map((detection) => `
             <div class="detection-item">
@@ -144,7 +154,12 @@ function renderDetections(detections, modelPath) {
         `).join("")
         : `<p class="muted">No object detected at confidence 0.25.</p>`;
 
-    return `${rows}<p class="model-note">Detector: ${modelPath || "global student model"}</p>`;
+    return `
+        ${rows}
+        <p class="model-note">GPU inference: ${Number(serverInferenceMs || 0).toFixed(1)} ms</p>
+        <p class="model-note">Browser round trip: ${Number(endToEndMs || 0).toFixed(1)} ms</p>
+        <p class="model-note">Detector: ${modelPath || "global student model"}</p>
+    `;
 }
 
 async function loadScenario() {
@@ -157,23 +172,28 @@ function renderScenario() {
     document.getElementById("scenario-title").textContent = scenarioData.title;
     document.getElementById("round-label").textContent = activeScenario === "centralized"
         ? "Upload cycle"
-        : `Round ${scenarioData.round} / 3`;
+        : `Round ${scenarioData.round} / 40`;
     document.getElementById("scenario-eyebrow").textContent = activeScenario === "centralized"
         ? "Raw-data communication"
         : "One federated learning round";
+    document.getElementById("round-control").classList.toggle("hidden", activeScenario === "centralized");
+    document.getElementById("run-all-simulation").classList.toggle("hidden", activeScenario === "centralized");
+    document.getElementById("round-slider").value = String(scenarioData.round);
 
     renderTopology();
     renderTimeline();
     renderScenarioMetrics();
+    renderPayloadManifest();
     setPhaseStatus("Ready", "Select Run simulation");
 
     const runButton = document.getElementById("run-simulation");
     runButton.onclick = runSimulation;
     runButton.disabled = false;
-    runButton.innerHTML = `<i class="fa-solid fa-play"></i><span>Run simulation</span>`;
+    runButton.innerHTML = `<i class="fa-solid fa-play"></i><span>Run round</span>`;
 }
 
 function renderTopology() {
+    closeNodeInspector();
     const relayLayer = document.getElementById("relay-layer");
     const auvLayer = document.getElementById("auv-layer");
     const lossById = new Map((scenarioData.losses || []).map((item) => [Number(item.id), Number(item.loss)]));
@@ -184,6 +204,11 @@ function renderTopology() {
             id="relay-${relay.id}"
             class="device relay-device ${topology.use_relays ? "" : "bypassed"}"
             style="left:${relay.x_pct}%;top:${relay.y_pct}%"
+            role="button"
+            tabindex="0"
+            data-node-type="relay"
+            data-node-id="${relay.id}"
+            title="Inspect Relay ${relay.id}"
         >
             <i class="fa-solid fa-tower-broadcast"></i>
             <span>R${relay.id}</span>
@@ -200,7 +225,17 @@ function renderTopology() {
                 id="auv-${auv.id}"
                 class="device auv-device ${auv.connected ? "" : "disconnected"}"
                 style="left:${auv.x_pct}%;top:${auv.y_pct}%"
-                title="${auv.connected ? `AUV ${auv.id} to Relay ${auv.relay_id}` : `AUV ${auv.id}: out of range`}"
+                title="${
+                    auv.connected
+                        ? topology.use_relays
+                            ? `AUV ${auv.id} to Relay ${auv.relay_id}`
+                            : `AUV ${auv.id} directly to Gateway`
+                        : `AUV ${auv.id}: out of range`
+                }"
+                role="button"
+                tabindex="0"
+                data-node-type="auv"
+                data-node-id="${auv.id}"
             >
                 ${lossBadge}
                 <i class="fa-solid fa-robot"></i>
@@ -208,6 +243,86 @@ function renderTopology() {
             </div>
         `;
     }).join("");
+
+    document.querySelectorAll("[data-node-type][data-node-id]").forEach((node) => {
+        const open = () => openNodeInspector(node.dataset.nodeType, Number(node.dataset.nodeId));
+        node.addEventListener("click", open);
+        node.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                open();
+            }
+        });
+    });
+}
+
+function closeNodeInspector() {
+    document.getElementById("node-inspector").classList.add("hidden");
+}
+
+function factRows(rows) {
+    return `<dl class="node-facts">${rows.map(([label, value]) => `
+        <dt>${label}</dt><dd>${value}</dd>
+    `).join("")}</dl>`;
+}
+
+function openNodeInspector(nodeType, nodeId) {
+    const inspector = document.getElementById("node-inspector");
+    const title = document.getElementById("inspector-title");
+    const type = document.getElementById("inspector-type");
+    const body = document.getElementById("inspector-body");
+
+    if (nodeType === "auv") {
+        const detail = (scenarioData.auv_details || []).find((item) => Number(item.id) === nodeId);
+        if (!detail) return;
+        type.textContent = detail.connected ? "Participating AUV" : "Disconnected AUV";
+        title.textContent = `AUV ${nodeId} - round ${scenarioData.round}`;
+        const localLoss = detail.local_loss !== null
+            && detail.local_loss !== undefined
+            && Number.isFinite(Number(detail.local_loss))
+            ? Number(detail.local_loss).toFixed(4)
+            : "Not applicable";
+        const sampleImages = (detail.sample_image_urls || []).map((url, index) => {
+            const source = `${API_BASE}${url.replace(/^\/api/, "")}`;
+            const name = (detail.sample_names || [])[index] || `Sample ${index + 1}`;
+            return `
+                <figure>
+                    <img src="${source}" alt="AUV ${nodeId} sample ${index + 1}" loading="lazy">
+                    <figcaption title="${name}">${name}</figcaption>
+                </figure>
+            `;
+        }).join("");
+        body.innerHTML = `
+            ${factRows([
+                ["Status", detail.connected ? "Connected" : "Out of range"],
+                ["Route", detail.route],
+                ["Local images", Number(detail.image_count).toLocaleString()],
+                ["Local loss", localLoss],
+                ["Model state", detail.model_state],
+                ["Transmits", detail.transmitted_object],
+            ])}
+            ${sampleImages ? `<div class="sample-images">${sampleImages}</div>` : ""}
+        `;
+    } else {
+        const detail = (scenarioData.relay_details || []).find((item) => Number(item.id) === nodeId);
+        if (!detail) return;
+        type.textContent = "Relay node";
+        title.textContent = `Relay ${nodeId} - round ${scenarioData.round}`;
+        const auvList = detail.auv_ids.length
+            ? detail.auv_ids.map((id) => `A${id}`).join(", ")
+            : "No attached AUV";
+        const neighbors = detail.cooperation_neighbors.length
+            ? detail.cooperation_neighbors.map((id) => `R${id}`).join(", ")
+            : "R2R disabled";
+        body.innerHTML = factRows([
+            ["Attached AUVs", auvList],
+            ["Local images", Number(detail.image_count).toLocaleString()],
+            ["Aggregation", detail.aggregation],
+            ["R2R neighbors", neighbors],
+            ["Gateway link", detail.gateway_link],
+        ]);
+    }
+    inspector.classList.remove("hidden");
 }
 
 function renderTimeline() {
@@ -228,13 +343,33 @@ function renderScenarioMetrics() {
     document.getElementById("scenario-metrics").innerHTML = [
         metricCard("Uplink payload", formatPayload(metrics.uplink_payload_kb)),
         metricCard("Downlink payload", metrics.downlink_payload_kb > 0 ? formatPayload(metrics.downlink_payload_kb) : "None"),
-        metricCard("Training latency", formatTime(metrics.train_latency_s)),
-        metricCard("Communication latency", formatTime(metrics.communication_latency_s)),
+        metricCard("Local training", formatTime(metrics.train_latency_s)),
+        metricCard("AUV to Relay/GW", formatTime(metrics.tau_a2r)),
+        metricCard("Relay cooperation", formatTime(metrics.tau_r2r)),
+        metricCard("Relay to Gateway", formatTime(metrics.tau_r2g)),
+        metricCard("Relay SVD", formatTime(metrics.tau_svd)),
         metricCard("Physical total", formatTime(metrics.round_latency_s)),
-        metricCard("Compressed demo", `${demoDuration.toFixed(1)} s`),
+        metricCard("Global loss", Number(metrics.loss || 0).toFixed(4)),
+        metricCard("Gateway KD loss", metrics.gateway_loss > 0 ? Number(metrics.gateway_loss).toFixed(4) : "None"),
+        metricCard("Pre-Gateway mAP50", `${(Number(metrics.pre_gateway_mAP50 || 0) * 100).toFixed(2)}%`),
         metricCard("mAP50", accuracy),
+        metricCard("mAP50-95", `${(Number(metrics.mAP50_95 || 0) * 100).toFixed(2)}%`),
         metricCard("Energy", metrics.energy_j > 0 ? `${metrics.energy_j.toFixed(0)} J` : "Not modeled"),
+        metricCard("Compressed demo", `${demoDuration.toFixed(1)} s`),
     ].join("");
+}
+
+function renderPayloadManifest() {
+    const payload = scenarioData.payload || {};
+    document.getElementById("payload-manifest").innerHTML = `
+        <h3>Payload being transmitted</h3>
+        <dl>
+            <dt>Object</dt><dd>${payload.name || "--"}</dd>
+            <dt>Encoding</dt><dd>${payload.encoding || "--"}</dd>
+            <dt>Contents</dt><dd>${payload.contents || "--"}</dd>
+            <dt>Source</dt><dd>${payload.source || "--"}</dd>
+        </dl>
+    `;
 }
 
 function setPhaseStatus(index, label) {
@@ -305,18 +440,32 @@ function relayForAuv(auvId) {
 function communicationPairs(phaseId) {
     const gateway = document.getElementById("gateway");
     const topology = scenarioData.topology;
-    const auvs = topology.auvs.map((auv) => document.getElementById(`auv-${auv.id}`));
     const connectedAuvs = topology.auvs.filter((auv) => auv.connected);
-    const activeRelayIds = new Set(connectedAuvs.map((auv) => Number(auv.relay_id)));
+    const activeRelayIds = new Set(
+        connectedAuvs
+            .filter((auv) => auv.relay_id !== null && auv.relay_id !== undefined)
+            .map((auv) => Number(auv.relay_id))
+    );
     const activeRelays = topology.relays
         .filter((relay) => activeRelayIds.has(Number(relay.id)))
         .map((relay) => document.getElementById(`relay-${relay.id}`));
 
-    if (phaseId === "uplink_direct") return auvs.map((auv) => [auv, gateway]);
+    if (phaseId === "uplink_direct") {
+        return connectedAuvs.map((auv) => [document.getElementById(`auv-${auv.id}`), gateway]);
+    }
+    if (phaseId === "downlink_direct") {
+        return connectedAuvs.map((auv) => [gateway, document.getElementById(`auv-${auv.id}`)]);
+    }
     if (phaseId === "uplink_a2r") {
         return connectedAuvs.map((auv) => [
             document.getElementById(`auv-${auv.id}`),
             relayForAuv(auv.id),
+        ]);
+    }
+    if (phaseId === "relay_cooperate") {
+        return (topology.cooperation_pairs || []).map((pair) => [
+            document.getElementById(`relay-${pair.from}`),
+            document.getElementById(`relay-${pair.to}`),
         ]);
     }
     if (phaseId === "uplink_r2g") return activeRelays.map((relay) => [relay, gateway]);
@@ -330,7 +479,22 @@ function communicationPairs(phaseId) {
     return [];
 }
 
-async function animatePhase(phase) {
+async function waitForAnimation(durationMs) {
+    let remainingMs = durationMs;
+    while (remainingMs > 0) {
+        if (simulationStopRequested) return false;
+        if (simulationPaused) {
+            await sleep(60);
+            continue;
+        }
+        const tickMs = Math.min(60, remainingMs);
+        await sleep(tickMs);
+        remainingMs -= tickMs;
+    }
+    return !simulationStopRequested;
+}
+
+async function animatePhase(phase, speedScale = 1) {
     clearNodeStates();
     clearLinks();
     const auvs = scenarioData.topology.auvs.map((auv) => document.getElementById(`auv-${auv.id}`));
@@ -343,7 +507,7 @@ async function animatePhase(phase) {
         scenarioData.topology.auvs
             .filter((auv) => auv.connected)
             .forEach((auv) => document.getElementById(`auv-${auv.id}`).classList.add("training"));
-    } else if (phase.id === "relay_aggregate") {
+    } else if (phase.id === "relay_aggregate" || phase.id === "relay_forward") {
         const activeRelayIds = new Set(
             scenarioData.topology.auvs
                 .filter((auv) => auv.connected)
@@ -357,48 +521,129 @@ async function animatePhase(phase) {
     } else {
         const pairs = communicationPairs(phase.id);
         pairs.forEach(([fromNode, toNode]) => {
-            createCommunicationLink(fromNode, toNode, phase.duration_ms, SCENARIO_COLORS[activeScenario]);
+            if (fromNode && toNode) {
+                createCommunicationLink(
+                    fromNode,
+                    toNode,
+                    Math.max(120, phase.duration_ms * speedScale),
+                    SCENARIO_COLORS[activeScenario]
+                );
+            }
         });
     }
 
-    await sleep(phase.duration_ms);
+    const completed = await waitForAnimation(Math.max(120, phase.duration_ms * speedScale));
     clearLinks();
+    return completed;
+}
+
+function setSimulationControls(running) {
+    const runButton = document.getElementById("run-simulation");
+    const resetButton = document.getElementById("reset-simulation");
+    const runAllButton = document.getElementById("run-all-simulation");
+    const pauseButton = document.getElementById("pause-simulation");
+    const stopButton = document.getElementById("stop-simulation");
+    runButton.disabled = running;
+    resetButton.disabled = running;
+    runAllButton.disabled = running;
+    pauseButton.disabled = !running;
+    stopButton.disabled = !running;
+    if (!running) {
+        pauseButton.innerHTML = `<i class="fa-solid fa-pause"></i>`;
+        pauseButton.title = "Pause replay";
+    }
+}
+
+async function playLoadedRound(speedScale = 1) {
+    for (let index = 0; index < scenarioData.phases.length; index += 1) {
+        if (simulationStopRequested) return false;
+        const phase = scenarioData.phases[index];
+        setTimelineState(index);
+        const roundText = activeScenario === "centralized" ? "" : `Round ${currentRound}/40 - `;
+        setPhaseStatus(
+            `${roundText}Phase ${index + 1}/${scenarioData.phases.length}`,
+            phase.label
+        );
+        if (!await animatePhase(phase, speedScale)) return false;
+    }
+    clearNodeStates();
+    setTimelineState(scenarioData.phases.length);
+    return true;
 }
 
 async function runSimulation() {
     if (!scenarioData || simulationRunning) return;
     simulationRunning = true;
+    simulationPaused = false;
+    simulationStopRequested = false;
+    replayAllRunning = false;
+    setSimulationControls(true);
+    document.getElementById("run-simulation").innerHTML =
+        `<i class="fa-solid fa-spinner fa-spin"></i><span>Running</span>`;
+
+    const completed = await playLoadedRound(1);
+    finishSimulation(completed);
+}
+
+async function runAllSimulations() {
+    if (!scenarioData || simulationRunning || activeScenario === "centralized") return;
+    simulationRunning = true;
+    simulationPaused = false;
+    simulationStopRequested = false;
+    replayAllRunning = true;
+    setSimulationControls(true);
+    document.getElementById("run-simulation").innerHTML =
+        `<i class="fa-solid fa-spinner fa-spin"></i><span>Replaying</span>`;
+
+    for (let round = currentRound; round <= 40; round += 1) {
+        if (simulationStopRequested) break;
+        currentRound = round;
+        await loadScenario();
+        setSimulationControls(true);
+        if (!await playLoadedRound(0.08)) break;
+    }
+    finishSimulation(!simulationStopRequested);
+}
+
+function finishSimulation(completed) {
     const runButton = document.getElementById("run-simulation");
-    const resetButton = document.getElementById("reset-simulation");
-    runButton.disabled = true;
-    resetButton.disabled = true;
-    runButton.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Running</span>`;
-
-    for (let index = 0; index < scenarioData.phases.length; index += 1) {
-        const phase = scenarioData.phases[index];
-        setTimelineState(index);
-        setPhaseStatus(`Phase ${index + 1}/${scenarioData.phases.length}`, phase.label);
-        await animatePhase(phase);
-    }
-
+    clearLinks();
     clearNodeStates();
-    setTimelineState(scenarioData.phases.length);
-    setPhaseStatus("Complete", activeScenario === "centralized" ? "Raw dataset received" : `Round ${currentRound} completed`);
     simulationRunning = false;
-    resetButton.disabled = false;
-
-    if (activeScenario !== "centralized" && currentRound < 3) {
-        currentRound += 1;
-        runButton.disabled = false;
-        runButton.innerHTML = `<i class="fa-solid fa-forward-step"></i><span>Load round ${currentRound}</span>`;
-        runButton.onclick = async () => {
-            runButton.onclick = runSimulation;
-            await loadScenario();
-        };
+    simulationPaused = false;
+    replayAllRunning = false;
+    setSimulationControls(false);
+    if (completed) {
+        setPhaseStatus(
+            "Complete",
+            activeScenario === "centralized"
+                ? "Raw dataset received at Gateway"
+                : `Round ${currentRound} completed`
+        );
     } else {
-        runButton.disabled = false;
-        runButton.innerHTML = `<i class="fa-solid fa-rotate-right"></i><span>Run again</span>`;
+        setPhaseStatus("Stopped", `Replay stopped at round ${currentRound}`);
     }
+    runButton.innerHTML = `<i class="fa-solid fa-play"></i><span>Run round</span>`;
+}
+
+function togglePauseSimulation() {
+    if (!simulationRunning) return;
+    simulationPaused = !simulationPaused;
+    const pauseButton = document.getElementById("pause-simulation");
+    pauseButton.innerHTML = simulationPaused
+        ? `<i class="fa-solid fa-play"></i>`
+        : `<i class="fa-solid fa-pause"></i>`;
+    pauseButton.title = simulationPaused ? "Resume replay" : "Pause replay";
+    setPhaseStatus(
+        simulationPaused ? "Paused" : "Running",
+        simulationPaused ? `Paused at round ${currentRound}` : `Round ${currentRound} resumed`
+    );
+}
+
+function stopSimulation() {
+    if (!simulationRunning) return;
+    simulationStopRequested = true;
+    simulationPaused = false;
 }
 
 async function resetSimulation() {
@@ -414,6 +659,15 @@ async function init() {
     setupDetection();
     document.getElementById("run-simulation").onclick = runSimulation;
     document.getElementById("reset-simulation").addEventListener("click", resetSimulation);
+    document.getElementById("run-all-simulation").addEventListener("click", runAllSimulations);
+    document.getElementById("pause-simulation").addEventListener("click", togglePauseSimulation);
+    document.getElementById("stop-simulation").addEventListener("click", stopSimulation);
+    document.getElementById("close-inspector").addEventListener("click", closeNodeInspector);
+    document.getElementById("round-slider").addEventListener("input", async (event) => {
+        if (simulationRunning) return;
+        currentRound = Number(event.target.value);
+        await loadScenario();
+    });
 
     try {
         const summary = await getJson("/demo/summary");
