@@ -46,7 +46,7 @@ CASE_CONFIGS = {
     "fedavg_flat": {
         "title": "FedAvg Flat",
         "metrics": DEMO_DIR / "fedavg_metrics.csv",
-        "loss": None,
+        "loss": DEMO_DIR / "fedavg_loss_matrix.csv",
         "flow": "flat_full_model",
         "payload_label": "Full model update",
     },
