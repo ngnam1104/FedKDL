@@ -20,6 +20,9 @@ let simulationRunning = false;
 let simulationPaused = false;
 let simulationStopRequested = false;
 let replayAllRunning = false;
+let liveTrainingAvailable = false;
+let liveTrainingJobId = null;
+let liveTrainingRunning = false;
 
 function normalizeApiBase(value) {
     const text = String(value || "").trim().replace(/\/+$/, "");
@@ -31,6 +34,13 @@ async function getJson(path) {
     const response = await fetch(`${API_BASE}${path}`);
     if (!response.ok) throw new Error(`API request failed: ${path}`);
     return response.json();
+}
+
+async function postJson(path) {
+    const response = await fetch(`${API_BASE}${path}`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `API request failed: ${path}`);
+    return data;
 }
 
 const sleep = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
@@ -61,18 +71,22 @@ function metricCard(label, value) {
     `;
 }
 
-function setBackendState(online, modelPath = "") {
+function setBackendState(online, modelPath = "", replayOnline = online) {
     const dot = document.getElementById("backend-dot");
-    dot.classList.toggle("online", online);
-    dot.classList.toggle("offline", !online);
-    document.getElementById("backend-label").textContent = online ? "GPU backend online" : "Backend unavailable";
+    dot.classList.toggle("online", replayOnline);
+    dot.classList.toggle("offline", !replayOnline);
+    document.getElementById("backend-label").textContent = online
+        ? "GPU backend online"
+        : replayOnline
+            ? "Replay backend online · detection unavailable"
+            : "Backend unavailable";
     document.getElementById("model-path").textContent = modelPath || "Global model";
 }
 
 function setupScenarioTabs() {
     document.querySelectorAll(".scenario-btn").forEach((button) => {
         button.addEventListener("click", async () => {
-            if (simulationRunning) return;
+            if (simulationRunning || liveTrainingRunning) return;
             document.querySelectorAll(".scenario-btn").forEach((item) => item.classList.remove("active"));
             button.classList.add("active");
             activeScenario = button.dataset.scenario;
@@ -178,6 +192,10 @@ function renderScenario() {
         : "One federated learning round";
     document.getElementById("round-control").classList.toggle("hidden", activeScenario === "centralized");
     document.getElementById("run-all-simulation").classList.toggle("hidden", activeScenario === "centralized");
+    const liveButton = document.getElementById("run-live-training");
+    const supportsLive = activeScenario === "fedkdl" || activeScenario === "fedavg_hfl";
+    liveButton.classList.toggle("hidden", !supportsLive);
+    liveButton.disabled = !supportsLive || !liveTrainingAvailable || simulationRunning;
     document.getElementById("round-slider").value = String(scenarioData.round);
 
     renderTopology();
@@ -254,6 +272,7 @@ function renderTopology() {
             }
         });
     });
+    renderStaticTopologyLinks();
 }
 
 function closeNodeInspector() {
@@ -413,6 +432,59 @@ function nodeCenter(node, sceneRect) {
     };
 }
 
+function normalizeRelayPair(pair) {
+    if (Array.isArray(pair) && pair.length >= 2) {
+        return { from: Number(pair[0]), to: Number(pair[1]) };
+    }
+    if (pair && pair.from !== undefined && pair.to !== undefined) {
+        return { from: Number(pair.from), to: Number(pair.to) };
+    }
+    return null;
+}
+
+function createTopologyLink(fromNode, toNode, highlighted = false) {
+    if (!fromNode || !toNode) return;
+    const scene = document.getElementById("ocean-scene");
+    const layer = document.getElementById("topology-link-layer");
+    const sceneRect = scene.getBoundingClientRect();
+    const start = nodeCenter(fromNode, sceneRect);
+    const end = nodeCenter(toNode, sceneRect);
+    const deltaX = end.x - start.x;
+    const deltaY = end.y - start.y;
+    const link = document.createElement("div");
+    link.className = `topology-link ${highlighted ? "cooperation" : "feasible"}`;
+    link.style.left = `${start.x}px`;
+    link.style.top = `${start.y}px`;
+    link.style.width = `${Math.hypot(deltaX, deltaY)}px`;
+    link.style.transform = `rotate(${Math.atan2(deltaY, deltaX) * 180 / Math.PI}deg)`;
+    layer.appendChild(link);
+}
+
+function renderStaticTopologyLinks() {
+    const layer = document.getElementById("topology-link-layer");
+    layer.innerHTML = "";
+    if (!scenarioData?.topology?.use_relays) return;
+
+    const cooperationKeys = new Set(
+        (scenarioData.topology.cooperation_pairs || [])
+            .map(normalizeRelayPair)
+            .filter(Boolean)
+            .map((pair) => [pair.from, pair.to].sort((a, b) => a - b).join(":"))
+    );
+
+    (scenarioData.topology.relay_links || [])
+        .map(normalizeRelayPair)
+        .filter(Boolean)
+        .forEach((pair) => {
+            const key = [pair.from, pair.to].sort((a, b) => a - b).join(":");
+            createTopologyLink(
+                document.getElementById(`relay-${pair.from}`),
+                document.getElementById(`relay-${pair.to}`),
+                cooperationKeys.has(key)
+            );
+        });
+}
+
 function createCommunicationLink(fromNode, toNode, durationMs, color) {
     const scene = document.getElementById("ocean-scene");
     const layer = document.getElementById("communication-layer");
@@ -458,7 +530,10 @@ function communicationPairs(phaseId) {
             .map((auv) => Number(auv.relay_id))
     );
     const activeRelays = topology.relays
-        .filter((relay) => activeRelayIds.has(Number(relay.id)))
+        .filter((relay) =>
+            activeRelayIds.has(Number(relay.id))
+            && relay.gateway_connected !== false
+        )
         .map((relay) => document.getElementById(`relay-${relay.id}`));
 
     if (phaseId === "uplink_direct") {
@@ -474,10 +549,16 @@ function communicationPairs(phaseId) {
         ]);
     }
     if (phaseId === "relay_cooperate") {
-        return (topology.cooperation_pairs || []).map((pair) => [
-            document.getElementById(`relay-${pair.from}`),
-            document.getElementById(`relay-${pair.to}`),
-        ]);
+        return (topology.cooperation_pairs || [])
+            .map(normalizeRelayPair)
+            .filter(Boolean)
+            .filter((pair) =>
+                activeRelayIds.has(pair.from) && activeRelayIds.has(pair.to)
+            )
+            .map((pair) => [
+                document.getElementById(`relay-${pair.from}`),
+                document.getElementById(`relay-${pair.to}`),
+            ]);
     }
     if (phaseId === "uplink_r2g") return activeRelays.map((relay) => [relay, gateway]);
     if (phaseId === "downlink_g2r") return activeRelays.map((relay) => [gateway, relay]);
@@ -554,11 +635,15 @@ function setSimulationControls(running) {
     const runAllButton = document.getElementById("run-all-simulation");
     const pauseButton = document.getElementById("pause-simulation");
     const stopButton = document.getElementById("stop-simulation");
+    const liveButton = document.getElementById("run-live-training");
     runButton.disabled = running;
     resetButton.disabled = running;
     runAllButton.disabled = running;
     pauseButton.disabled = !running;
     stopButton.disabled = !running;
+    liveButton.disabled = running
+        || !liveTrainingAvailable
+        || !(activeScenario === "fedkdl" || activeScenario === "fedavg_hfl");
     if (!running) {
         pauseButton.innerHTML = `<i class="fa-solid fa-pause"></i>`;
         pauseButton.title = "Pause replay";
@@ -583,7 +668,7 @@ async function playLoadedRound(speedScale = 1) {
 }
 
 async function runSimulation() {
-    if (!scenarioData || simulationRunning) return;
+    if (!scenarioData || simulationRunning || liveTrainingRunning) return;
     simulationRunning = true;
     simulationPaused = false;
     simulationStopRequested = false;
@@ -596,8 +681,64 @@ async function runSimulation() {
     finishSimulation(completed);
 }
 
+function updateLiveTrainingButton(job = null) {
+    const button = document.getElementById("run-live-training");
+    if (job && ["queued", "running", "cancelling"].includes(job.status)) {
+        button.disabled = false;
+        button.innerHTML = `<i class="fa-solid fa-stop"></i><span>Cancel live</span>`;
+        return;
+    }
+    button.disabled = !liveTrainingAvailable
+        || !(activeScenario === "fedkdl" || activeScenario === "fedavg_hfl");
+    button.innerHTML = `<i class="fa-solid fa-microchip"></i><span>Train live</span>`;
+}
+
+async function runLiveTraining() {
+    if (!liveTrainingAvailable) return;
+    if (liveTrainingRunning && liveTrainingJobId) {
+        await postJson(`/demo/live-round/${liveTrainingJobId}/cancel`);
+        return;
+    }
+
+    try {
+        const job = await postJson(`/demo/live-round/start?baseline=${encodeURIComponent(activeScenario)}`);
+        liveTrainingJobId = job.job_id;
+        liveTrainingRunning = true;
+        updateLiveTrainingButton(job);
+
+        while (liveTrainingRunning && liveTrainingJobId) {
+            const current = await getJson(`/demo/live-round/${liveTrainingJobId}`);
+            const completed = (current.completed_auvs || []).length;
+            setPhaseStatus(
+                `Live training · ${current.status}`,
+                current.current_auv === null
+                    ? current.message
+                    : `${current.message} · completed AUV jobs: ${completed}`
+            );
+            updateLiveTrainingButton(current);
+            if (["completed", "failed", "cancelled"].includes(current.status)) {
+                liveTrainingRunning = false;
+                liveTrainingJobId = null;
+                updateLiveTrainingButton();
+                break;
+            }
+            await sleep(1200);
+        }
+    } catch (error) {
+        liveTrainingRunning = false;
+        liveTrainingJobId = null;
+        updateLiveTrainingButton();
+        setPhaseStatus("Live training unavailable", error.message);
+    }
+}
+
 async function runAllSimulations() {
-    if (!scenarioData || simulationRunning || activeScenario === "centralized") return;
+    if (
+        !scenarioData
+        || simulationRunning
+        || liveTrainingRunning
+        || activeScenario === "centralized"
+    ) return;
     simulationRunning = true;
     simulationPaused = false;
     simulationStopRequested = false;
@@ -658,7 +799,7 @@ function stopSimulation() {
 }
 
 async function resetSimulation() {
-    if (simulationRunning) return;
+    if (simulationRunning || liveTrainingRunning) return;
     currentRound = 1;
     clearLinks();
     clearNodeStates();
@@ -671,20 +812,28 @@ async function init() {
     document.getElementById("run-simulation").onclick = runSimulation;
     document.getElementById("reset-simulation").addEventListener("click", resetSimulation);
     document.getElementById("run-all-simulation").addEventListener("click", runAllSimulations);
+    document.getElementById("run-live-training").addEventListener("click", runLiveTraining);
     document.getElementById("pause-simulation").addEventListener("click", togglePauseSimulation);
     document.getElementById("stop-simulation").addEventListener("click", stopSimulation);
     document.getElementById("close-inspector").addEventListener("click", closeNodeInspector);
     document.getElementById("round-slider").addEventListener("input", async (event) => {
-        if (simulationRunning) return;
+        if (simulationRunning || liveTrainingRunning) return;
         currentRound = Number(event.target.value);
         await loadScenario();
+    });
+    window.addEventListener("resize", () => {
+        if (scenarioData && !simulationRunning) renderStaticTopologyLinks();
     });
 
     try {
         const summary = await getJson("/demo/summary");
-        setBackendState(true, summary.model_path);
+        liveTrainingAvailable = Boolean(summary.ml_available);
+        setBackendState(Boolean(summary.ml_available), summary.model_path, true);
+        updateLiveTrainingButton();
     } catch (error) {
+        liveTrainingAvailable = false;
         setBackendState(false);
+        updateLiveTrainingButton();
     }
 }
 

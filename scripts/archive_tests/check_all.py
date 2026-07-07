@@ -5,7 +5,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import torch
-from tasks.detection_2d.models.yolo_wrapper import StudentModel
+from detection_2d.models.yolo_wrapper import StudentModel
 from config.settings import fed_cfg
 
 def check_bn():

@@ -61,16 +61,20 @@ def draw(lang: str) -> None:
         axes[0].set_xlabel(T("Number of AUVs in Network", lang))
         axes[0].set_ylabel(T("Connected AUVs", lang))
         axes[0].set_xlim(left=28)
-        axes[0].legend(loc="upper center", bbox_to_anchor=(0.5, -0.24), ncol=3)
+        axes[0].legend(loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=3,
+                       fontsize=8.5, framealpha=0.95)
     else:
         axes[0].text(0.5, 0.5, "scalability_physics_summary.csv not found",
                      transform=axes[0].transAxes, ha="center", va="center")
 
-    axes[0].set_title(T("(a)", lang) + " " + T("Connected AUVs vs. Network Size", lang), loc="center", fontweight="bold")
+    axes[0].text(0.5, -0.12, "(a)", transform=axes[0].transAxes,
+                 ha="center", va="top", fontsize=11, fontweight="bold")
 
-    # ── (b) Learning curves at N = 30 (no zoom — curves are well-separated) ──
-    plot_learning(axes[1], KEYS_B, lang, legend_loc="upper center", bbox_to_anchor=(0.5, -0.24), ncol=3)
-    axes[1].set_title(T("(b)", lang) + " " + T("Connectivity-constrained Learning (N = 30)", lang), loc="center", fontweight="bold")
+    # ── (b) Learning curves at N = 30 ────────────────────────────────────────
+    plot_learning(axes[1], KEYS_B, lang,
+                  legend_loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=3)
+    axes[1].text(0.5, -0.12, "(b)", transform=axes[1].transAxes,
+                 ha="center", va="top", fontsize=11, fontweight="bold")
 
     save_figure(fig, "K1_fig1_connectivity_participation", lang)
 

@@ -42,7 +42,7 @@ LABELS_EN: dict[str, str] = {
     "fedprox_hfl":      "FedProx-HFL",
     "scaffold":         "SCAFFOLD",
     "naive_lora":       "Naive LoRA",
-    "flora":            "FLoRA",
+    "flora":            "FlexLoRA",
     "top_k":            "Top-K",
     "fedkdl":           "FedKDL",
     "fedkdl_nokd":      "No Refinement",
@@ -65,7 +65,7 @@ LABELS_VI: dict[str, str] = {
     "fedprox_hfl":      "FedProx-HFL",
     "scaffold":         "SCAFFOLD",
     "naive_lora":       "Naive LoRA",
-    "flora":            "FLoRA",
+    "flora":            "FlexLoRA",
     "top_k":            "Top-K",
     "fedkdl":           "FedKDL",
     "fedkdl_nokd":      "Không Tinh Chỉnh",
@@ -819,4 +819,3 @@ def save_table_pdf(name: str, rows: list[dict], title: str = "", lang: str = "en
     fig.savefig(pdf_path, bbox_inches="tight", dpi=150)
     plt.close(fig)
     print(f"  Saved {pdf_path}")
-

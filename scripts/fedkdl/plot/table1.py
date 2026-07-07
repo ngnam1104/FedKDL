@@ -18,7 +18,7 @@ KEYS = ["fedavg_hfl", "naive_lora", "flora", "top_k", "fedkdl"]
 NOTES = {
     "fedavg_hfl":  "Full model",
     "naive_lora":  "LoRA only",
-    "flora":       "FLoRA",
+    "flora":       "FlexLoRA",
     "top_k":       "Sparse upload",
     "fedkdl":      "Delta-INT8 LoRA + Head + BN",
 }

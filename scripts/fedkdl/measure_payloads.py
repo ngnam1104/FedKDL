@@ -20,10 +20,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from config.settings import fed_cfg
-from tasks.detection_2d.baselines import parse_baseline_config, STANDARD_BASELINES
-from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
-from tasks.detection_2d.models.lora import LoRAConv2d
-from tasks.detection_2d.models.yolo_wrapper import StudentModel
+from detection_2d.baselines import parse_baseline_config, STANDARD_BASELINES
+from detection_2d.knowledge_compression.int8_quantization import pack_payload
+from detection_2d.models.lora import LoRAConv2d
+from detection_2d.models.yolo_wrapper import StudentModel
 
 
 def _tensor_bytes(state: dict[str, torch.Tensor]) -> int:

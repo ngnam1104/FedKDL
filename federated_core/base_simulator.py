@@ -13,7 +13,7 @@ from federated_core.metrics import (
 )
 from federated_core.hfl_rules import compute_mean_cluster_size, compute_q1_relay_distance
 try:
-    from tasks.detection_2d.baselines import (
+    from detection_2d.baselines import (
         BASELINE_CONFIGS as DETECTION_BASELINE_CONFIGS,
         parse_baseline_config as parse_2d_baseline_config,
     )
@@ -842,7 +842,7 @@ class BaseSimulator(ABC):
                     new_assoc = flat_topology_association(self.topology, self.G)
                 elif hasattr(self, 'auv_label_hists') and hasattr(self, 'relay_label_hists'):
                     # Nếu là Simulator2D (có EMD), kết hợp EMD + Khoảng cách vật lý
-                    from tasks.detection_2d.knowledge_compression.knowledge_association import knowledge_aware_association
+                    from detection_2d.knowledge_compression.knowledge_association import knowledge_aware_association
                     class DummyTopo:
                         def __init__(self, n, m): self.N = n; self.M = m
                     

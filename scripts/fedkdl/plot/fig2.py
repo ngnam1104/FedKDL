@@ -33,7 +33,6 @@ def draw(lang: str) -> None:
     from plot_common import plot_learning
     plot_learning(ax, KEYS, lang, override_labels=VEL_LABELS, legend_loc="upper center", bbox_to_anchor=(0.5, -0.24))
     add_zoom_inset(ax, KEYS, lang, zoom_start_frac=0.55, loc="lower right", override_labels=VEL_LABELS)
-    ax.set_title(T("Learning under AUV Mobility", lang), loc="center", pad=12, fontweight="bold")
     save_figure(fig, "K1_fig2_mobility", lang)
 
 

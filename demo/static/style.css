@@ -583,6 +583,29 @@ button {
     pointer-events: none;
 }
 
+.topology-link-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.topology-link {
+    position: absolute;
+    height: 1px;
+    transform-origin: 0 50%;
+}
+
+.topology-link.feasible {
+    border-top: 1px dashed rgba(210, 225, 232, 0.22);
+}
+
+.topology-link.cooperation {
+    height: 2px;
+    background: rgba(94, 215, 232, 0.55);
+    box-shadow: 0 0 5px rgba(94, 215, 232, 0.28);
+}
+
 .node-inspector {
     position: absolute;
     z-index: 12;

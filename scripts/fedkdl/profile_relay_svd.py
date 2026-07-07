@@ -242,7 +242,7 @@ def main():
         sys.exit(1)
     
     from config.settings import fed_cfg
-    from tasks.detection_2d.models.yolo_wrapper import StudentModel
+    from detection_2d.models.yolo_wrapper import StudentModel
     
     print(f"[Loading] {ckpt_path}")
     student = StudentModel(

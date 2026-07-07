@@ -1,6 +1,6 @@
 import torch
 import copy
-from tasks.detection_2d.simulator import RelayNode2D
+from detection_2d.simulator import RelayNode2D
 from federated_core.workers import BaseGateway
 
 def main():

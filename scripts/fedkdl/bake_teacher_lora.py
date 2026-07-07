@@ -25,8 +25,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tasks.detection_2d.models.yolo_wrapper import StudentModel
-from tasks.detection_2d.models.lora import LoRAConv2d
+from detection_2d.models.yolo_wrapper import StudentModel
+from detection_2d.models.lora import LoRAConv2d
 from config.settings import fed_cfg
 
 

@@ -32,7 +32,7 @@ def check(name, cond, detail=""):
 # ===========================================================================
 def test_payload_asymmetry():
     print("\n=== BLOCK A: Payload Asymmetry (uplink < downlink) ===")
-    from tasks.detection_2d.models.yolo_wrapper import StudentModel
+    from detection_2d.models.yolo_wrapper import StudentModel
 
     student = StudentModel(ckpt="yolo12n.pt", rank=4, nc=4)
     head_idx = len(student.yolo.model.model) - 1
@@ -120,7 +120,7 @@ def test_config():
 # ===========================================================================
 def test_simulator_optimizer_source():
     print("\n=== BLOCK C: Simulator uses fed_cfg optimizer (not hardcoded SGD) ===")
-    from tasks.detection_2d import simulator as sim_mod
+    from detection_2d import simulator as sim_mod
 
     # Read source of the two gateway methods
     sim_cls = sim_mod.Simulator2D
@@ -187,7 +187,7 @@ def test_base_gateway_fields():
 # ===========================================================================
 def test_optimizer_cache_custom():
     print("\n=== BLOCK E: Optimizer Cache — CustomDetectionTrainer methods ===")
-    from tasks.detection_2d.trainer import CustomDetectionTrainer
+    from detection_2d.trainer import CustomDetectionTrainer
 
     # Build a small model + warm optimizer (no Ultralytics training needed)
     model = nn.Sequential(nn.Linear(8, 4), nn.Linear(4, 2))
@@ -246,7 +246,7 @@ def test_optimizer_cache_custom():
 
 def test_optimizer_cache_kd():
     print("\n=== BLOCK F: Optimizer Cache — KDDetectionTrainer methods ===")
-    from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
+    from detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
 
     model = nn.Sequential(nn.Linear(8, 4), nn.Linear(4, 2))
     opt = torch.optim.AdamW(model.parameters(), lr=5e-4)
@@ -279,7 +279,7 @@ def test_optimizer_cache_kd():
 # ===========================================================================
 def test_restore_order():
     print("\n=== BLOCK G: Restore Order in KDDetectionTrainer._setup_train ===")
-    from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
+    from detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
 
     src = inspect.getsource(KDDetectionTrainer._setup_train)
 
@@ -296,7 +296,7 @@ def test_restore_order():
           f"inject@{pos_inject}  restore@{pos_restore}")
 
     # Also verify for CustomDetectionTrainer — same contract
-    from tasks.detection_2d.trainer import CustomDetectionTrainer
+    from detection_2d.trainer import CustomDetectionTrainer
     src2 = inspect.getsource(CustomDetectionTrainer._setup_train)
     p_inject2  = src2.find('injected')
     p_restore2 = src2.find('_restore_optimizer_state')
@@ -310,7 +310,7 @@ def test_restore_order():
 # ===========================================================================
 def test_head_unlocking():
     print("\n=== BLOCK H: Head Unlocking at Gateway ===")
-    from tasks.detection_2d.models.yolo_wrapper import StudentModel
+    from detection_2d.models.yolo_wrapper import StudentModel
 
     student  = StudentModel(ckpt="yolo12n.pt", rank=4, nc=4)
     model_nn = student.yolo.model

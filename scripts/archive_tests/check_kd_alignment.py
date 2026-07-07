@@ -6,7 +6,7 @@ Kiểm tra sự đồng nhất giữa LoRA Backbone của Teacher (YOLO12l) và 
 import sys, os
 sys.path.insert(0, os.getcwd())
 import torch
-from tasks.detection_2d.models.lora import LoRAConv2d
+from detection_2d.models.lora import LoRAConv2d
 
 def inspect_lora_layers(model, label):
     layers = {}
@@ -53,7 +53,7 @@ def main():
 
     # --- Load Student (YOLO12n with LoRA injected) ---
     print("\nLoading Student (yolo12n.pt + LoRA injection)...")
-    from tasks.detection_2d.models.yolo_wrapper import StudentModel
+    from detection_2d.models.yolo_wrapper import StudentModel
     from config.settings import fed_cfg
     student = StudentModel(ckpt='yolo12n.pt', rank=fed_cfg.LORA_RANK, nc=4, full_param=False, use_lora=True)
     student_layers = inspect_lora_layers(student.yolo.model, "Student (YOLO12n)")

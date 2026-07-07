@@ -2,21 +2,38 @@ import base64
 import csv
 import io
 import pickle
+import sys
 import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
-import torch
-import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
-from ultralytics import YOLO
+
+try:
+    from demo.live_jobs import LiveRoundJobManager
+except ImportError:
+    from live_jobs import LiveRoundJobManager
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+try:
+    import torch
+except ImportError:
+    torch = None
+
+try:
+    from ultralytics import YOLO
+except ImportError:
+    YOLO = None
 
 
 DEMO_DIR = Path(__file__).resolve().parent
@@ -34,11 +51,14 @@ MODEL_CANDIDATES = [
 ]
 
 TOPOLOGY_CANDIDATES = [
+    REPO_ROOT / "environments/2d/topo/N_30/topo_N30_seed1107.pkl",
+    REPO_ROOT / "environments/2d/topo/hfl/N_30/topo_hfl_N30_seed1107.pkl",
     REPO_ROOT / "environments/2d/topo/N_30/topo_N30_seed1109.pkl",
     REPO_ROOT / "environments/2d/topo/hfl/N_30/topo_hfl_N30_seed1109.pkl",
 ]
 
 DATA_PARTITION_CANDIDATES = [
+    REPO_ROOT / "environments/2d/data/URPC/N_30/data_N30_URPC_a1p0_seed1107.pkl",
     REPO_ROOT / "environments/2d/data/URPC/N_30/data_N30_URPC_a1p0_seed1109.pkl",
 ]
 
@@ -140,9 +160,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_model: YOLO | None = None
+_model: Any | None = None
 _model_path: Path | None = None
-_model_device = "0" if torch.cuda.is_available() else "cpu"
+_model_device = "0" if torch is not None and torch.cuda.is_available() else "cpu"
+_live_jobs = LiveRoundJobManager(REPO_ROOT, max_workers=1)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -171,8 +192,10 @@ def _read_csv_rows(path: Path | None) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def _bake_lora_for_inference(model: YOLO) -> int:
-    from tasks.detection_2d.models.lora import LoRAConv2d
+def _bake_lora_for_inference(model: Any) -> int:
+    if torch is None:
+        return 0
+    from detection_2d.models.lora import LoRAConv2d
 
     baked = 0
     for parent_module in list(model.model.modules()):
@@ -202,10 +225,15 @@ def _bake_lora_for_inference(model: YOLO) -> int:
     return baked
 
 
-def _load_model(warmup: bool = False) -> YOLO:
+def _load_model(warmup: bool = False) -> Any:
     global _model, _model_path
     if _model is not None:
         return _model
+    if YOLO is None or torch is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Detection runtime is unavailable; replay and topology APIs remain active.",
+        )
     _model_path = next((path for path in MODEL_CANDIDATES if path.exists()), MODEL_CANDIDATES[-1])
     print(f"[FedKDL Demo] Loading detector: {_model_path}")
     _model = YOLO(str(_model_path))
@@ -317,12 +345,19 @@ def _fallback_topology() -> dict[str, Any]:
         })
     return {
         "source": "fallback_N30_M8",
-        "seed": 1109,
+        "seed": 1107,
         "auv_count": 30,
         "relay_count": 8,
         "connected_count": 30,
         "flat_connected_count": len(flat_connected_ids),
-        "cooperation_pairs": [[relay_id, (relay_id + 1) % 8] for relay_id in range(8)],
+        "relay_links": [
+            {"from": relay_id, "to": (relay_id + 1) % 8}
+            for relay_id in range(8)
+        ],
+        "cooperation_pairs": [
+            {"from": (relay_id + 1) % 8, "to": relay_id}
+            for relay_id in range(8)
+        ],
         "auvs": auvs,
         "relays": relays,
     }
@@ -361,8 +396,32 @@ def _project_topology(snapshot: Any, source_path: Path) -> dict[str, Any]:
         for relay_id in range(int(snapshot.M))
     }
     graph = dict(snapshot.feasibility_graph_items)
+    relay_links = []
+    seen_relay_links = set()
+    for key, link in graph.items():
+        if (
+            not isinstance(key, tuple)
+            or len(key) != 4
+            or key[0] != "relay"
+            or key[2] != "relay"
+        ):
+            continue
+        source = int(key[1])
+        target = int(key[3])
+        undirected_key = tuple(sorted((source, target)))
+        if source == target or undirected_key in seen_relay_links:
+            continue
+        seen_relay_links.add(undirected_key)
+        relay_links.append({
+            "from": undirected_key[0],
+            "to": undirected_key[1],
+            "distance": round(float(link["distance"]), 2),
+        })
+
     cooperation_pairs = []
     for relay_id in range(int(snapshot.M)):
+        if cluster_sizes.get(relay_id, 0) <= 0:
+            continue
         candidates = []
         for other_id in range(int(snapshot.M)):
             if other_id == relay_id or cluster_sizes.get(other_id, 0) <= 0:
@@ -374,11 +433,23 @@ def _project_topology(snapshot: Any, source_path: Path) -> dict[str, Any]:
                 candidates.append((other_id, float(graph[key]["distance"])))
         if candidates:
             candidates.sort(key=lambda item: item[1])
-            cooperation_pairs.append([relay_id, candidates[0][0]])
+            partner_id, distance = candidates[0]
+            # Cooperation is receive-based: relay_id receives partner_id's state.
+            cooperation_pairs.append({
+                "from": partner_id,
+                "to": relay_id,
+                "distance": round(distance, 2),
+            })
     relays = []
     for relay_id, position in enumerate(relay_positions):
         x_pct, y_pct = project(position, relay_id, False)
-        relays.append({"id": relay_id, "x_pct": x_pct, "y_pct": y_pct})
+        gateway_key = ("relay", relay_id, "gateway", 0)
+        relays.append({
+            "id": relay_id,
+            "x_pct": x_pct,
+            "y_pct": y_pct,
+            "gateway_connected": gateway_key in graph,
+        })
 
     auvs = []
     for auv_id, position in enumerate(auv_positions):
@@ -402,6 +473,7 @@ def _project_topology(snapshot: Any, source_path: Path) -> dict[str, Any]:
         "relay_count": int(getattr(snapshot, "M", len(relays))),
         "connected_count": len(association),
         "flat_connected_count": len(flat_connected),
+        "relay_links": relay_links,
         "cooperation_pairs": cooperation_pairs,
         "auvs": auvs,
         "relays": relays,
@@ -644,7 +716,11 @@ def _network_node_details(
         int(relay["id"]): set() for relay in topology["relays"]
     }
     if case_name == "fedkdl":
-        for source, target in topology.get("cooperation_pairs", []):
+        for pair in topology.get("cooperation_pairs", []):
+            if isinstance(pair, dict):
+                source, target = pair.get("from"), pair.get("to")
+            else:
+                source, target = pair
             neighbors[int(source)].add(int(target))
             neighbors[int(target)].add(int(source))
     relay_details = []
@@ -674,6 +750,8 @@ def _network_node_details(
                 "Not used"
                 if case_name == "fedavg_flat"
                 else "Relay to Gateway acoustic uplink"
+                if relay.get("gateway_connected", True)
+                else "No feasible direct Gateway link"
             ),
         })
     return auv_details, relay_details
@@ -827,8 +905,62 @@ def demo_summary():
             }
             for name, cfg in CASE_CONFIGS.items()
         },
+        "ml_available": YOLO is not None and torch is not None and cv2 is not None,
         "model_path": str(_model_path or next((p for p in MODEL_CANDIDATES if p.exists()), MODEL_CANDIDATES[-1])),
     }
+
+
+@app.post("/api/demo/live-round/start")
+def start_live_round(baseline: str = "fedkdl"):
+    if baseline not in {"fedkdl", "fedavg_hfl"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported live baseline: {baseline}")
+    if YOLO is None or torch is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Live training requires the Torch and Ultralytics runtime.",
+        )
+
+    topo_path = next((path for path in TOPOLOGY_CANDIDATES if path.exists()), None)
+    data_path = next((path for path in DATA_PARTITION_CANDIDATES if path.exists()), None)
+    if topo_path is None or data_path is None:
+        raise HTTPException(status_code=503, detail="Live topology/data snapshot is unavailable.")
+
+    command = [
+        sys.executable,
+        str(REPO_ROOT / "main_trainer_od.py"),
+        "--topo",
+        str(topo_path),
+        "--data",
+        str(data_path),
+        "--baseline",
+        baseline,
+        "--rounds",
+        "1",
+        "--out-dir",
+        str(REPO_ROOT / "results" / "demo_live"),
+        "--log-dir",
+        str(REPO_ROOT / "results" / "demo_live_logs"),
+    ]
+    try:
+        return _live_jobs.start(command, baseline)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/demo/live-round/{job_id}")
+def get_live_round(job_id: str):
+    job = _live_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Live training job not found.")
+    return job
+
+
+@app.post("/api/demo/live-round/{job_id}/cancel")
+def cancel_live_round(job_id: str):
+    job = _live_jobs.cancel(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Live training job not found.")
+    return job
 
 
 @app.get("/api/demo/round/{case_name}/{round_id}")
@@ -859,6 +991,11 @@ def auv_sample_image(auv_id: int, slot: int):
 
 
 async def _run_detection(file: UploadFile) -> dict[str, Any]:
+    if cv2 is None or torch is None or YOLO is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Detection dependencies are unavailable on this server.",
+        )
     model = _load_model()
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
@@ -933,4 +1070,6 @@ app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=True)

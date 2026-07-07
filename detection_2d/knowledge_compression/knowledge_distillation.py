@@ -470,7 +470,7 @@ class KDDetectionTrainer(DetectionTrainer):
 
         self.accumulate = 1
 
-        from tasks.detection_2d.trainer import _fl_prepare_model_for_train
+        from detection_2d.trainer import _fl_prepare_model_for_train
         from ultralytics.utils.torch_utils import unwrap_model
 
         if injected is not None:

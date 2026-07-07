@@ -85,7 +85,7 @@ class EnergyConfig:
     RELAY_E_INIT: float = float('inf')
     E_MIN: float = 5000.0            # J — ngưỡng dự trữ khẩn cấp (AUV)
     RELAY_E_MIN: float = 5000.0      # J — ngưỡng dự trữ khẩn cấp (Relay)
-    EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.0e-28, "2D": 5.0e-30})
+    EPSILON_OP: dict = field(default_factory=lambda: {"1D": 1.20e-28, "2D": 1.20e-28})
     F_CPU: float = 1.5e9             # Hz — CPU Max Freq. (Jetson Orin Nano Datasheet r4)
     N_CORES: int = 6                 # Số lõi (Jetson Orin Nano Datasheet r4: 6-core ARM Cortex-A78AE)
     FLOPS_PER_CYCLE: float = 4.0     # Số FLOPs/chu kỳ/lõi (ARM Cortex-A78AE NEON SIMD, ước tính)
@@ -107,12 +107,13 @@ class FedKDLConfig:
     """Thuật toán FL / FedKDL — dùng bởi trainer, simulator, verify scripts."""
 
     # ── Vòng FL & local training ────────────────────────────────────────────
-    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 50, "2D": 50})
+    GLOBAL_ROUNDS: dict = field(default_factory=lambda: {"1D": 40, "2D": 40})
+    NONIID_ALPHA: float = 1.0
     LOCAL_EPOCHS: int = 3
     LOCAL_BATCH_SIZE: int = 8        # Trả về 8 theo yêu cầu để giảm tải GPU/VRAM cho AUV
-    LOCAL_LR: float = 7e-4            # FLoRA-LRBoost: stronger local updates after smooth low-LR plateau
-    LOCAL_HEAD_LR_MULT: float = 1.5   # Keep head stable while matching boosted LoRA LR
-    LOCAL_LORA_LR_MULT: float = 1.5   # Final LoRA config: LoRA lr = 1.05e-3
+    LOCAL_LR: float = 1.0e-3
+    LOCAL_HEAD_LR_MULT: float = 1.0
+    LOCAL_LORA_LR_MULT: float = 1.0
     DATALOADER_WORKERS: int = 0      # trainer.py (LoRA/KD: giữ 0)
     LOCAL_DATALOADER_WORKERS: int = 0 # FL local YOLO dataloader workers (0 để tránh overhead spawn process chậm 20s)
     CACHE_DATASET: bool = True       # trainer.py, main_trainer_od.py
@@ -140,6 +141,9 @@ class FedKDLConfig:
 
     # ── LoRA + INT8 payload ───────────────────────────────────────────────────
     LORA_RANK: int = _env_int("FEDKDL_LORA_RANK", 8)
+    LORA_BACKBONE_RANK: int = _env_int("FEDKDL_LORA_BACKBONE_RANK", 4)
+    LORA_NECK_RANK: int = _env_int("FEDKDL_LORA_NECK_RANK", 8)
+    LORA_ALPHA: float = _env_float("FEDKDL_LORA_ALPHA", 8.0)
     LORA_STRATEGY: str = os.getenv("FEDKDL_LORA_STRATEGY", "adaptive")  # backbone rank 4, neck rank 8
     LORA_TARGETS: tuple = ("Conv",)  # fixed target set for student and LoRA teacher pretraining
     MODEL_TOTAL_PARAMS_2D: int = 2_731_912
@@ -175,28 +179,29 @@ class FedKDLConfig:
     KD_ACTIVE: bool = True           # Bật/tắt Gateway KD (Teacher distills global model)
     TEACHER_CKPT: str = "teacher_lora_best.pt"  # YOLO12l LoRA teacher aligned with projection KD
     KD_OPTIMIZER: str = "AdamW"
-    KD_STU_LAMBDA: float = 1.00     # Keep full YOLO supervision; KD is an additive regularizer
-    KD_HEAD_LR_MULT: float = 1.5    # Match finalized local head LR
-    KD_LORA_LR_MULT: float = 1.00   # Gateway KD LoRA LR = KD_LR * multiplier
+    KD_STU_LAMBDA: float = 0.70
+    KD_HEAD_LR_MULT: float = 1.0
+    KD_LORA_LR_MULT: float = 1.0
     KD_EPOCHS: int = 1
     KD_BATCH_SIZE: int = 4
     KD_WORKERS: int = 0
     KD_AMP: bool = True
-    KD_LR: float = 1.5e-4           # All-or-nothing KD: keep the accepted step conservative
+    KD_LR: float = 2.5e-4           # All-or-nothing KD: keep the accepted step conservative
     KD_LRF: float = 1.0             # LR final fraction: 1.0 = flat LR (no cosine decay)
     KD_WARMUP_EPOCHS: float = 0.1   # Warmup 10% to prevent AdamW cold-start shock
     KD_TEMPERATURE: float = 4.0
-    KD_LAMBDA_START: float = 0.10   # Simple logit/box KD: keep teacher as a light regularizer
-    KD_LAMBDA_FLOOR: float = 0.02   # Avoid late-round teacher overwrite after FL has stabilized
+    KD_LAMBDA: float = 0.30
+    KD_LAMBDA_START: float = 0.30
+    KD_LAMBDA_FLOOR: float = 0.30
     KD_BALANCE_BY_SUPERVISED: bool = False  # Disabled: old double-scaling caused harm
     KD_BALANCE_SCALE_MIN: float = 0.001
     KD_BALANCE_SCALE_MAX: float = 4.0
-    KD_CLS_WEIGHT: float = 0.30
-    KD_BOX_WEIGHT: float = 0.30
+    KD_CLS_WEIGHT: float = 0.50
+    KD_BOX_WEIGHT: float = 0.50
     KD_PROJ_WEIGHT: float = _env_float("FEDKDL_KD_PROJ_WEIGHT", 0.0)  # Default simple KD; LoRA-proj stays optional
     KD_PROJ_MODE: str = "lora_spatial_proj"  # Safer default: rank-invariant spatial attention over h=A*x
     KD_PROJ_ANCHOR_MATCH: bool = True        # Match first/last LoRA op inside each YOLO block exactly
-    KD_CONF_THRESHOLD: float = 0.18
+    KD_CONF_THRESHOLD: float = 0.20
     KD_CONF_GAMMA: float = 2.0
     KD_DFL_WEIGHT: float = 1.0
     KD_CIOU_WEIGHT: float = 0.5
@@ -210,9 +215,12 @@ class FedKDLConfig:
     KD_MIN_MAP5095_DELTA: float = -5e-4
     KD_MIN_MAP50_DELTA: float = -5e-4
     KD_MIN_REC_DELTA: float = -1e-3
-    LOCAL_KD_STU_LAMBDA: float = 0.20
-    LOCAL_KD_LAMBDA: float = 1.0
-    LOCAL_KD_HEAD_LR_MULT: float = 3.0
+    BOX_LOSS_WEIGHT: float = 7.5
+    CLS_LOSS_WEIGHT: float = 0.5
+    DFL_LOSS_WEIGHT: float = 1.5
+    LOCAL_KD_STU_LAMBDA: float = 0.70
+    LOCAL_KD_LAMBDA: float = 0.30
+    LOCAL_KD_HEAD_LR_MULT: float = 1.0
     PROXY_FT_EPOCHS: int = 2
     PROXY_FT_BATCH_SIZE: int = 4
     PROXY_FT_WORKERS: int = 0
@@ -244,8 +252,8 @@ class FedKDLConfig:
     CENTRAL_LORA_LR_MULT: float = 0.5 # Centralized LoRA: LoRA LR = lr0 × multiplier
 
     # ── Joint optimisation / latency budget (base_simulator logs) ───────────
-    LAMBDA_E: float = 0.005
-    LAMBDA_TAU: float = 0.01
+    LAMBDA_E: float = 0.0005
+    LAMBDA_TAU: float = 0.001
     TAU_MAX: float = float('inf')    # Bài toán P1 nới lỏng giới hạn
     TAU_MAX_REF: float = 1800.0      # s — Ngưỡng tham chiếu (Lớp 3)
     SERVER_MIX_BETA: float = 0.90    # FedKDL-only: old global 0.10 + new aggregate 0.90

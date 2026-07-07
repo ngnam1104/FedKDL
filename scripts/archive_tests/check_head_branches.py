@@ -6,7 +6,7 @@ from ultralytics import YOLO
 # Load nano model to inspect head structure
 yolo = YOLO('yolo12n.pt')
 from ultralytics.nn.tasks import DetectionModel
-from tasks.detection_2d.models.lora import LoRAConv2d
+from detection_2d.models.lora import LoRAConv2d
 
 # Rebuild for nc=4
 cfg = yolo.model.yaml.copy()

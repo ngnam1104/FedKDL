@@ -35,23 +35,23 @@ from federated_core.hfl_rules import blend_state_dicts
 from federated_core.hfl_rules import find_coop_partner
 from federated_core.metrics import EnergyTracker, LatencyTracker, physical_joint_cost
 from federated_core.workers import BaseGateway
-from tasks.detection_2d.baselines import (
+from detection_2d.baselines import (
     BASELINE_CONFIGS,
     OPTIONAL_BASELINES,
     STANDARD_BASELINES,
     BaselineConfig,
 )
-from tasks.detection_2d.knowledge_compression.int8_quantization import (
+from detection_2d.knowledge_compression.int8_quantization import (
     SparseINT8Payload,
     pack_delta_payload,
     pack_payload,
     unpack_delta_payload,
     unpack_payload,
 )
-from tasks.detection_2d.knowledge_compression.knowledge_distillation import (
+from detection_2d.knowledge_compression.knowledge_distillation import (
     _compose_balanced_kd,
 )
-from tasks.detection_2d.knowledge_compression.topk_sparsification import (
+from detection_2d.knowledge_compression.topk_sparsification import (
     SparseFloatPayload,
     TopKCompressor,
     flatten_state_dict,

@@ -9,15 +9,16 @@ from typing import Dict, Any, Tuple
 
 from federated_core.base_simulator import BaseSimulator
 from federated_core.workers import BaseWorker, BaseRelayNode, BaseGateway
-from tasks.detection_2d.baselines import parse_baseline_config
-from tasks.detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
-from tasks.detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_auv_train
-from tasks.detection_2d.knowledge_compression.int8_quantization import (
+from detection_2d.baselines import parse_baseline_config
+from detection_2d.models.yolo_wrapper import StudentModel, TeacherModel
+from detection_2d.trainer import local_sgd_od, evaluate_od, evaluate_od_on_auv_train
+from detection_2d.knowledge_compression.int8_quantization import (
     pack_delta_payload,
     pack_payload,
     SparseINT8Payload,
     unpack_delta_payload,
 )
+from utils.image_payload import list_unique_image_files
 
 
 class AUVWorker2D(BaseWorker):
@@ -93,7 +94,7 @@ class AUVWorker2D(BaseWorker):
         local_teacher = None
         if cfg.local_kd:
             if not hasattr(self, 'local_teacher'):
-                from tasks.detection_2d.models.yolo_wrapper import TeacherModel
+                from detection_2d.models.yolo_wrapper import TeacherModel
                 print(f"[Simulator2D] Khởi tạo Local Teacher (YOLO12l) dùng chung cho thuật toán FedKD...")
                 # Teacher load sẵn weights pretrained
                 self.local_teacher = TeacherModel(
@@ -174,7 +175,7 @@ class AUVWorker2D(BaseWorker):
             payload_kb = 0.0
         elif cfg.topk_grad:
             # === TOP-K SPARSE FULL-MODEL UPDATE TRANSPORT ===
-            from tasks.detection_2d.knowledge_compression.topk_sparsification import (
+            from detection_2d.knowledge_compression.topk_sparsification import (
                 TopKCompressor, SparseFloatPayload, flatten_state_dict
             )
             # Top-K is a full-parameter baseline, but the transmitted object is
@@ -255,7 +256,7 @@ class RelayNode2D(BaseRelayNode):
     ):
         import torch
         import copy
-        from tasks.detection_2d.knowledge_compression.int8_quantization import unpack_payload
+        from detection_2d.knowledge_compression.int8_quantization import unpack_payload
         from federated_core.aggregator import svd_lora_aggregate, weighted_state_dict_average
         
         c_updates = []
@@ -273,7 +274,7 @@ class RelayNode2D(BaseRelayNode):
                 payload = {key: value for key, value in payload.items() if key != '__scaffold_delta_c__'}
             
             # --- Phân biệt loại payload ---
-            from tasks.detection_2d.knowledge_compression.topk_sparsification import (
+            from detection_2d.knowledge_compression.topk_sparsification import (
                 SparseFloatPayload, unflatten_state_dict
             )
             if isinstance(payload, (SparseFloatPayload, SparseINT8Payload)):
@@ -417,14 +418,14 @@ class Simulator2D(BaseSimulator):
                 if img_dir is None or not img_dir.exists():
                     raise FileNotFoundError(f"CRITICAL: Không thể tìm thấy thư mục ảnh '{train_path}' ở bất kỳ đâu trong '{dataset_dir}'.")
 
-                all_images = []
-                for ext in ('*.jpg', '*.png', '*.JPG', '*.JPEG', '*.jpeg'):
-                    all_images.extend([str(p.resolve()) for p in img_dir.glob(f'**/{ext}')])
+                all_images = [
+                    str(path)
+                    for path in list_unique_image_files(img_dir)
+                ]
                 
                 if not all_images:
                     raise FileNotFoundError(f"CRITICAL: Tìm thấy thư mục {img_dir} nhưng KHÔNG CÓ ẢNH NÀO bên trong! (Hỗ trợ: jpg, png, jpeg)")
                     
-                all_images.sort()
                 self.all_images = all_images
                 
                 # Lưu file txt cho proxy KD sau này
@@ -631,7 +632,7 @@ class Simulator2D(BaseSimulator):
             class DummyTopo:
                 def __init__(self, n, m): self.N = n; self.M = m
             
-            from tasks.detection_2d.knowledge_compression.knowledge_association import knowledge_aware_association
+            from detection_2d.knowledge_compression.knowledge_association import knowledge_aware_association
             new_association = knowledge_aware_association(
                 topology=DummyTopo(N, M),
                 G=self.G,
@@ -794,7 +795,7 @@ class Simulator2D(BaseSimulator):
         return float(k * (8 + 32) + header_bits)  # INT8 value + int32 index
 
     def _transport_topk_relay_state(self, state, relay_id=None):
-        from tasks.detection_2d.knowledge_compression.topk_sparsification import (
+        from detection_2d.knowledge_compression.topk_sparsification import (
             TopKCompressor,
             flatten_state_dict,
             unflatten_state_dict,
@@ -961,7 +962,7 @@ class Simulator2D(BaseSimulator):
         """
         Fine-tune the global model on proxy data at the gateway without Teacher KD.
         """
-        from tasks.detection_2d.trainer import CustomDetectionTrainer
+        from detection_2d.trainer import CustomDetectionTrainer
 
         def _gateway_quality(metrics: dict) -> float:
             if not metrics:
@@ -1385,7 +1386,7 @@ class Simulator2D(BaseSimulator):
             }
             return self._last_kd_metrics
 
-        from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
+        from detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
 
         proxy_yaml = self._build_gateway_proxy_yaml()
 
@@ -1458,11 +1459,11 @@ class Simulator2D(BaseSimulator):
         trainer.kd_proj_mode = getattr(self.fed_cfg, 'KD_PROJ_MODE', 'lora_spatial_proj')
         trainer.kd_proj_anchor_match = getattr(self.fed_cfg, 'KD_PROJ_ANCHOR_MATCH', True)
         
-        kd_lambda_start = self.fed_cfg.KD_LAMBDA_START
-        kd_lambda_floor = self.fed_cfg.KD_LAMBDA_FLOOR
-        progress = (current_r - 1) / max(stop_round - 1, 1)
-        kd_lambda = kd_lambda_start + progress * (kd_lambda_floor - kd_lambda_start)
-        kd_lambda = max(kd_lambda_floor, min(kd_lambda_start, kd_lambda))
+        kd_lambda = getattr(
+            self.fed_cfg,
+            'KD_LAMBDA',
+            getattr(self.fed_cfg, 'KD_LAMBDA_START', 0.30),
+        )
         trainer.kd_lambda = kd_lambda
         print(
             f"[Gateway KD] Round {current_r}/{total_r} | interval={kd_interval} | "

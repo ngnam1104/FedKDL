@@ -25,13 +25,17 @@ def draw(lang: str) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.5))
 
     # ── (a) Learning curves + zoom ───────────────────────────────────────────
-    plot_learning(axes[0], KEYS, lang, legend_loc="upper center", bbox_to_anchor=(0.5, -0.24), ncol=2)
+    plot_learning(axes[0], KEYS, lang,
+                  legend_loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=2)
     add_zoom_inset(axes[0], KEYS, lang, zoom_start_frac=0.60, loc="lower right")
-    axes[0].set_title(T("(a)", lang) + " " + T("Gateway Refinement Learning Curves", lang), loc="center", fontweight="bold")
+    axes[0].text(0.5, -0.12, "(a)", transform=axes[0].transAxes,
+                 ha="center", va="top", fontsize=11, fontweight="bold")
 
     # ── (b) Grouped map bars: mAP50 | mAP50-95 ──────────────────────────────
-    grouped_map_bars(axes[1], KEYS, lang, legend_loc="upper center", bbox_to_anchor=(0.5, -0.24), ncol=2)
-    axes[1].set_title(T("(b)", lang) + " " + T("mAP Comparison", lang), loc="center", fontweight="bold")
+    grouped_map_bars(axes[1], KEYS, lang,
+                     legend_loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=2)
+    axes[1].text(0.5, -0.12, "(b)", transform=axes[1].transAxes,
+                 ha="center", va="top", fontsize=11, fontweight="bold")
 
     save_figure(fig, "K4_fig8_gateway_refinement", lang)
 

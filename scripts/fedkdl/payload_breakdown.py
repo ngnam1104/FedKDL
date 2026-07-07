@@ -175,7 +175,7 @@ def export_json(categories: dict, output_path: str):
 
 def cross_validate_with_pack_payload(state_dict: Dict[str, torch.Tensor], expected_total_bytes: int):
     """Verify our breakdown matches the real pack_payload output byte-for-byte."""
-    from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload
+    from detection_2d.knowledge_compression.int8_quantization import pack_payload
     actual_bytes, actual_kb = pack_payload(state_dict)
     
     print(f"\n[Cross-validation]")
@@ -212,7 +212,7 @@ def main():
     
     # Load student model with LoRA
     from config.settings import fed_cfg
-    from tasks.detection_2d.models.yolo_wrapper import StudentModel
+    from detection_2d.models.yolo_wrapper import StudentModel
     
     print(f"[Loading] {ckpt_path} with LoRA rank={fed_cfg.LORA_RANK}")
     student = StudentModel(

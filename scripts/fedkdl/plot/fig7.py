@@ -29,15 +29,19 @@ def draw(lang: str) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.5))
 
     # ── (a) Learning curves + zoom inset ────────────────────────────────────
-    plot_learning(axes[0], KEYS, lang, legend_loc="upper center", bbox_to_anchor=(0.5, -0.24))
+    plot_learning(axes[0], KEYS, lang,
+                  legend_loc="lower center", bbox_to_anchor=(0.5, 1.02))
     add_zoom_inset(axes[0], KEYS, lang, zoom_start_frac=0.55, loc="lower right")
-    axes[0].set_title(T("(a)", lang) + " " + T("Relay Cooperation Learning Curves", lang), loc="center", fontweight="bold")
+    axes[0].text(0.5, -0.12, "(a)", transform=axes[0].transAxes,
+                 ha="center", va="top", fontsize=11, fontweight="bold")
 
     # ── (b) Grouped dual bars: Objective Cost & mAP ────────────────────────
-    grouped_dual_bar_map(axes[1], KEYS, lang, legend_loc="upper center", bbox_to_anchor=(0.5, -0.24), ncol=2,
+    grouped_dual_bar_map(axes[1], KEYS, lang,
+                         legend_loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=2,
                          cost_col="avg_joint_cost",
                          cost_label="Objective Cost")
-    axes[1].set_title(T("(b)", lang) + " " + T("Objective Cost vs. Mean Average Precision (mAP@0.5)", lang), loc="center", fontweight="bold")
+    axes[1].text(0.5, -0.12, "(b)", transform=axes[1].transAxes,
+                 ha="center", va="top", fontsize=11, fontweight="bold")
 
     save_figure(fig, "K3_fig7_cooperation_ablation", lang)
 

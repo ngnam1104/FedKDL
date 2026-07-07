@@ -4,7 +4,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 
 import torch
 from federated_core.workers import BaseGateway
-from tasks.detection_2d.simulator import RelayNode2D
+from detection_2d.simulator import RelayNode2D
 
 def parse_baseline_config(baseline: str) -> dict:
     cfg_map = {

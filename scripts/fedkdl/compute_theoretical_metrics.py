@@ -16,6 +16,7 @@ from physics_models.communication import min_source_level, shannon_capacity
 from physics_models.energy import e_tx, e_comp, e_rx, e_svd, total_energy_round
 from physics_models.latency import comm_delay, comp_delay_dynamic, relay_comp_delay
 from utils.env_manager import EnvironmentManager
+from utils.image_payload import image_bytes_by_owner, list_unique_image_files
 
 # ─────────────────────────────────────────────────────────────────────
 # 1. Load Topology
@@ -83,21 +84,21 @@ MAX_SAMPLES = max(SAMPLE_COUNTS.values())
 
 
 def _reference_image_sizes_kb():
-    """Return actual raw-image bytes owned by each AUV in the N=30 partition."""
+    """Return encoded image-file KiB owned by each AUV in the N=30 partition."""
     dataset_root = Path("datasets/URPC2020/URPC2020")
-    image_paths = sorted(
-        path
-        for suffix in ("*.jpg", "*.jpeg", "*.JPG", "*.JPEG", "*.png", "*.PNG")
-        for path in (dataset_root / "train" / "images").glob(suffix)
-    )
-    if not image_paths:
-        raise FileNotFoundError(
-            "No URPC training images found for centralized payload accounting."
+    image_paths = list_unique_image_files(dataset_root / "train" / "images")
+    if len(image_paths) != data_partition.n_train_samples:
+        raise ValueError(
+            "Centralized payload image list does not match the partition snapshot: "
+            f"{len(image_paths)} files vs {data_partition.n_train_samples} samples."
         )
-    image_sizes = [path.stat().st_size / 1024.0 for path in image_paths]
+    owner_bytes = image_bytes_by_owner(
+        image_paths,
+        data_partition.auv_data_indices,
+    )
     return {
-        auv_id: sum(image_sizes[index] for index in indices)
-        for auv_id, indices in data_partition.auv_data_indices.items()
+        auv_id: total_bytes / 1024.0
+        for auv_id, total_bytes in owner_bytes.items()
     }
 
 
@@ -653,7 +654,7 @@ print("Done -> theoretical_metrics.md")
 import os
 import random
 import pandas as pd
-from tasks.detection_2d.baselines import (
+from detection_2d.baselines import (
     STANDARD_BASELINES,
     parse_baseline_config,
 )

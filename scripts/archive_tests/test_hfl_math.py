@@ -10,8 +10,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from tasks.detection_2d.models.yolo_wrapper import StudentModel
-from tasks.detection_2d.knowledge_compression.int8_quantization import pack_payload, unpack_payload
+from detection_2d.models.yolo_wrapper import StudentModel
+from detection_2d.knowledge_compression.int8_quantization import pack_payload, unpack_payload
 from federated_core.aggregator import fedavg_intra_cluster, svd_lora_aggregate
 from config.settings import fed_cfg
 

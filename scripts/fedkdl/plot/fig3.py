@@ -101,7 +101,6 @@ def draw(lang: str) -> None:
     ax_left.set_xlim(-0.6, n - 0.4)
     ax_left.set_axisbelow(True)
 
-    fig.suptitle(T("Average Uplink Payload vs. Mean Average Precision (mAP@0.5)", lang), ha="center", y=1.0, fontweight="bold")
     save_figure(fig, "K2_fig3_payload_comparison", lang)
 
 

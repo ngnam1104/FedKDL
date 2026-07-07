@@ -5,7 +5,7 @@ Sử dụng fl_core/models/lora.py để inject LoRA.
 """
 import torch
 from ultralytics import YOLO
-from tasks.detection_2d.models.lora import inject_lora
+from detection_2d.models.lora import inject_lora
 
 
 class FrozenBatchNorm2d(torch.nn.BatchNorm2d):
@@ -71,7 +71,7 @@ class StudentModel:
             print(f"[StudentModel] Replaced Detection Head for nc={nc}")
 
         if not self.full_param and self.use_lora:
-            from tasks.detection_2d.models.lora import LoRAConv2d
+            from detection_2d.models.lora import LoRAConv2d
             # Kiểm tra xem checkpoint đã chứa sẵn LoRAConv2d chưa
             existing_lora = sum(1 for m in self.yolo.model.modules() if isinstance(m, LoRAConv2d))
             
@@ -229,7 +229,7 @@ class StudentModel:
         Hàm này bắt buộc phải gọi trước khi chạy student.yolo.val() để tránh việc 
         thuật toán fuse() của Ultralytics vứt bỏ LoRAConv2d.
         """
-        from tasks.detection_2d.models.lora import LoRAConv2d
+        from detection_2d.models.lora import LoRAConv2d
         import torch.nn as nn
         
         merged_count = 0
@@ -282,7 +282,7 @@ class TeacherModel:
 
     def __init__(self, ckpt: str = "yolo12l.pt", rank: int = None, nc: int = 4,
                  lora_targets=None, lora_strategy: str = "adaptive"):
-        from tasks.detection_2d.models.lora import LoRAConv2d
+        from detection_2d.models.lora import LoRAConv2d
 
         self.yolo = YOLO(ckpt)
 

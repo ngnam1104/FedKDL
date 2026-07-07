@@ -25,7 +25,6 @@ def draw(lang: str) -> None:
     fig, ax = plt.subplots(figsize=(7.5, 5.5))
     plot_learning(ax, KEYS, lang, legend_loc="upper center", bbox_to_anchor=(0.5, -0.24))
     add_zoom_inset(ax, KEYS, lang, zoom_start_frac=0.60, loc="lower right")
-    ax.set_title(T("LoRA Rank Ablation Learning Curves", lang), loc="center", pad=12, fontweight="bold")
     save_figure(fig, "K2_fig5_rank_ablation", lang)
 
 

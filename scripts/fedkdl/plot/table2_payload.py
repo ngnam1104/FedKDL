@@ -12,29 +12,30 @@ Outputs:
 
 import sys
 import struct
+import pickle
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-import torch
 from config.settings import fed_cfg
 from plot_common import (
-    SCALABILITY_SUMMARY, TABLE_DIR,
+    TABLE_DIR,
     save_table, save_table_latex, save_table_pdf, setup_style, T, L
 )
-import pandas as pd
 import numpy as np
+from utils.image_payload import image_bytes_by_owner, list_unique_image_files
 
 
 CAPTION = (
-    r"Per-round uplink payload breakdown by method and component. "
+    r"Uplink payload breakdown by method and component. "
     r"FedKDL payload is computed via \texttt{pack\_payload()} byte-level simulation "
     r"on a trained checkpoint. "
     r"Full-model and LoRA-FP32 payloads are derived from the trainable state dict of the "
     r"same checkpoint. "
     r"Top-K uses 5\% sparsity with INT8 values and INT32 indices. "
-    r"Centralized payload is the mean raw-image size per AUV (JPEG, URPC2020, $N=30$)."
+    r"Federated entries are per-round uploads; Centralized is the one-time mean "
+    r"encoded-image upload per AUV (JPEG/PNG, URPC2020, $N=30$)."
 )
 LABEL = "tab:payload_breakdown"
 
@@ -101,7 +102,7 @@ def full_model_payload_bytes(state_dict: dict) -> tuple[int, int]:
 
 def fp32_lora_payload(state_dict: dict) -> tuple[int, int, int, int, int, int]:
     """
-    LoRA-FP32 payload (Naive LoRA / FLoRA).
+    LoRA-FP32 payload (Naive LoRA / FlexLoRA).
     Transmit: lora_A+lora_B (FP32) + detection head (FP32) + BN (FP32).
     All params × 4 bytes.
     """
@@ -142,17 +143,40 @@ def topk_payload(trainable_params: int, k_ratio: float = 0.05) -> tuple[int, int
 
 
 def get_centralized_payload_kb() -> float:
-    try:
-        df = pd.read_csv(SCALABILITY_SUMMARY)
-        row = df[(df["baseline"] == "centralized") & (df["N_AUV"] == 30)].iloc[0]
-        return float(row["payload_per_auv_kb_mean"])
-    except Exception:
-        return float('nan')
+    """Measure the one-time mean encoded-image upload per AUV directly."""
+    data_path = (
+        ROOT
+        / "environments"
+        / "2d"
+        / "data"
+        / "URPC"
+        / "N_30"
+        / "data_N30_URPC_a1p0_seed1107.pkl"
+    )
+    image_dir = ROOT / "datasets" / "URPC2020" / "URPC2020" / "train" / "images"
+
+    with data_path.open("rb") as stream:
+        data_partition = pickle.load(stream)
+
+    image_paths = list_unique_image_files(image_dir)
+    if len(image_paths) != data_partition.n_train_samples:
+        raise ValueError(
+            "Centralized payload image list does not match the partition snapshot: "
+            f"{len(image_paths)} files vs {data_partition.n_train_samples} samples."
+        )
+
+    owner_bytes = image_bytes_by_owner(
+        image_paths,
+        data_partition.auv_data_indices,
+    )
+    if not owner_bytes:
+        raise ValueError("The centralized payload partition has no AUV owners.")
+    return float(np.mean(list(owner_bytes.values())) / 1024.0)
 
 
 def load_student_state_dict() -> dict:
     """Load trainable state dict from student checkpoint."""
-    from tasks.detection_2d.models.yolo_wrapper import StudentModel
+    from detection_2d.models.yolo_wrapper import StudentModel
     print(f"[Payload Table] Loading checkpoint: {CKPT_PATH}")
     student = StudentModel(
         str(CKPT_PATH),
@@ -166,7 +190,7 @@ def load_student_state_dict() -> dict:
 
 def load_full_state_dict() -> dict:
     """Load full model state dict for FedAvg-HFL."""
-    from tasks.detection_2d.models.yolo_wrapper import StudentModel
+    from detection_2d.models.yolo_wrapper import StudentModel
     student = StudentModel(
         str(CKPT_PATH),
         rank=fed_cfg.LORA_RANK,
@@ -220,10 +244,10 @@ def build(lang: str = "en") -> None:
     lora_fp32_total_b = lora_fp32_total_p * 4  # all FP32
 
     def fmt(b: int) -> str:
-        """Always show MB (3 decimal places)."""
-        return f"{b / (1024.0 * 1024.0):.3f} MB"
+        """Always show binary mebibytes (3 decimal places)."""
+        return f"{b / (1024.0 * 1024.0):.3f} MiB"
 
-    COL = T("Payload (MB)", lang)
+    COL = T("Payload (MiB)", lang)
 
     # ── 1. Centralized ─────────────────────────────────────────────────
     cent_kb = get_centralized_payload_kb()
@@ -246,9 +270,9 @@ def build(lang: str = "en") -> None:
         COL: fmt(full_bytes),
     })
 
-    # ── 3 & 4. Naive LoRA / FLoRA (LoRA+Head+BN, all FP32) ────────────
+    # ── 3 & 4. Naive LoRA / FlexLoRA (LoRA+Head+BN, all FP32) ─────────
     # Same structure as FedKDL but all in FP32 (no INT8, no quant metadata)
-    for method in ["Naive LoRA", "FLoRA"]:
+    for method in ["Naive LoRA", "FlexLoRA"]:
         rows.append({
             T("Method", lang): method,
             T("Component", lang): T("LoRA factors", lang),

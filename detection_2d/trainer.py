@@ -402,7 +402,7 @@ def local_sgd_od(
     Thực hiện Local SGD cho OD tại AUV (Tier 1).
     KHÔNG sử dụng KD — Teacher chỉ chạy tại Gateway (Tier 3).
 
-    student_model          : tasks.detection_2d.models.yolo_wrapper.StudentModel
+    student_model          : detection_2d.models.yolo_wrapper.StudentModel
     auv_yaml            : đường dẫn data.yaml của auv
     cached_optimizer_state : dict {param_name: {exp_avg, exp_avg_sq, step}} từ round trước
                              None → optimizer bắt đầu lạnh (round đầu tiên).
@@ -520,7 +520,7 @@ def local_sgd_od(
 
     # 3. Khởi tạo Trainer phù hợp
     if local_teacher is not None:
-        from tasks.detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
+        from detection_2d.knowledge_compression.knowledge_distillation import KDDetectionTrainer
         trainer = KDDetectionTrainer(overrides=overrides)
         trainer.student_wrapper = student_model
         trainer.set_teacher(local_teacher.yolo.model)

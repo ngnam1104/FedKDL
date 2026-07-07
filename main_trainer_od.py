@@ -12,9 +12,10 @@ import numpy as np
 import torch
 
 from config.settings import network_cfg, acoustic_cfg, energy_cfg, fed_cfg
-from tasks.detection_2d.baselines import BASELINE_CONFIGS, parse_baseline_config
-from tasks.detection_2d.simulator import Simulator2D
+from detection_2d.baselines import BASELINE_CONFIGS, parse_baseline_config
+from detection_2d.simulator import Simulator2D
 from utils.log_export import build_experiment_bundle
+from utils.image_payload import image_bytes_by_owner, list_unique_image_files
 from utils.train_io import build_experiment_paths, run_trainer_with_artifacts
 
 import ultralytics
@@ -162,8 +163,15 @@ def main():
                 f_cpu=en_cfg.F_CPU * 5
             )
             
-            # Raw data transmission in round 1
-            raw_payload_kb = total_samples * 500 # Assume 500KB per image
+            # Raw data transmission in round 1, measured from the encoded image
+            # files owned by each AUV rather than a fixed per-image estimate.
+            image_dir = Path("datasets/URPC2020/URPC2020/train/images")
+            image_paths = list_unique_image_files(image_dir)
+            owner_image_bytes = image_bytes_by_owner(
+                image_paths,
+                sim.data_part.auv_data_indices,
+            )
+            raw_payload_kb = sum(owner_image_bytes.values()) / 1024.0
             
             # E_tx for raw data (Assume directly sent to Gateway)
             from physics_models.energy import e_tx
@@ -175,8 +183,7 @@ def main():
                     link = sim.G[('auv', sid, 'gateway', 0)]
                 else:
                     link = next(iter(sim.G.values())) # fallback
-                n_samples_s = getattr(s, 'n_samples', 100)
-                bits = n_samples_s * 500 * 1024 * 8
+                bits = owner_image_bytes.get(sid, 0) * 8
                 e_tx_raw_total += e_tx(bits, link.R_bps, link.SL_min, en_cfg.ETA_EA, en_cfg.P_C_TX)
                 tau_tx_s = comm_delay(bits, link.R_bps, getattr(link, 'distance', 1000.0))
                 if tau_tx_s > tau_tx_raw_max:

@@ -126,7 +126,8 @@ Kỳ vọng khoảng 830 ảnh proxy nếu dùng tỷ lệ 15%.
 
 ## 5. Entrypoint Train Chính
 
-Mọi thực nghiệm chạy trực tiếp bằng `python main_trainer_od.py`. Repo không còn dùng file `.sh` làm runner chính.
+Entrypoint Python là `main_trainer_od.py`. Ba runner `.sh` ở thư mục gốc dùng
+entrypoint này để chạy FedKDL và hai kịch bản KD trên các GPU riêng.
 
 Mẫu lệnh:
 
@@ -146,7 +147,7 @@ Tham số chính:
 | --- | --- |
 | `--topo` | File topology `.pkl`. |
 | `--data` | File data partition `.pkl`. |
-| `--baseline` | Tên baseline trong `tasks/detection_2d/baselines.py`. |
+| `--baseline` | Tên baseline trong `detection_2d/baselines.py`. |
 | `--rounds` | Số vòng FL. Với `centralized`, tham số này được dùng như số epoch. |
 | `--lora-rank` | Ghi đè LoRA rank nếu cần ablation. |
 | `--out-dir` | Thư mục lưu artifact/JSON metrics. |
@@ -176,7 +177,44 @@ Các baseline hiện có:
 | `fedkdl_32bit` | Biến thể không INT8 để so sánh truyền thông. |
 | `centralized` | Centralized LoRA training tại gateway, dùng `--rounds` như epoch. |
 
-## 7. Lệnh Chạy Nhanh Các Nhóm Chính
+## 7. Chạy FedKDL Và KD Song Song
+
+Chuẩn bị topology/data và warmup checkpoint **một lần trước khi chạy song song**:
+
+```bash
+python utils/generate_all_envs.py \
+  --dataset URPC --n 30 --m-relays 8 --alphas 1.0 --seeds 1109
+
+python scripts/fedkdl/train_student_warmup.py --mode warmup
+chmod +x run_fedkdl.sh run_kd_logit.sh run_kd_logit_proj.sh
+mkdir -p results
+```
+
+Chạy ba job trên ba GPU:
+
+```bash
+GPU=0 ./run_fedkdl.sh > results/fedkdl.runner.log 2>&1 &
+GPU=1 ./run_kd_logit.sh > results/logit_kd.runner.log 2>&1 &
+GPU=2 ./run_kd_logit_proj.sh > results/logit_proj_kd.runner.log 2>&1 &
+wait
+```
+
+Mặc định cả ba dùng `N=30`, `M=8`, `alpha=1.0`, `seed=1109` và `40`
+round. Có thể ghi đè đồng nhất:
+
+```bash
+GPU=0 ROUNDS=60 SEED=1104 ./run_fedkdl.sh
+GPU=1 ROUNDS=60 SEED=1104 ./run_kd_logit.sh
+GPU=2 ROUNDS=60 SEED=1104 ./run_kd_logit_proj.sh
+```
+
+Các biến hỗ trợ: `PYTHON`, `GPU`, `DS`, `N`, `M`, `ALPHA`, `SEED`,
+`ROUNDS`, `ENVS_DIR`, `OUT_DIR`, `LOG_DIR`, `WANDB_MODE`.
+
+Nếu chỉ có một GPU, chạy tuần tự và đặt cùng `GPU=0`. Không nên chạy ba job
+cùng lúc trên một GPU vì mỗi job giữ riêng Student, Teacher và optimizer KD.
+
+### Các nhóm baseline khác
 
 Flat baselines:
 
@@ -220,10 +258,10 @@ for b in flora naive_lora topk_grad fedkdl_nokd; do
 done
 ```
 
-FedKDL/KD family:
+FedKDL/KD family (lệnh Python thủ công):
 
 ```bash
-for b in logit_kd logit_box_kd fedkdl_proxy_ft fedkdl fedkdl_nocoop fedkdl_selective fedkdl_32bit; do
+for b in fedkdl_nokd logit_kd logit_box_kd logit_proj_kd fedkdl_proxy_ft fedkdl fedkdl_nocoop fedkdl_selective fedkdl_32bit fedprox_kdl fedkd; do
   PYTHONUNBUFFERED=1 WANDB_MODE=disabled python -u main_trainer_od.py \
     --topo environments/2d/topo/N_30/topo_N30_seed1109.pkl \
     --data environments/2d/data/URPC/N_30/data_N30_URPC_a1p0_seed1109.pkl \
@@ -402,13 +440,12 @@ FedKDL/
 │   ├── energy.py
 │   ├── latency.py
 │   └── topology.py
-├── tasks/
-│   └── detection_2d/
-│       ├── baselines.py
-│       ├── simulator.py
-│       ├── trainer.py
-│       ├── models/
-│       └── knowledge_compression/
+├── detection_2d/
+│   ├── baselines.py
+│   ├── simulator.py
+│   ├── trainer.py
+│   ├── models/
+│   └── knowledge_compression/
 ├── scripts/
 │   ├── fedkdl/
 │   │   └── plot/                # Module chứa toàn bộ script vẽ đồ thị và sinh bảng

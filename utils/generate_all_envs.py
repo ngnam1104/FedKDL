@@ -13,7 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from utils.env_manager import EnvironmentManager
-from config.settings import NetworkConfig, AcousticChannelConfig
+from config.settings import NetworkConfig, AcousticChannelConfig, FedKDLConfig
 
 def main():
     parser = argparse.ArgumentParser()
@@ -61,7 +61,8 @@ def main():
     # if args.dataset == 'URPC':
     DATASETS = ['URPC']
     N_LIST = [50]
-    ALPHAS = args.alphas if args.alphas is not None else [0.5]
+    fed_cfg = FedKDLConfig()
+    ALPHAS = args.alphas if args.alphas is not None else [fed_cfg.NONIID_ALPHA]
     SEEDS = args.seeds if args.seeds is not None else [1104]
     task_type = '2d'
     # else:
