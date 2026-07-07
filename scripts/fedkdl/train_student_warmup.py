@@ -127,17 +127,28 @@ def run_warmup(epochs: int):
     del student_copy  # Giải phóng bộ nhớ
 
     from ultralytics import YOLO as _YOLO
-    val_model = _YOLO(str(baked_path))
-    full_yaml_test = REPO_ROOT / "datasets/URPC2020.yaml"
-    print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã bake LoRA vào weights)...")
-    val_model.val(
-        data=str(full_yaml_test),
-        imgsz=640,
-        batch=16,
-        device=device,
-        verbose=True,
-        split="val",
-    )
+    from ultralytics.utils import SETTINGS as _UL_SETTINGS
+
+    # Ultralytics resolves `path:` in dataset YAML relative to its global
+    # datasets_dir setting (default: /workspace/datasets), not relative to the
+    # YAML file location.  Override it to the repo-local datasets/ folder so
+    # URPC2020.yaml resolves correctly on any server, then restore afterwards.
+    _prev_datasets_dir = _UL_SETTINGS.get("datasets_dir", "")
+    _UL_SETTINGS.update({"datasets_dir": str(REPO_ROOT / "datasets")})
+    try:
+        val_model = _YOLO(str(baked_path))
+        full_yaml_test = REPO_ROOT / "datasets/URPC2020.yaml"
+        print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã bake LoRA vào weights)...")
+        val_model.val(
+            data=str(full_yaml_test),
+            imgsz=640,
+            batch=16,
+            device=device,
+            verbose=True,
+            split="val",
+        )
+    finally:
+        _UL_SETTINGS.update({"datasets_dir": _prev_datasets_dir})
     print(f"[Warmup] Saved baked checkpoint for non-LoRA baselines: {baked_path}")
 
 
