@@ -35,58 +35,73 @@ import sys
 import types
 
 
-def register() -> None:
-    """Register ``tasks.detection_2d.*`` as aliases to ``detection_2d.*``.
+# ---------------------------------------------------------------------------
+# Mapping: old tasks.detection_2d.X  →  detection_2d.X
+# ---------------------------------------------------------------------------
+_ALIAS_MAP = {
+    "tasks.detection_2d":                                          "detection_2d",
+    "tasks.detection_2d.models":                                   "detection_2d.models",
+    "tasks.detection_2d.models.lora":                              "detection_2d.models.lora",
+    "tasks.detection_2d.models.yolo_wrapper":                      "detection_2d.models.yolo_wrapper",
+    "tasks.detection_2d.knowledge_compression":                    "detection_2d.knowledge_compression",
+    "tasks.detection_2d.trainer":                                  "detection_2d.trainer",
+    "tasks.detection_2d.knowledge_compression.knowledge_distillation":
+        "detection_2d.knowledge_compression.knowledge_distillation",
+    "tasks.detection_2d.knowledge_compression.int8_quantization":
+        "detection_2d.knowledge_compression.int8_quantization",
+    "tasks.detection_2d.knowledge_compression.topk_sparsification":
+        "detection_2d.knowledge_compression.topk_sparsification",
+}
 
-    Safe to call multiple times; subsequent calls are no-ops.
+
+class _TasksDetectionFinder:
+    """A sys.meta_path finder that redirects ``tasks.detection_2d.*`` imports
+    to the real ``detection_2d.*`` package without triggering circular imports.
+
+    It does NOT import anything eagerly — resolution happens only when Python
+    actually tries to import a matching module name.
     """
-    import detection_2d
-    import detection_2d.models
-    import detection_2d.models.lora
-    import detection_2d.models.yolo_wrapper
-    import detection_2d.knowledge_compression
 
-    _aliases = {
-        "tasks": None,                                         # root shim
-        "tasks.detection_2d": detection_2d,
-        "tasks.detection_2d.models": detection_2d.models,
-        "tasks.detection_2d.models.lora": detection_2d.models.lora,
-        "tasks.detection_2d.models.yolo_wrapper": detection_2d.models.yolo_wrapper,
-        "tasks.detection_2d.knowledge_compression": detection_2d.knowledge_compression,
-    }
+    def find_module(self, fullname, path=None):  # Python 3 legacy hook
+        if fullname in _ALIAS_MAP:
+            return self
+        return None
 
-    # Lazily import sub-modules that might not be loaded yet
-    try:
-        import detection_2d.trainer
-        _aliases["tasks.detection_2d.trainer"] = detection_2d.trainer
-    except ImportError:
-        pass
-    try:
-        import detection_2d.knowledge_compression.knowledge_distillation as _kd
-        _aliases["tasks.detection_2d.knowledge_compression.knowledge_distillation"] = _kd
-    except ImportError:
-        pass
-    try:
-        import detection_2d.knowledge_compression.int8_quantization as _q
-        _aliases["tasks.detection_2d.knowledge_compression.int8_quantization"] = _q
-    except ImportError:
-        pass
-
-    if sys.modules.get("tasks") is None:
-        tasks_shim = types.ModuleType("tasks")
-        sys.modules.setdefault("tasks", tasks_shim)
-    else:
-        tasks_shim = sys.modules["tasks"]
-
-    # Attach detection_2d as an attribute of the shim so attribute lookups work
-    if not hasattr(tasks_shim, "detection_2d"):
-        tasks_shim.detection_2d = detection_2d
-
-    for mod_name, mod_obj in _aliases.items():
-        if mod_name == "tasks":
-            continue
-        sys.modules.setdefault(mod_name, mod_obj)
+    def load_module(self, fullname):
+        if fullname in sys.modules:
+            return sys.modules[fullname]
+        real_name = _ALIAS_MAP[fullname]
+        # Import the real module (may already be in sys.modules)
+        __import__(real_name)
+        real_mod = sys.modules[real_name]
+        sys.modules[fullname] = real_mod
+        return real_mod
 
 
-# Auto-register when module is imported
+def register() -> None:
+    """Register backward-compat aliases for ``tasks.detection_2d.*``.
+
+    * Installs a meta_path finder so future imports resolve correctly.
+    * Also aliases any ``tasks.detection_2d.*`` modules that are already
+      present in sys.modules right now (e.g. lora which may already be loaded).
+    * Ensures a ``tasks`` shim module exists in sys.modules.
+
+    Safe to call multiple times.
+    """
+    # Ensure finder is installed exactly once
+    if not any(isinstance(f, _TasksDetectionFinder) for f in sys.meta_path):
+        sys.meta_path.append(_TasksDetectionFinder())
+
+    # Ensure a 'tasks' stub exists in sys.modules
+    if "tasks" not in sys.modules:
+        sys.modules["tasks"] = types.ModuleType("tasks")
+
+    # Alias any already-loaded detection_2d sub-modules right now
+    # (without triggering new imports that could cause circular deps).
+    for old_name, new_name in _ALIAS_MAP.items():
+        if old_name not in sys.modules and new_name in sys.modules:
+            sys.modules[old_name] = sys.modules[new_name]
+
+
+# Auto-register on import
 register()

@@ -6,7 +6,6 @@ Sử dụng fl_core/models/lora.py để inject LoRA.
 import torch
 from ultralytics import YOLO
 from detection_2d.models.lora import inject_lora
-import detection_2d.compat  # noqa: F401  register tasks.detection_2d.* shims for old checkpoints
 
 
 class FrozenBatchNorm2d(torch.nn.BatchNorm2d):
