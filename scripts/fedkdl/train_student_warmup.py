@@ -127,20 +127,28 @@ def run_warmup(epochs: int):
     del student_copy  # Giải phóng bộ nhớ
 
     from ultralytics import YOLO as _YOLO
-    from ultralytics.utils import SETTINGS as _UL_SETTINGS
+    import tempfile, yaml as _yaml, os as _os
 
-    # Ultralytics resolves `path:` in dataset YAML relative to its global
-    # datasets_dir setting (default: /workspace/datasets), not relative to the
-    # YAML file location.  Override it to the repo-local datasets/ folder so
-    # URPC2020.yaml resolves correctly on any server, then restore afterwards.
-    _prev_datasets_dir = _UL_SETTINGS.get("datasets_dir", "")
-    _UL_SETTINGS.update({"datasets_dir": str(REPO_ROOT / "datasets")})
+    # Ultralytics resolves `path:` in a dataset YAML relative to its global
+    # datasets_dir setting — NOT relative to the YAML file itself.  Because that
+    # setting may differ across servers (e.g. /workspace/datasets vs the repo's
+    # own datasets/), we write a temporary YAML with the `path` field already
+    # expanded to an absolute location so the resolution is server-agnostic.
+    full_yaml_src = REPO_ROOT / "datasets/URPC2020.yaml"
+    with open(full_yaml_src) as _f:
+        _yaml_data = _yaml.safe_load(_f)
+    _rel_path = _yaml_data.get("path", "")
+    _yaml_data["path"] = str((REPO_ROOT / "datasets" / _rel_path).resolve())
+
+    _tmp_yaml_fd, _tmp_yaml_path = tempfile.mkstemp(suffix=".yaml")
     try:
+        with _os.fdopen(_tmp_yaml_fd, "w") as _tf:
+            _yaml.dump(_yaml_data, _tf, allow_unicode=True)
+
         val_model = _YOLO(str(baked_path))
-        full_yaml_test = REPO_ROOT / "datasets/URPC2020.yaml"
         print("\n[Đánh giá] Đánh giá chất lượng Student LoRA (đã bake LoRA vào weights)...")
         val_model.val(
-            data=str(full_yaml_test),
+            data=_tmp_yaml_path,
             imgsz=640,
             batch=16,
             device=device,
@@ -148,7 +156,7 @@ def run_warmup(epochs: int):
             split="val",
         )
     finally:
-        _UL_SETTINGS.update({"datasets_dir": _prev_datasets_dir})
+        _os.unlink(_tmp_yaml_path)
     print(f"[Warmup] Saved baked checkpoint for non-LoRA baselines: {baked_path}")
 
 
