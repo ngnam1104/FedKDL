@@ -288,14 +288,16 @@ PYTHONUNBUFFERED=1 WANDB_MODE=disabled python -u main_trainer_od.py \
 
 Mobility energy hiện được log riêng và mặc định không cộng vào objective. Để khảo sát tái phân cụm do vận tốc, bật mobility và đặt quãng đường mỗi round qua `speed * dt`.
 
+Để đơn giản hóa cấu hình, ta thiết lập `FEDKDL_MOBILITY_DT=1` để quãng đường di chuyển mỗi vòng (m/round) bằng đúng giá trị vận tốc (m/s).
+
 Ví dụ 50 m/round:
 
 ```bash
 FEDKDL_MOBILITY_ENABLED=1 \
 FEDKDL_MOVE_ENERGY_ENABLED=0 \
-FEDKDL_MOBILITY_DT=30 \
-FEDKDL_GM_MEAN_SPEED=1.6667 \
-FEDKDL_GM_MAX_SPEED=1.6667 \
+FEDKDL_MOBILITY_DT=1 \
+FEDKDL_GM_MEAN_SPEED=50.0 \
+FEDKDL_GM_MAX_SPEED=50.0 \
 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python -u main_trainer_od.py \
   --topo environments/2d/topo/N_30/topo_N30_seed1109.pkl \
   --data environments/2d/data/URPC/N_30/data_N30_URPC_a1p0_seed1109.pkl \
@@ -310,9 +312,9 @@ Ví dụ 100 m/round:
 ```bash
 FEDKDL_MOBILITY_ENABLED=1 \
 FEDKDL_MOVE_ENERGY_ENABLED=0 \
-FEDKDL_MOBILITY_DT=30 \
-FEDKDL_GM_MEAN_SPEED=3.3333 \
-FEDKDL_GM_MAX_SPEED=3.3333 \
+FEDKDL_MOBILITY_DT=1 \
+FEDKDL_GM_MEAN_SPEED=100.0 \
+FEDKDL_GM_MAX_SPEED=100.0 \
 PYTHONUNBUFFERED=1 WANDB_MODE=disabled python -u main_trainer_od.py \
   --topo environments/2d/topo/N_30/topo_N30_seed1109.pkl \
   --data environments/2d/data/URPC/N_30/data_N30_URPC_a1p0_seed1109.pkl \
