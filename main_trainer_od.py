@@ -21,6 +21,10 @@ from utils.train_io import build_experiment_paths, run_trainer_with_artifacts
 import ultralytics
 ultralytics.settings.update({'datasets_dir': str(Path('datasets').absolute())})
 
+# Register sys.modules shims so that checkpoints saved under the old
+# 'tasks.detection_2d.*' package path can still be unpickled.
+import detection_2d.compat  # noqa: F401  (side-effect import)
+
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
