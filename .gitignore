@@ -37,6 +37,9 @@ results_2/
 runs/
 logs/
 *.log
+!demo/fedavg_flat_train.log
+!demo/fedavg_hfl_train.log
+!demo/fedkdl_train.log
 
 # Generated plots and raw analysis artifacts
 *.png

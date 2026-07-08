@@ -17,8 +17,10 @@ from PIL import Image
 
 try:
     from demo.live_jobs import LiveRoundJobManager
+    from demo.log_replay import parse_training_log
 except ImportError:
     from live_jobs import LiveRoundJobManager
+    from log_replay import parse_training_log
 
 try:
     import cv2
@@ -67,6 +69,7 @@ CASE_CONFIGS = {
         "title": "FedAvg Flat",
         "metrics": DEMO_DIR / "fedavg_metrics.csv",
         "loss": DEMO_DIR / "fedavg_loss_matrix.csv",
+        "log": DEMO_DIR / "fedavg_flat_train.log",
         "flow": "flat_full_model",
         "payload_label": "Full model update",
     },
@@ -74,6 +77,7 @@ CASE_CONFIGS = {
         "title": "FedAvg HFL",
         "metrics": DEMO_DIR / "fedavg_hfl_results.csv",
         "loss": DEMO_DIR / "fedavg_hfl_loss_matrix.csv",
+        "log": DEMO_DIR / "fedavg_hfl_train.log",
         "flow": "hfl_full_model",
         "payload_label": "Full model update",
     },
@@ -81,6 +85,7 @@ CASE_CONFIGS = {
         "title": "FedKDL",
         "metrics": DEMO_DIR / "fedkdl_metrics.csv",
         "loss": DEMO_DIR / "fedkdl_loss_matrix.csv",
+        "log": DEMO_DIR / "fedkdl_train.log",
         "flow": "relay_lora_int8",
         "payload_label": "LoRA INT8 update",
     },
@@ -190,6 +195,45 @@ def _read_csv_rows(path: Path | None) -> list[dict[str, str]]:
         return []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def _case_log_path(case_name: str) -> Path | None:
+    cfg = CASE_CONFIGS.get(case_name)
+    if not cfg:
+        return None
+    path = cfg.get("log")
+    if isinstance(path, Path) and path.exists():
+        return path
+    demo_log = DEMO_DIR / f"{case_name}_train.log"
+    if demo_log.exists():
+        return demo_log
+    search_dir = REPO_ROOT / "results" / "final_exper" / {
+        "fedavg_flat": "flat_fedavg",
+        "fedavg_hfl": "fedavg_hfl",
+        "fedkdl": "fedkdl",
+    }.get(case_name, case_name)
+    if not search_dir.is_dir():
+        return None
+    candidates = sorted(search_dir.glob("raw_*.log"), key=lambda item: item.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+@lru_cache(maxsize=16)
+def _training_log_replay(case_name: str, max_rounds: int = 10) -> dict[str, Any]:
+    path = _case_log_path(case_name)
+    if path is None:
+        return {
+            "available": False,
+            "case": case_name,
+            "rounds": [],
+            "events": [],
+            "reason": "No raw training log found for this case.",
+        }
+    payload = parse_training_log(path, max_rounds=max_rounds)
+    payload["case"] = case_name
+    payload["title"] = CASE_CONFIGS[case_name]["title"]
+    payload["max_rounds"] = max_rounds
+    return payload
 
 
 def _bake_lora_for_inference(model: Any) -> int:
@@ -540,6 +584,16 @@ def _find_train_images() -> list[Path]:
 
 
 @lru_cache(maxsize=1)
+def _sample_detection_images() -> tuple[Path, ...]:
+    images = _find_train_images()
+    if not images:
+        return ()
+    stride = max(1, len(images) // 24)
+    selected = images[::stride][:24]
+    return tuple(selected)
+
+
+@lru_cache(maxsize=1)
 def _partitioned_image_paths() -> dict[int, tuple[Path, ...]]:
     partition_path = next((path for path in DATA_PARTITION_CANDIDATES if path.exists()), None)
     all_images = _find_train_images()
@@ -814,7 +868,6 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
                 "mAP50": 0.7128,
                 "mAP50_95": 0.0,
                 "loss": 0.0,
-                "gateway_loss": 0.0,
                 "pre_gateway_mAP50": 0.7128,
             },
         }
@@ -867,7 +920,6 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
             "mAP50": _metric_value(case_name, metric, "mAP50", round_id),
             "mAP50_95": _metric_value(case_name, metric, "mAP50-95", round_id),
             "loss": _metric_value(case_name, metric, "loss", round_id),
-            "gateway_loss": _safe_float(metric.get("kd_total"), 0.0),
             "pre_gateway_mAP50": _safe_float(
                 metric.get("pre_kd_mAP50"),
                 _metric_value(case_name, metric, "mAP50", round_id),
@@ -902,6 +954,8 @@ def demo_summary():
                 "rounds": _available_rounds(name),
                 "metrics_file": cfg["metrics"].name,
                 "loss_file": cfg["loss"].name if cfg["loss"] is not None else None,
+                "log_file": _case_log_path(name).name if _case_log_path(name) else None,
+                "log_replay_available": _case_log_path(name) is not None,
             }
             for name, cfg in CASE_CONFIGS.items()
         },
@@ -963,6 +1017,20 @@ def cancel_live_round(job_id: str):
     return job
 
 
+@app.get("/api/demo/training-log/{case_name}")
+def training_log_replay(case_name: str, max_rounds: int = 10):
+    if case_name not in CASE_CONFIGS:
+        raise HTTPException(status_code=404, detail=f"Unknown case: {case_name}")
+    max_rounds = min(max(int(max_rounds), 1), 10)
+    payload = _training_log_replay(case_name, max_rounds)
+    if not payload.get("available"):
+        raise HTTPException(
+            status_code=404,
+            detail=payload.get("reason", "Training log replay is unavailable."),
+        )
+    return payload
+
+
 @app.get("/api/demo/round/{case_name}/{round_id}")
 def demo_round(case_name: str, round_id: int):
     if case_name not in CASE_CONFIGS:
@@ -988,6 +1056,29 @@ def auv_sample_image(auv_id: int, slot: int):
     if slot < 0 or slot >= min(3, len(image_paths)):
         raise HTTPException(status_code=404, detail="AUV sample image not found")
     return FileResponse(image_paths[slot])
+
+
+@app.get("/api/demo/sample-images")
+def sample_detection_images():
+    images = _sample_detection_images()
+    return {
+        "images": [
+            {
+                "id": index,
+                "name": path.name,
+                "url": f"/api/demo/sample-image/{index}",
+            }
+            for index, path in enumerate(images)
+        ],
+    }
+
+
+@app.get("/api/demo/sample-image/{image_id}")
+def sample_detection_image(image_id: int):
+    images = _sample_detection_images()
+    if image_id < 0 or image_id >= len(images):
+        raise HTTPException(status_code=404, detail="Sample image not found")
+    return FileResponse(images[image_id])
 
 
 async def _run_detection(file: UploadFile) -> dict[str, Any]:

@@ -12,7 +12,13 @@ const SCENARIO_COLORS = {
     fedkdl: "#32d3d8",
 };
 
+const TRAIN_LOG_DELAY_MS = 75;
+const TRAIN_LOG_FAST_DELAY_MS = 25;
+const STANDALONE_LOG_REPLAY_DELAY_MS = 90;
+
 let uploadedFile = null;
+let uploadedFileName = "upload.jpg";
+let selectedSampleId = null;
 let activeScenario = "detect";
 let currentRound = 1;
 let scenarioData = null;
@@ -23,6 +29,12 @@ let replayAllRunning = false;
 let liveTrainingAvailable = false;
 let liveTrainingJobId = null;
 let liveTrainingRunning = false;
+let logReplayAvailableByCase = {};
+let logReplayRunning = false;
+let logReplayStopRequested = false;
+let logReplayLatestLoss = new Map();
+let logReplayPreviousLoss = new Map();
+let trainingLogCacheByCase = {};
 
 function normalizeApiBase(value) {
     const text = String(value || "").trim().replace(/\/+$/, "");
@@ -86,7 +98,7 @@ function setBackendState(online, modelPath = "", replayOnline = online) {
 function setupScenarioTabs() {
     document.querySelectorAll(".scenario-btn").forEach((button) => {
         button.addEventListener("click", async () => {
-            if (simulationRunning || liveTrainingRunning) return;
+            if (simulationRunning || liveTrainingRunning || logReplayRunning) return;
             document.querySelectorAll(".scenario-btn").forEach((item) => item.classList.remove("active"));
             button.classList.add("active");
             activeScenario = button.dataset.scenario;
@@ -108,12 +120,14 @@ function setupDetection() {
     const emptyState = document.querySelector(".empty-state");
     const resultsBox = document.getElementById("results-box");
     const runButton = document.getElementById("btn-detect");
-    const camera = document.getElementById("camera-feed");
 
     input.addEventListener("change", (event) => {
         const file = event.target.files[0];
         if (!file) return;
         uploadedFile = file;
+        uploadedFileName = file.name || "upload.jpg";
+        selectedSampleId = null;
+        document.querySelectorAll(".sample-image-btn").forEach((button) => button.classList.remove("active"));
         const reader = new FileReader();
         reader.onload = (readerEvent) => {
             preview.src = readerEvent.target.result;
@@ -126,36 +140,98 @@ function setupDetection() {
         runButton.disabled = false;
     });
 
-    runButton.addEventListener("click", async () => {
-        if (!uploadedFile) return;
-        runButton.disabled = true;
-        runButton.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Processing</span>`;
-        camera.classList.add("scanning");
-        const startedAt = performance.now();
-        const form = new FormData();
-        form.append("file", uploadedFile);
+    runButton.addEventListener("click", runDetection);
+    loadSampleImages();
+}
 
-        try {
-            const response = await fetch(`${API_BASE}/detect`, { method: "POST", body: form });
-            if (!response.ok) throw new Error("Detection request failed");
-            const data = await response.json();
-            preview.src = `data:image/jpeg;base64,${data.image_b64}`;
-            const endToEndMs = performance.now() - startedAt;
-            resultsBox.innerHTML = renderDetections(
-                data.detections,
-                data.model_path,
-                data.server_inference_ms,
-                endToEndMs,
-            );
-            document.getElementById("tel-latency").textContent = `${endToEndMs.toFixed(0)} ms`;
-        } catch (error) {
-            resultsBox.innerHTML = `<p class="error">Inference failed. Check the GPU backend and SSH tunnel.</p>`;
-        } finally {
-            runButton.disabled = false;
-            runButton.innerHTML = `<i class="fa-solid fa-crosshairs"></i><span>Run inference</span>`;
-            camera.classList.remove("scanning");
+async function loadSampleImages() {
+    const grid = document.getElementById("sample-image-grid");
+    try {
+        const data = await getJson("/demo/sample-images");
+        const images = data.images || [];
+        if (!images.length) {
+            grid.innerHTML = `<p class="muted">No dataset images found on this server.</p>`;
+            return;
         }
-    });
+        grid.innerHTML = images.map((image) => {
+            const source = `${API_BASE}${image.url.replace(/^\/api/, "")}`;
+            return `
+                <button class="sample-image-btn" type="button" data-sample-id="${image.id}" data-sample-url="${source}" data-sample-name="${image.name}" title="${image.name}">
+                    <img src="${source}" alt="${image.name}" loading="lazy">
+                    <span>${image.name}</span>
+                </button>
+            `;
+        }).join("");
+        grid.querySelectorAll(".sample-image-btn").forEach((button) => {
+            button.addEventListener("click", () => selectSampleImage(button));
+        });
+    } catch (error) {
+        grid.innerHTML = `<p class="muted">Sample images unavailable.</p>`;
+    }
+}
+
+async function selectSampleImage(button) {
+    const preview = document.getElementById("preview-img");
+    const emptyState = document.querySelector(".empty-state");
+    const resultsBox = document.getElementById("results-box");
+    const runButton = document.getElementById("btn-detect");
+    const imageUrl = button.dataset.sampleUrl;
+    selectedSampleId = Number(button.dataset.sampleId);
+    uploadedFileName = button.dataset.sampleName || `sample-${selectedSampleId}.jpg`;
+    document.querySelectorAll(".sample-image-btn").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    preview.src = imageUrl;
+    preview.style.display = "block";
+    emptyState.style.display = "none";
+    resultsBox.innerHTML = `<p class="muted">Sample image selected. Running inference.</p>`;
+    document.getElementById("tel-latency").textContent = "-- ms";
+
+    try {
+        const response = await fetch(imageUrl);
+        if (!response.ok) throw new Error("Sample image request failed");
+        uploadedFile = await response.blob();
+        runButton.disabled = false;
+        await runDetection();
+    } catch (error) {
+        uploadedFile = null;
+        runButton.disabled = true;
+        resultsBox.innerHTML = `<p class="error">Could not load the selected sample image.</p>`;
+    }
+}
+
+async function runDetection() {
+    if (!uploadedFile) return;
+    const preview = document.getElementById("preview-img");
+    const resultsBox = document.getElementById("results-box");
+    const runButton = document.getElementById("btn-detect");
+    const camera = document.getElementById("camera-feed");
+    runButton.disabled = true;
+    runButton.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Processing</span>`;
+    camera.classList.add("scanning");
+    const startedAt = performance.now();
+    const form = new FormData();
+    form.append("file", uploadedFile, uploadedFileName);
+
+    try {
+        const response = await fetch(`${API_BASE}/detect`, { method: "POST", body: form });
+        if (!response.ok) throw new Error("Detection request failed");
+        const data = await response.json();
+        preview.src = `data:image/jpeg;base64,${data.image_b64}`;
+        const endToEndMs = performance.now() - startedAt;
+        resultsBox.innerHTML = renderDetections(
+            data.detections,
+            data.model_path,
+            data.server_inference_ms,
+            endToEndMs,
+        );
+        document.getElementById("tel-latency").textContent = `${endToEndMs.toFixed(0)} ms`;
+    } catch (error) {
+        resultsBox.innerHTML = `<p class="error">Inference failed. Check the GPU backend and SSH tunnel.</p>`;
+    } finally {
+        runButton.disabled = false;
+        runButton.innerHTML = `<i class="fa-solid fa-crosshairs"></i><span>Run inference</span>`;
+        camera.classList.remove("scanning");
+    }
 }
 
 function renderDetections(detections, modelPath, serverInferenceMs, endToEndMs) {
@@ -182,6 +258,24 @@ async function loadScenario() {
     renderScenario();
 }
 
+async function getTrainingLogReplay(caseName) {
+    if (!logReplayAvailableByCase[caseName]) return null;
+    if (!trainingLogCacheByCase[caseName]) {
+        trainingLogCacheByCase[caseName] = getJson(`/demo/training-log/${caseName}?max_rounds=10`)
+            .catch(() => null);
+    }
+    return trainingLogCacheByCase[caseName];
+}
+
+function compactTrainingEvents(events, targetCount) {
+    if (events.length <= targetCount) return events;
+    const stride = Math.max(1, Math.ceil(events.length / targetCount));
+    const selected = events.filter((_, index) => index % stride === 0);
+    const last = events[events.length - 1];
+    if (selected[selected.length - 1] !== last) selected.push(last);
+    return selected;
+}
+
 function renderScenario() {
     document.getElementById("scenario-title").textContent = scenarioData.title;
     document.getElementById("round-label").textContent = activeScenario === "centralized"
@@ -192,6 +286,10 @@ function renderScenario() {
         : "One federated learning round";
     document.getElementById("round-control").classList.toggle("hidden", activeScenario === "centralized");
     document.getElementById("run-all-simulation").classList.toggle("hidden", activeScenario === "centralized");
+    const logReplayButton = document.getElementById("run-log-replay");
+    const supportsLogReplay = Boolean(logReplayAvailableByCase[activeScenario]);
+    logReplayButton.classList.toggle("hidden", activeScenario === "centralized" || !supportsLogReplay);
+    logReplayButton.disabled = !supportsLogReplay || simulationRunning || liveTrainingRunning;
     const liveButton = document.getElementById("run-live-training");
     const supportsLive = activeScenario === "fedkdl" || activeScenario === "fedavg_hfl";
     liveButton.classList.toggle("hidden", !supportsLive);
@@ -234,9 +332,17 @@ function renderTopology() {
     `).join("");
 
     auvLayer.innerHTML = topology.auvs.map((auv) => {
-        const loss = lossById.get(Number(auv.id));
+        const auvId = Number(auv.id);
+        const replayLoss = logReplayLatestLoss.get(auvId);
+        const csvLoss = lossById.get(auvId);
+        const loss = Number.isFinite(replayLoss) ? replayLoss : csvLoss;
+        const previousLoss = logReplayPreviousLoss.get(auvId);
+        const trendClass = Number.isFinite(replayLoss) && Number.isFinite(previousLoss)
+            ? replayLoss <= previousLoss ? "loss-down" : "loss-up"
+            : "";
+        const sourceClass = Number.isFinite(replayLoss) ? "training-log" : "";
         const lossBadge = auv.connected && Number.isFinite(loss)
-            ? `<span class="loss-badge">L ${loss.toFixed(2)}</span>`
+            ? `<span class="loss-badge ${sourceClass} ${trendClass}">L ${loss.toFixed(2)}</span>`
             : "";
         return `
             <div
@@ -380,7 +486,6 @@ function renderScenarioMetrics() {
         metricCard("Relay SVD", formatTime(metrics.tau_svd)),
         metricCard("Physical total", formatTime(metrics.round_latency_s)),
         metricCard("Global loss", Number(metrics.loss || 0).toFixed(4)),
-        metricCard("Gateway KD loss", metrics.gateway_loss > 0 ? Number(metrics.gateway_loss).toFixed(4) : "None"),
         metricCard("Pre-Gateway mAP50", `${(Number(metrics.pre_gateway_mAP50 || 0) * 100).toFixed(2)}%`),
         metricCard("mAP50", accuracy),
         metricCard("mAP50-95", `${(Number(metrics.mAP50_95 || 0) * 100).toFixed(2)}%`),
@@ -629,6 +734,48 @@ async function animatePhase(phase, speedScale = 1) {
     return completed;
 }
 
+async function animateTrainingLogPhase(phase, speedScale = 1) {
+    const replay = await getTrainingLogReplay(activeScenario);
+    const roundEvents = compactTrainingEvents(
+        (replay?.events || []).filter((event) => Number(event.round) === Number(currentRound)),
+        speedScale < 1 ? 60 : 150
+    );
+    if (!roundEvents.length) {
+        return animatePhase(phase, speedScale);
+    }
+
+    clearNodeStates();
+    clearLinks();
+    scenarioData.topology.auvs
+        .filter((auv) => auv.connected)
+        .forEach((auv) => document.getElementById(`auv-${auv.id}`)?.classList.add("training"));
+
+    const delayMs = speedScale < 1 ? TRAIN_LOG_FAST_DELAY_MS : TRAIN_LOG_DELAY_MS;
+    for (const event of roundEvents) {
+        if (simulationStopRequested) return false;
+        while (simulationPaused) {
+            await sleep(60);
+            if (simulationStopRequested) return false;
+        }
+
+        const auvId = Number(event.auv_id);
+        const previous = logReplayLatestLoss.get(auvId);
+        if (Number.isFinite(previous)) logReplayPreviousLoss.set(auvId, previous);
+        logReplayLatestLoss.set(auvId, Number(event.loss));
+        renderTopology();
+        document.getElementById(`auv-${auvId}`)?.classList.add("training");
+
+        const metrics = scenarioData.metrics || {};
+        setPhaseStatus(
+            `Round ${currentRound}/40 · Training log`,
+            `AUV ${auvId} epoch ${event.epoch}/${event.epochs}, batch ${event.batch}/${event.batches}, local loss ${Number(event.loss).toFixed(4)} · Gateway mAP50 ${(Number(metrics.mAP50 || 0) * 100).toFixed(2)}%`
+        );
+        await sleep(delayMs);
+    }
+    clearNodeStates();
+    return true;
+}
+
 function setSimulationControls(running) {
     const runButton = document.getElementById("run-simulation");
     const resetButton = document.getElementById("reset-simulation");
@@ -636,12 +783,17 @@ function setSimulationControls(running) {
     const pauseButton = document.getElementById("pause-simulation");
     const stopButton = document.getElementById("stop-simulation");
     const liveButton = document.getElementById("run-live-training");
-    runButton.disabled = running;
-    resetButton.disabled = running;
-    runAllButton.disabled = running;
+    const logReplayButton = document.getElementById("run-log-replay");
+    runButton.disabled = running || logReplayRunning;
+    resetButton.disabled = running || logReplayRunning;
+    runAllButton.disabled = running || logReplayRunning;
+    logReplayButton.disabled = running
+        || logReplayRunning
+        || !logReplayAvailableByCase[activeScenario];
     pauseButton.disabled = !running;
-    stopButton.disabled = !running;
+    stopButton.disabled = !running && !logReplayRunning;
     liveButton.disabled = running
+        || logReplayRunning
         || !liveTrainingAvailable
         || !(activeScenario === "fedkdl" || activeScenario === "fedavg_hfl");
     if (!running) {
@@ -660,7 +812,11 @@ async function playLoadedRound(speedScale = 1) {
             `${roundText}Phase ${index + 1}/${scenarioData.phases.length}`,
             phase.label
         );
-        if (!await animatePhase(phase, speedScale)) return false;
+        if (phase.id === "train" && activeScenario !== "centralized") {
+            if (!await animateTrainingLogPhase(phase, speedScale)) return false;
+        } else if (!await animatePhase(phase, speedScale)) {
+            return false;
+        }
     }
     clearNodeStates();
     setTimelineState(scenarioData.phases.length);
@@ -668,11 +824,13 @@ async function playLoadedRound(speedScale = 1) {
 }
 
 async function runSimulation() {
-    if (!scenarioData || simulationRunning || liveTrainingRunning) return;
+    if (!scenarioData || simulationRunning || liveTrainingRunning || logReplayRunning) return;
     simulationRunning = true;
     simulationPaused = false;
     simulationStopRequested = false;
     replayAllRunning = false;
+    logReplayLatestLoss = new Map();
+    logReplayPreviousLoss = new Map();
     setSimulationControls(true);
     document.getElementById("run-simulation").innerHTML =
         `<i class="fa-solid fa-spinner fa-spin"></i><span>Running</span>`;
@@ -732,17 +890,108 @@ async function runLiveTraining() {
     }
 }
 
+function updateLogReplayButton() {
+    const button = document.getElementById("run-log-replay");
+    if (logReplayRunning) {
+        button.disabled = false;
+        button.innerHTML = `<i class="fa-solid fa-stop"></i><span>Stop log</span>`;
+        return;
+    }
+    button.disabled = simulationRunning
+        || liveTrainingRunning
+        || !logReplayAvailableByCase[activeScenario];
+    button.innerHTML = `<i class="fa-solid fa-chart-line"></i><span>Replay log</span>`;
+}
+
+async function runTrainingLogReplay() {
+    if (logReplayRunning) {
+        logReplayStopRequested = true;
+        return;
+    }
+    if (
+        !scenarioData
+        || simulationRunning
+        || liveTrainingRunning
+        || !logReplayAvailableByCase[activeScenario]
+    ) return;
+
+    logReplayRunning = true;
+    logReplayStopRequested = false;
+    logReplayLatestLoss = new Map();
+    logReplayPreviousLoss = new Map();
+    setSimulationControls(false);
+    updateLogReplayButton();
+    clearLinks();
+    clearNodeStates();
+
+    try {
+        const replay = await getJson(`/demo/training-log/${activeScenario}?max_rounds=10`);
+        const events = replay.events || [];
+        if (!events.length) throw new Error("No batch-loss events found in log.");
+        const firstRound = events[0].round;
+        currentRound = firstRound;
+        await loadScenario();
+        setSimulationControls(false);
+        updateLogReplayButton();
+
+        for (const event of events) {
+            if (logReplayStopRequested) break;
+            if (event.round !== currentRound) {
+                currentRound = event.round;
+                await loadScenario();
+                setSimulationControls(false);
+                updateLogReplayButton();
+            }
+
+            const auvId = Number(event.auv_id);
+            const previous = logReplayLatestLoss.get(auvId);
+            if (Number.isFinite(previous)) logReplayPreviousLoss.set(auvId, previous);
+            logReplayLatestLoss.set(auvId, Number(event.loss));
+            renderTopology();
+
+            const node = document.getElementById(`auv-${auvId}`);
+            if (node) node.classList.add("training");
+            setPhaseStatus(
+                `Log replay · round ${event.round}/10`,
+                `AUV ${auvId} epoch ${event.epoch}/${event.epochs}, batch ${event.batch}/${event.batches}, loss ${Number(event.loss).toFixed(4)}`
+            );
+            await sleep(STANDALONE_LOG_REPLAY_DELAY_MS);
+        }
+
+        var finalIndex = logReplayStopRequested ? "Stopped" : "Complete";
+        var finalLabel = logReplayStopRequested
+            ? `Training-log replay stopped at round ${currentRound}`
+            : "First 10 rounds replayed from real training log";
+    } catch (error) {
+        var finalIndex = "Log replay unavailable";
+        var finalLabel = error.message;
+    } finally {
+        clearNodeStates();
+        logReplayRunning = false;
+        logReplayStopRequested = false;
+        logReplayLatestLoss = new Map();
+        logReplayPreviousLoss = new Map();
+        await loadScenario();
+        setSimulationControls(false);
+        updateLogReplayButton();
+        setPhaseStatus(finalIndex, finalLabel);
+    }
+}
+
 async function runAllSimulations() {
     if (
         !scenarioData
         || simulationRunning
         || liveTrainingRunning
+        || logReplayRunning
         || activeScenario === "centralized"
     ) return;
     simulationRunning = true;
     simulationPaused = false;
     simulationStopRequested = false;
     replayAllRunning = true;
+    logReplayLatestLoss = new Map();
+    logReplayPreviousLoss = new Map();
     setSimulationControls(true);
     document.getElementById("run-simulation").innerHTML =
         `<i class="fa-solid fa-spinner fa-spin"></i><span>Replaying</span>`;
@@ -750,6 +999,8 @@ async function runAllSimulations() {
     for (let round = currentRound; round <= 40; round += 1) {
         if (simulationStopRequested) break;
         currentRound = round;
+        logReplayLatestLoss = new Map();
+        logReplayPreviousLoss = new Map();
         await loadScenario();
         setSimulationControls(true);
         if (!await playLoadedRound(0.08)) break;
@@ -793,13 +1044,17 @@ function togglePauseSimulation() {
 }
 
 function stopSimulation() {
+    if (logReplayRunning) {
+        logReplayStopRequested = true;
+        return;
+    }
     if (!simulationRunning) return;
     simulationStopRequested = true;
     simulationPaused = false;
 }
 
 async function resetSimulation() {
-    if (simulationRunning || liveTrainingRunning) return;
+    if (simulationRunning || liveTrainingRunning || logReplayRunning) return;
     currentRound = 1;
     clearLinks();
     clearNodeStates();
@@ -812,12 +1067,13 @@ async function init() {
     document.getElementById("run-simulation").onclick = runSimulation;
     document.getElementById("reset-simulation").addEventListener("click", resetSimulation);
     document.getElementById("run-all-simulation").addEventListener("click", runAllSimulations);
+    document.getElementById("run-log-replay").addEventListener("click", runTrainingLogReplay);
     document.getElementById("run-live-training").addEventListener("click", runLiveTraining);
     document.getElementById("pause-simulation").addEventListener("click", togglePauseSimulation);
     document.getElementById("stop-simulation").addEventListener("click", stopSimulation);
     document.getElementById("close-inspector").addEventListener("click", closeNodeInspector);
     document.getElementById("round-slider").addEventListener("input", async (event) => {
-        if (simulationRunning || liveTrainingRunning) return;
+        if (simulationRunning || liveTrainingRunning || logReplayRunning) return;
         currentRound = Number(event.target.value);
         await loadScenario();
     });
@@ -828,12 +1084,21 @@ async function init() {
     try {
         const summary = await getJson("/demo/summary");
         liveTrainingAvailable = Boolean(summary.ml_available);
+        logReplayAvailableByCase = Object.fromEntries(
+            Object.entries(summary.cases || {}).map(([name, item]) => [
+                name,
+                Boolean(item.log_replay_available),
+            ])
+        );
         setBackendState(Boolean(summary.ml_available), summary.model_path, true);
         updateLiveTrainingButton();
+        updateLogReplayButton();
     } catch (error) {
         liveTrainingAvailable = false;
+        logReplayAvailableByCase = {};
         setBackendState(false);
         updateLiveTrainingButton();
+        updateLogReplayButton();
     }
 }
 

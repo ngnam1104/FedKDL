@@ -22,11 +22,11 @@
             <button class="scenario-btn active" data-scenario="detect">
                 <i class="fa-solid fa-camera"></i><span>Detection</span>
             </button>
-            <button class="scenario-btn" data-scenario="fedavg_flat">
-                <i class="fa-solid fa-arrows-to-circle"></i><span>FedAvg</span>
-            </button>
             <button class="scenario-btn" data-scenario="centralized">
                 <i class="fa-solid fa-images"></i><span>Centralized</span>
+            </button>
+            <button class="scenario-btn" data-scenario="fedavg_flat">
+                <i class="fa-solid fa-arrows-to-circle"></i><span>FedAvg</span>
             </button>
             <button class="scenario-btn" data-scenario="fedavg_hfl">
                 <i class="fa-solid fa-network-wired"></i><span>FedAvg-HFL</span>
@@ -74,6 +74,16 @@
                         <i class="fa-solid fa-crosshairs"></i>
                         <span>Run inference</span>
                     </button>
+
+                    <div class="sample-picker">
+                        <div class="sample-picker-header">
+                            <span class="eyebrow">URPC samples</span>
+                            <strong>Quick select</strong>
+                        </div>
+                        <div id="sample-image-grid" class="sample-image-grid">
+                            <p class="muted">Loading sample images.</p>
+                        </div>
+                    </div>
                 </div>
 
                 <aside class="result-panel">
@@ -124,6 +134,10 @@
                             <button id="run-all-simulation" class="secondary-btn" type="button">
                                 <i class="fa-solid fa-forward-fast"></i>
                                 <span>Replay 40</span>
+                            </button>
+                            <button id="run-log-replay" class="secondary-btn hidden" type="button" disabled>
+                                <i class="fa-solid fa-chart-line"></i>
+                                <span>Replay log</span>
                             </button>
                             <button id="run-live-training" class="secondary-btn hidden" type="button" disabled>
                                 <i class="fa-solid fa-microchip"></i>

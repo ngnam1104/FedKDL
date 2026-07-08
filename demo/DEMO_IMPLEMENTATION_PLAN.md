@@ -2,82 +2,79 @@
 
 ## Mục tiêu demo
 
-Demo được chia thành 4 phần để trình bày đủ câu chuyện với giảng viên:
+Demo hiện tại gồm bốn luồng chính:
 
-1. **Detection Demo**
-   - Upload ảnh dưới nước.
-   - Chạy YOLO inference thật bằng checkpoint trong thư mục `demo/` nếu có.
-   - Hiển thị bounding box, nhãn, confidence.
+1. **Detection**
+   - Upload ảnh hoặc chọn ảnh mẫu URPC có sẵn trên server.
+   - Chạy YOLO inference thật bằng checkpoint trong `demo/`.
+   - Hiển thị ảnh đã vẽ bounding box, nhãn, confidence và latency.
 
-2. **Centralized Raw-Data Demo**
-   - Mô phỏng kịch bản AUV gửi ảnh thô về Gateway.
-   - Nhấn mạnh đây là upper-bound trực quan nhưng payload dữ liệu thô rất lớn.
-   - Không train live; chỉ hiển thị pipeline và thống kê payload ước lượng.
+2. **Centralized**
+   - Minh họa kịch bản AUV gửi ảnh thô về Gateway qua relay.
+   - Hiển thị payload ảnh thô, latency vật lý và upper-bound mAP50.
 
-3. **FedAvg Round Replay**
-   - Replay 3 vòng FL từ CSV:
-     - `demo/fedavg_hfl_results.csv`
-     - `demo/fedavg_hfl_loss_matrix.csv`
-   - Hiển thị AUV local loss, payload full-model, latency, energy, mAP.
-   - Mô phỏng luồng AUV gửi full model update lên Gateway.
+3. **FedAvg/FedAvg-HFL/FedKDL Round Replay**
+   - Replay topology, phase truyền thông và metric theo round từ CSV.
+   - Gắn log train thật vào phase `train` để local loss của từng AUV thay đổi theo batch.
+   - Với `Replay 40`, log train được minh họa cho 10 round đầu; các round sau tiếp tục replay theo CSV/phase.
 
-4. **FedKDL Round Replay**
-   - Replay 3 vòng FL từ CSV:
-     - `demo/fedkdl_metrics.csv`
-     - `demo/fedkdl_loss_matrix.csv`
-   - Hiển thị AUV local loss, LoRA/INT8 payload, relay aggregation, Gateway KD.
-   - Mô phỏng luồng AUV -> Relay -> Gateway.
+4. **Training Log Replay**
+   - Nút `Replay log` tua riêng 10 round đầu từ log train thật.
+   - Không chạy training mới; chỉ đọc log đã train để minh họa tiến trình local training nhanh và ổn định.
 
 ## Nguồn dữ liệu
 
-- Backend đọc CSV bằng thư viện chuẩn `csv`, không phụ thuộc pandas.
-- Round demo mặc định là 1, 2, 3. Round 0 trong CSV được xem như pre-round/eval ban đầu và không dùng cho replay chính.
-- Nếu file CSV thiếu cột nào, API trả giá trị `0` hoặc `None` để UI không sập.
+- Metrics theo round:
+  - `demo/fedavg_metrics.csv`
+  - `demo/fedavg_hfl_results.csv`
+  - `demo/fedkdl_metrics.csv`
+- AUV loss cuối round:
+  - `demo/fedavg_loss_matrix.csv`
+  - `demo/fedavg_hfl_loss_matrix.csv`
+  - `demo/fedkdl_loss_matrix.csv`
+- Batch-level training log:
+  - `demo/fedavg_flat_train.log`
+  - `demo/fedavg_hfl_train.log`
+  - `demo/fedkdl_train.log`
+- Checkpoint inference ưu tiên:
+  - `demo/student_lora_best.pt`
+  - các checkpoint YOLO fallback trong `demo/` hoặc repo root.
 
 ## Backend API
 
-Các endpoint cần có:
-
-- `GET /api/auvs`
-- `POST /api/detect/{auv_id}`
 - `GET /api/demo/summary`
-- `GET /api/demo/round/{case_name}/{round_id}`
-- `GET /api/demo/centralized`
+- `GET /api/demo/scenario/{case_name}/{round_id}`
+- `GET /api/demo/training-log/{case_name}?max_rounds=10`
+- `GET /api/demo/sample-images`
+- `GET /api/demo/sample-image/{image_id}`
+- `POST /api/detect`
+- `POST /api/detect/{auv_id}`
 
 `case_name` hỗ trợ:
 
-- `fedavg`
+- `fedavg_flat`
+- `fedavg_hfl`
 - `fedkdl`
+- `centralized` ở endpoint scenario.
 
 ## Frontend
 
-Frontend giữ phong cách dashboard hiện tại nhưng thêm tab:
+Tab hiện tại:
 
 - `Detection`
 - `Centralized`
 - `FedAvg`
+- `FedAvg-HFL`
 - `FedKDL`
 
-Mỗi tab có nội dung riêng:
+Trong Detection, người xem có thể chọn ảnh mẫu để chạy inference ngay, không cần upload thủ công.
 
-- Detection: upload ảnh và kết quả infer.
-- Centralized: pipeline gửi ảnh thô và payload ước lượng.
-- FedAvg/FedKDL: selector round, flow diagram, metrics cards, AUV loss matrix.
+Trong các tab FL, phase `train` đọc log thật và hiển thị local loss từng AUV thay đổi theo batch. Telemetry bên phải hiển thị payload, latency, global loss, pre-Gateway mAP50, mAP50, mAP50-95 và energy.
 
-## Checkpoint inference
+## Ghi chú vận hành
 
-Backend ưu tiên tìm model trong `demo/`:
+Các file `.log` bị ignore bởi rule `*.log`. Khi cần đưa ba log demo lên git/server, dùng:
 
-1. `demo/student_lora_best.pt`
-2. `demo/yolo12n_lora_centralized.pt`
-3. `demo/yolo12n_centralized.pt`
-4. `demo/best.pt`
-5. `demo/yolo12n_warmup.pt`
-6. repo root `yolo12n_warmup.pt`
-7. fallback `yolo12n.pt`
-
-Nhờ vậy sau này chỉ cần thả file `.pt` vào `demo/` là demo tự dùng.
-
-## Không train live
-
-Demo không gọi training trong UI. Các vòng FL được replay từ log/CSV thật để tránh rủi ro thời gian và môi trường GPU khi bảo vệ.
+```bash
+git add -f demo/fedavg_flat_train.log demo/fedavg_hfl_train.log demo/fedkdl_train.log
+```

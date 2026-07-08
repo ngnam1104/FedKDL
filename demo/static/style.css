@@ -293,8 +293,8 @@ button {
 
 .camera-feed {
     position: relative;
-    height: calc(100vh - 206px);
-    min-height: 390px;
+    height: calc(100vh - 330px);
+    min-height: 300px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -357,6 +357,72 @@ button {
     border-bottom: 1px solid var(--border);
 }
 
+.sample-picker {
+    margin-top: 14px;
+}
+
+.sample-picker-header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.sample-picker-header .eyebrow {
+    margin-bottom: 0;
+}
+
+.sample-picker-header strong {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.sample-image-grid {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 8px;
+    min-height: 68px;
+}
+
+.sample-image-btn {
+    position: relative;
+    min-height: 64px;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #07131d;
+}
+
+.sample-image-btn img {
+    display: block;
+    width: 100%;
+    height: 64px;
+    object-fit: cover;
+}
+
+.sample-image-btn.active {
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 2px rgba(50, 211, 216, 0.22);
+}
+
+.sample-image-btn span {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 4px;
+    overflow: hidden;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: rgba(2, 7, 10, 0.74);
+    color: var(--text);
+    font-size: 8px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .muted,
 .model-note,
 .time-note {
@@ -393,7 +459,8 @@ button {
 }
 
 .round-control.hidden,
-#run-all-simulation.hidden {
+#run-all-simulation.hidden,
+#run-log-replay.hidden {
     display: none;
 }
 
@@ -543,6 +610,19 @@ button {
     background: #101d28;
     color: var(--yellow);
     font-size: 7px;
+}
+
+.auv-device .loss-badge.training-log {
+    border: 1px solid rgba(246, 200, 95, 0.55);
+    box-shadow: 0 0 8px rgba(246, 200, 95, 0.28);
+}
+
+.auv-device .loss-badge.loss-down {
+    color: var(--green);
+}
+
+.auv-device .loss-badge.loss-up {
+    color: var(--coral);
 }
 
 .auv-device.disconnected {
