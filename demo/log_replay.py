@@ -25,8 +25,7 @@ KD_EPOCH_PATTERN = re.compile(
     r"Supervised:\s+(?P<supervised>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
     r"KD Only:\s+(?P<kd_only>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
     r"Box:\s+(?P<box>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
-    r"KL:\s+(?P<kl>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
-    r"LoRA_Proj:\s+(?P<lora>[0-9]+(?:\.[0-9]+)?)"
+    r"KL:\s+(?P<kl>[0-9]+(?:\.[0-9]+)?)"
     r".*?Total:\s+(?P<total>[0-9]+(?:\.[0-9]+)?)",
     re.IGNORECASE,
 )
@@ -34,7 +33,6 @@ KD_SUMMARY_PATTERN = re.compile(
     r"\[Gateway KD\]\s+Summary\s+\|\s+"
     r"Box=(?P<box>[0-9]+(?:\.[0-9]+)?),\s+"
     r"KL=(?P<kl>[0-9]+(?:\.[0-9]+)?),\s+"
-    r"LoRA_Proj=(?P<lora>[0-9]+(?:\.[0-9]+)?),\s+"
     r"KD/Sup=(?P<kd_ratio>[0-9]+(?:\.[0-9]+)?),\s+"
     r"KD Contrib=(?P<kd_contrib>[0-9]+(?:\.[0-9]+)?),\s+"
     r"Total=(?P<total>[0-9]+(?:\.[0-9]+)?)",
@@ -105,7 +103,6 @@ def parse_training_log(
                             "kd_only": round(float(match_kd_epoch.group("kd_only")), 4),
                             "box": round(float(match_kd_epoch.group("box")), 4),
                             "kl": round(float(match_kd_epoch.group("kl")), 4),
-                            "lora_proj": round(float(match_kd_epoch.group("lora")), 4),
                             "total": round(float(match_kd_epoch.group("total")), 4),
                         })
                         continue
@@ -117,7 +114,6 @@ def parse_training_log(
                             "round": current_round,
                             "box": round(float(match_kd_summary.group("box")), 4),
                             "kl": round(float(match_kd_summary.group("kl")), 4),
-                            "lora_proj": round(float(match_kd_summary.group("lora")), 4),
                             "kd_ratio": round(float(match_kd_summary.group("kd_ratio")), 4),
                             "kd_contrib": round(float(match_kd_summary.group("kd_contrib")), 4),
                             "total": round(float(match_kd_summary.group("total")), 4),
