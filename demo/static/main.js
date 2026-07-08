@@ -41,6 +41,7 @@ let trainingLogCacheByCase = {};
 let selectedInspectorNode = null;
 let centralizedUploadComplete = false;
 let completedRoundByScenario = {};
+let visibleMetricsByScenario = {};
 
 function normalizeApiBase(value) {
     const text = String(value || "").trim().replace(/\/+$/, "");
@@ -318,6 +319,11 @@ function metricsVisibleForCurrentRound() {
     return Number(completedRoundByScenario[activeScenario] || 0) >= Number(scenarioData?.round || 0);
 }
 
+function rememberVisibleMetrics() {
+    if (!scenarioData?.metrics) return;
+    visibleMetricsByScenario[activeScenario] = { ...scenarioData.metrics };
+}
+
 function zeroedMetrics(metrics) {
     return {
         ...metrics,
@@ -550,7 +556,7 @@ function renderTimeline() {
 function renderScenarioMetrics() {
     const metrics = metricsVisibleForCurrentRound()
         ? scenarioData.metrics
-        : zeroedMetrics(scenarioData.metrics || {});
+        : visibleMetricsByScenario[activeScenario] || zeroedMetrics(scenarioData.metrics || {});
     const demoDuration = scenarioData.phases.reduce((total, phase) => total + phase.duration_ms, 0) / 1000;
     const accuracy = activeScenario === "centralized"
         ? `${(metrics.mAP50 * 100).toFixed(2)}% upper bound`
@@ -1089,6 +1095,7 @@ async function runDemoTraining() {
             updateLiveTrainingButton();
             if (!await playLoadedRound(1)) break;
             completedRoundByScenario[activeScenario] = round;
+            rememberVisibleMetrics();
             renderScenarioMetrics();
             if (round < requestedRounds) await sleep(ROUND_TRANSITION_DELAY_MS);
         }
@@ -1175,6 +1182,13 @@ async function runTrainingLogReplay() {
         var finalLabel = logReplayStopRequested
             ? `Training-log replay stopped at round ${currentRound}`
             : `${getRequestedRounds()} rounds replayed from real training log`;
+        if (!logReplayStopRequested) {
+            completedRoundByScenario[activeScenario] = Math.max(
+                Number(completedRoundByScenario[activeScenario] || 0),
+                Number(currentRound || 0)
+            );
+            rememberVisibleMetrics();
+        }
     } catch (error) {
         var finalIndex = "Log replay unavailable";
         var finalLabel = error.message;
@@ -1233,6 +1247,12 @@ function finishSimulation(completed) {
     setSimulationControls(false);
     updateLiveTrainingButton();
     if (completed) {
+        completedRoundByScenario[activeScenario] = Math.max(
+            Number(completedRoundByScenario[activeScenario] || 0),
+            Number(currentRound || 0)
+        );
+        rememberVisibleMetrics();
+        renderScenarioMetrics();
         setPhaseStatus(
             "Complete",
             activeScenario === "centralized"

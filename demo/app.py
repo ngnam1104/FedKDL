@@ -156,7 +156,7 @@ SIMULATION_PHASES = {
         {"id": "relay_aggregate", "label": "Relay SVD aggregation", "duration_ms": 250},
         {"id": "relay_cooperate", "label": "Relay-to-Relay cooperation", "duration_ms": 400},
         {"id": "uplink_r2g", "label": "Relay to Gateway: INT8 LoRA", "duration_ms": 450},
-        {"id": "gateway_kd", "label": "Gateway aggregation", "duration_ms": 450},
+        {"id": "gateway_kd", "label": "Gateway KD + aggregation", "duration_ms": 1800},
         {"id": "downlink_g2r", "label": "Broadcast Gateway to Relay", "duration_ms": 450},
         {"id": "downlink_r2a", "label": "Broadcast Relay to AUV", "duration_ms": 450},
     ],
