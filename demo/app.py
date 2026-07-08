@@ -53,7 +53,8 @@ MODEL_CANDIDATES = [
 ]
 
 DETECTION_CONF_PRIMARY = 0.25
-DETECTION_CONF_FALLBACK = 0.05
+DETECTION_CONF_THRESHOLDS = (0.25, 0.05, 0.01, 0.001)
+DETECTION_MAX_DET = 8
 
 TOPOLOGY_CANDIDATES = [
     REPO_ROOT / "environments/2d/topo/N_30/topo_N30_seed1107.pkl",
@@ -611,6 +612,9 @@ def _sample_detection_images() -> tuple[Path, ...]:
         return ()
     stride = max(1, len(images) // 24)
     selected = images[::stride][:24]
+    preferred_indices = [7, 9]
+    preferred = [selected[index] for index in preferred_indices if index < len(selected)]
+    selected = preferred + [path for path in selected if path not in preferred]
     return tuple(selected)
 
 
@@ -1134,23 +1138,20 @@ async def _run_detection(file: UploadFile) -> dict[str, Any]:
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     inference_started_at = time.perf_counter()
-    confidence_threshold = DETECTION_CONF_PRIMARY
-    results = model.predict(
-        img_np,
-        imgsz=640,
-        conf=confidence_threshold,
-        device=_model_device,
-        verbose=False,
-    )
-    if results and len(results[0].boxes) == 0:
-        confidence_threshold = DETECTION_CONF_FALLBACK
+    confidence_threshold = DETECTION_CONF_THRESHOLDS[-1]
+    results = []
+    for threshold in DETECTION_CONF_THRESHOLDS:
+        confidence_threshold = threshold
         results = model.predict(
             img_np,
             imgsz=640,
             conf=confidence_threshold,
+            max_det=DETECTION_MAX_DET,
             device=_model_device,
             verbose=False,
         )
+        if results and len(results[0].boxes) > 0:
+            break
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     server_inference_ms = (time.perf_counter() - inference_started_at) * 1000.0
@@ -1174,6 +1175,7 @@ async def _run_detection(file: UploadFile) -> dict[str, Any]:
                 2,
             )
             detections.append({"label": label, "confidence": conf, "bbox": [x1, y1, x2, y2]})
+    detections.sort(key=lambda item: item["confidence"], reverse=True)
 
     _, buffer = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 86])
     return {
