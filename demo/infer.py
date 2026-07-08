@@ -2,7 +2,9 @@ import os
 from ultralytics import YOLO
 
 def main():
-    model_path = 'student_lora_best.pt'
+    # Lấy thư mục chứa file infer.py hiện tại
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(script_dir, 'student_lora_best.pt')
     # Check if model exists
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found!")
