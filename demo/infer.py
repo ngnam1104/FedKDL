@@ -1,85 +1,102 @@
 import os
 import sys
 
-# Thêm thư mục gốc của project vào sys.path để Python nhận diện được package detection_2d
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from ultralytics import YOLO
-import detection_2d.compat  # Register shims for tasks.detection_2d
+import detection_2d.compat  # Registers tasks.detection_2d -> detection_2d shims.
 
-def main():
-    # Thêm thư mục gốc của project vào sys.path để Python nhận diện được package detection_2d
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
 
-    # Trỏ đúng vào model đã finetune trong thư mục demo (do user đã copy sang)
-    model_path = os.path.join(script_dir, 'student_lora_best.pt')
-    # Check if model exists
-    if not os.path.exists(model_path):
-        print(f"Model file {model_path} not found!")
-        return
-
-    print(f"Loading model from {model_path}...")
-    from detection_2d.models.yolo_wrapper import StudentModel
-    
-    # Sử dụng wrapper StudentModel để load đúng các tham số LoRA
-    # Cung cấp rõ lora_targets=['Conv'] vì tên file 'student_lora_best.pt' 
-    # không chứa chữ '12n', khiến hàm is_nano bị False.
-    
-    # --- DIAGNOSTIC PRINT ---
+def bake_lora_for_inference(yolo):
     import torch
-    print("Pre-loading checkpoint directly to inspect:")
-    ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
-    m = ckpt.get('ema') or ckpt.get('model')
-    conv2d_count = sum(1 for _, mod in m.named_modules() if isinstance(mod, torch.nn.Conv2d))
-    print(f"Direct loaded model has {conv2d_count} torch.nn.Conv2d instances.")
-    
+    from detection_2d.models.lora import LoRAConv2d
+
+    before = sum(1 for module in yolo.model.modules() if isinstance(module, LoRAConv2d))
+    print(f"YOLO-loaded model has {before} LoRAConv2d layers before bake.")
+
+    baked = 0
+    for parent_module in list(yolo.model.modules()):
+        for child_name, child_module in list(parent_module.named_children()):
+            if not isinstance(child_module, LoRAConv2d):
+                continue
+            with torch.no_grad():
+                lora_weight = (child_module.lora_B @ child_module.lora_A).view(
+                    child_module.weight.shape
+                ) * child_module.scaling
+                new_conv = torch.nn.Conv2d(
+                    in_channels=child_module.in_channels,
+                    out_channels=child_module.out_channels,
+                    kernel_size=child_module.kernel_size,
+                    stride=child_module.stride,
+                    padding=child_module.padding,
+                    dilation=child_module.dilation,
+                    groups=child_module.groups,
+                    bias=child_module.bias is not None,
+                    padding_mode=child_module.padding_mode,
+                )
+                new_conv.weight.data = child_module.weight.data + lora_weight
+                if child_module.bias is not None:
+                    new_conv.bias.data = child_module.bias.data.clone()
+            setattr(parent_module, child_name, new_conv)
+            baked += 1
+
+    after = sum(1 for module in yolo.model.modules() if isinstance(module, LoRAConv2d))
+    print(f"Baked {baked} LoRAConv2d layers. Remaining LoRAConv2d: {after}.")
+    return baked
+
+
+def inspect_checkpoint(model_path):
+    import torch
     import detection_2d.models.lora as lora_mod
-    lora_count = sum(1 for _, mod in m.named_modules() if isinstance(mod, lora_mod.LoRAConv2d))
+
+    print("Pre-loading checkpoint directly to inspect:")
+    ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+    model_obj = ckpt.get("ema") or ckpt.get("model")
+    conv2d_count = sum(1 for _, mod in model_obj.named_modules() if isinstance(mod, torch.nn.Conv2d))
+    lora_count = sum(1 for _, mod in model_obj.named_modules() if isinstance(mod, lora_mod.LoRAConv2d))
+    print(f"Direct loaded model has {conv2d_count} torch.nn.Conv2d instances.")
     print(f"Direct loaded model has {lora_count} lora_mod.LoRAConv2d instances.")
-    
+
     print("Class of LoRAConv2d in checkpoint:")
-    for _, mod in m.named_modules():
+    for _, mod in model_obj.named_modules():
         if "LoRAConv2d" in str(type(mod)):
             print(f"  Type: {type(mod)}")
             print(f"  Is lora_mod.LoRAConv2d? {isinstance(mod, lora_mod.LoRAConv2d)}")
             break
-    # ------------------------
-            
-    student = StudentModel(ckpt=model_path, use_lora=True, lora_targets=['Conv'])
-    # Bake LoRA vào base weights TRƯỚC KHI gọi val() để tránh model.fuse() xóa mất LoRA
-    print("Baking LoRA weights...")
-    student.bake_lora()
-    
-    model = student.yolo
 
 
-    # Assuming the dataset configuration for validation is available.
-    # Typically, you need to pass data='path/to/data.yaml' if not embedded in the model.
-    # But YOLO evaluates on validation set automatically if you just call val() or you can predict on images.
+def main():
+    model_path = os.path.join(script_dir, "student_lora_best.pt")
+    if not os.path.exists(model_path):
+        print(f"Model file {model_path} not found.")
+        return
+
+    print(f"Loading model from {model_path}...")
+    inspect_checkpoint(model_path)
+
+    model = YOLO(model_path)
+    print("Baking LoRA weights directly from the checkpoint-loaded YOLO model...")
+    bake_lora_for_inference(model)
+
     print("Running validation inference...")
-    
-    # Try running validation
-    # Adjust 'data' argument if your dataset yaml is located elsewhere
     try:
-        # Sử dụng đường dẫn tường minh thay vì lấy từ model checkpoint (có thể là đường dẫn cũ trên Kaggle)
-        data_yaml = os.path.join(project_root, 'datasets', 'URPC2020.yaml')
+        data_yaml = os.path.join(project_root, "datasets", "URPC2020.yaml")
         if not os.path.exists(data_yaml):
             print(f"Dataset config not found at {data_yaml}. Trying fallback...")
-            data_yaml = os.path.join(project_root, 'datasets', 'URPC2020', 'data.yaml')
+            data_yaml = os.path.join(project_root, "datasets", "URPC2020", "data.yaml")
 
         metrics = model.val(data=data_yaml, half=False)
         print("Validation metrics:")
         print(f"mAP50: {metrics.box.map50}")
         print(f"mAP50-95: {metrics.box.map}")
-    except Exception as e:
-        print(f"Error during validation: {e}")
-        print("Note: Please make sure the dataset configuration file is present in your datasets folder.")
+    except Exception as exc:
+        print(f"Error during validation: {exc}")
+        print("Make sure the dataset configuration file is present in datasets/.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
