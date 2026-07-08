@@ -1,5 +1,6 @@
 import os
 from ultralytics import YOLO
+import detection_2d.compat  # Register shims for tasks.detection_2d
 
 def main():
     # Lấy thư mục chứa file infer.py hiện tại
