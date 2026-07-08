@@ -194,7 +194,9 @@ button {
 .viewer,
 .simulation-main {
     min-width: 0;
+    min-height: 0;
     padding: 20px 22px;
+    overflow: auto;
 }
 
 .result-panel,
@@ -388,6 +390,7 @@ button {
     overflow-y: auto;
     padding-right: 4px;
     overscroll-behavior: contain;
+    scrollbar-gutter: stable;
 }
 
 .sample-image-btn {
@@ -426,6 +429,27 @@ button {
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+@media (max-height: 720px) {
+    .viewer,
+    .result-panel {
+        padding-top: 12px;
+        padding-bottom: 12px;
+    }
+
+    .section-title {
+        margin-bottom: 10px;
+    }
+
+    .camera-feed {
+        height: 34vh;
+        min-height: 180px;
+    }
+
+    .sample-image-grid {
+        max-height: 220px;
+    }
 }
 
 .muted,
