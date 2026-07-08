@@ -556,8 +556,7 @@ function openNodeInspector(nodeType, nodeId, restoring = false) {
                 ["Pre-Gateway mAP50", `${(preMap * 100).toFixed(2)}%`],
                 ["Post-Gateway mAP50", `${(postMap * 100).toFixed(2)}%`],
                 ["KD gain", `${kdGain >= 0 ? "+" : ""}${(kdGain * 100).toFixed(2)}%`],
-                ["Gateway KD total", Number(metrics.kd_total || 0).toFixed(4)],
-                ["KD contrib", Number(metrics.kd_contrib || 0).toFixed(4)],
+                ["KD Loss", Number(metrics.kd_contrib || 0).toFixed(4)],
                 [
                     "KD Box/KL",
                     `${Number(metrics.kd_box || 0).toFixed(4)} / ${Number(metrics.kd_kl || 0).toFixed(4)}`,
@@ -625,8 +624,7 @@ function renderScenarioMetrics() {
         cards.splice(
             13,
             0,
-            metricCard("Gateway KD total", Number(metrics.kd_total || 0).toFixed(4)),
-            metricCard("KD contrib", Number(metrics.kd_contrib || 0).toFixed(4)),
+            metricCard("KD Loss", Number(metrics.kd_contrib || 0).toFixed(4)),
         );
     }
     document.getElementById("scenario-metrics").innerHTML = cards.join("");
@@ -1015,7 +1013,7 @@ async function animateGatewayKdPhase(phase, speedScale = 1) {
         if (event.type === "summary") {
             setPhaseStatus(
                 `Round ${currentRound}/40 - Gateway KD`,
-                `KD total ${Number(event.total).toFixed(4)} - contrib ${Number(event.kd_contrib).toFixed(4)} - Box/KL ${Number(event.box).toFixed(4)}/${Number(event.kl).toFixed(4)}`
+                `KD Loss ${Number(event.kd_contrib).toFixed(4)} - Box/KL ${Number(event.box).toFixed(4)}/${Number(event.kl).toFixed(4)}`
             );
         } else {
             setPhaseStatus(
