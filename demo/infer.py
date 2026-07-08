@@ -30,6 +30,27 @@ def main():
     # Sử dụng wrapper StudentModel để load đúng các tham số LoRA
     # Cung cấp rõ lora_targets=['Conv'] vì tên file 'student_lora_best.pt' 
     # không chứa chữ '12n', khiến hàm is_nano bị False.
+    
+    # --- DIAGNOSTIC PRINT ---
+    import torch
+    print("Pre-loading checkpoint directly to inspect:")
+    ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
+    m = ckpt.get('ema') or ckpt.get('model')
+    conv2d_count = sum(1 for _, mod in m.named_modules() if isinstance(mod, torch.nn.Conv2d))
+    print(f"Direct loaded model has {conv2d_count} torch.nn.Conv2d instances.")
+    
+    import detection_2d.models.lora as lora_mod
+    lora_count = sum(1 for _, mod in m.named_modules() if isinstance(mod, lora_mod.LoRAConv2d))
+    print(f"Direct loaded model has {lora_count} lora_mod.LoRAConv2d instances.")
+    
+    print("Class of LoRAConv2d in checkpoint:")
+    for _, mod in m.named_modules():
+        if "LoRAConv2d" in str(type(mod)):
+            print(f"  Type: {type(mod)}")
+            print(f"  Is lora_mod.LoRAConv2d? {isinstance(mod, lora_mod.LoRAConv2d)}")
+            break
+    # ------------------------
+            
     student = StudentModel(ckpt=model_path, use_lora=True, lora_targets=['Conv'])
     # Bake LoRA vào base weights TRƯỚC KHI gọi val() để tránh model.fuse() xóa mất LoRA
     print("Baking LoRA weights...")
