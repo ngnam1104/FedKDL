@@ -559,10 +559,8 @@ function openNodeInspector(nodeType, nodeId, restoring = false) {
                 ["Gateway KD total", Number(metrics.kd_total || 0).toFixed(4)],
                 ["KD contrib", Number(metrics.kd_contrib || 0).toFixed(4)],
                 [
-                    "KD Box/KL/LoRA",
-                    `${Number(metrics.kd_box || 0).toFixed(4)} / `
-                    + `${Number(metrics.kd_kl || 0).toFixed(4)} / `
-                    + `${Number(metrics.kd_lora || 0).toFixed(4)}`,
+                    "KD Box/KL",
+                    `${Number(metrics.kd_box || 0).toFixed(4)} / ${Number(metrics.kd_kl || 0).toFixed(4)}`,
                 ],
             );
         }
@@ -1017,7 +1015,7 @@ async function animateGatewayKdPhase(phase, speedScale = 1) {
         if (event.type === "summary") {
             setPhaseStatus(
                 `Round ${currentRound}/40 - Gateway KD`,
-                `KD total ${Number(event.total).toFixed(4)} - contrib ${Number(event.kd_contrib).toFixed(4)} - Box/KL/LoRA ${Number(event.box).toFixed(4)}/${Number(event.kl).toFixed(4)}/${Number(event.lora_proj).toFixed(4)}`
+                `KD total ${Number(event.total).toFixed(4)} - contrib ${Number(event.kd_contrib).toFixed(4)} - Box/KL ${Number(event.box).toFixed(4)}/${Number(event.kl).toFixed(4)}`
             );
         } else {
             setPhaseStatus(
