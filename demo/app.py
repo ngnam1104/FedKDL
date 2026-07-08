@@ -1231,6 +1231,11 @@ def preload_detector():
         print(f"[FedKDL Demo] Detector preload failed; lazy load will retry: {exc}")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
+
+
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
 
