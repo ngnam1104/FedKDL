@@ -1,4 +1,12 @@
 import os
+import sys
+
+# Thêm thư mục gốc của project vào sys.path để Python nhận diện được package detection_2d
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from ultralytics import YOLO
 import detection_2d.compat  # Register shims for tasks.detection_2d
 
