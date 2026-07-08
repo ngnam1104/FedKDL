@@ -20,7 +20,16 @@ def main():
         return
 
     print(f"Loading model from {model_path}...")
-    model = YOLO(model_path)
+    from detection_2d.models.yolo_wrapper import StudentModel
+    
+    # Sử dụng wrapper StudentModel để load đúng các tham số LoRA
+    student = StudentModel(ckpt=model_path, use_lora=True)
+    
+    # Bake LoRA vào base weights TRƯỚC KHI gọi val() để tránh model.fuse() xóa mất LoRA
+    print("Baking LoRA weights...")
+    student.bake_lora()
+    
+    model = student.yolo
 
     # Assuming the dataset configuration for validation is available.
     # Typically, you need to pass data='path/to/data.yaml' if not embedded in the model.
