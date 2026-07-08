@@ -26,6 +26,7 @@ KD_EPOCH_PATTERN = re.compile(
     r"KD Only:\s+(?P<kd_only>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
     r"Box:\s+(?P<box>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
     r"KL:\s+(?P<kl>[0-9]+(?:\.[0-9]+)?)"
+    r"(?:\s+\|\s+LoRA_Proj:\s+(?P<lora>[0-9]+(?:\.[0-9]+)?))?"
     r".*?Total:\s+(?P<total>[0-9]+(?:\.[0-9]+)?)",
     re.IGNORECASE,
 )
@@ -33,6 +34,7 @@ KD_SUMMARY_PATTERN = re.compile(
     r"\[Gateway KD\]\s+Summary\s+\|\s+"
     r"Box=(?P<box>[0-9]+(?:\.[0-9]+)?),\s+"
     r"KL=(?P<kl>[0-9]+(?:\.[0-9]+)?),\s+"
+    r"(?:LoRA_Proj=(?P<lora>[0-9]+(?:\.[0-9]+)?),\s+)?"
     r"KD/Sup=(?P<kd_ratio>[0-9]+(?:\.[0-9]+)?),\s+"
     r"KD Contrib=(?P<kd_contrib>[0-9]+(?:\.[0-9]+)?),\s+"
     r"Total=(?P<total>[0-9]+(?:\.[0-9]+)?)",
@@ -50,6 +52,7 @@ def parse_training_log(
     *,
     max_rounds: int = 10,
     max_events_per_auv_round: int = 36,
+    max_kd_progress_events_per_round: int = 24,
 ) -> dict[str, Any]:
     """Return downsampled batch-loss events from an Ultralytics/FedKDL log."""
     log_path = Path(log_path)
@@ -67,7 +70,9 @@ def parse_training_log(
     current_round = 0
     total_rounds = 0
     current_auv: int | None = None
+    in_gateway_kd = False
     step = 0
+    kd_step = 0
 
     with log_path.open("r", encoding="utf-8", errors="replace") as handle:
         for raw_line in handle:
@@ -89,10 +94,40 @@ def parse_training_log(
                                 kd_events,
                                 total_rounds,
                                 max_events_per_auv_round,
+                                max_kd_progress_events_per_round,
                             )
                     continue
 
                 if current_round > 0 and current_round <= max_rounds:
+                    if "[Gateway KD] Distilling" in line:
+                        in_gateway_kd = True
+                        current_auv = None
+                        continue
+                    if "[Gateway KD] Done" in line or "[Simulator] Evaluating" in line:
+                        in_gateway_kd = False
+
+                    if in_gateway_kd:
+                        match_kd_progress = PROGRESS_PATTERN.search(line)
+                        if match_kd_progress:
+                            box = float(match_kd_progress.group("box"))
+                            cls = float(match_kd_progress.group("cls"))
+                            dfl = float(match_kd_progress.group("dfl"))
+                            kd_step += 1
+                            kd_events.append({
+                                "type": "progress",
+                                "step": kd_step,
+                                "round": current_round,
+                                "epoch": int(match_kd_progress.group("epoch")),
+                                "epochs": int(match_kd_progress.group("epochs")),
+                                "batch": int(match_kd_progress.group("batch")),
+                                "batches": int(match_kd_progress.group("batches")),
+                                "box_loss": round(box, 4),
+                                "cls_loss": round(cls, 4),
+                                "dfl_loss": round(dfl, 4),
+                                "loss": round(box + cls + dfl, 4),
+                            })
+                            continue
+
                     match_kd_epoch = KD_EPOCH_PATTERN.search(line)
                     if match_kd_epoch:
                         kd_events.append({
@@ -103,6 +138,7 @@ def parse_training_log(
                             "kd_only": round(float(match_kd_epoch.group("kd_only")), 4),
                             "box": round(float(match_kd_epoch.group("box")), 4),
                             "kl": round(float(match_kd_epoch.group("kl")), 4),
+                            "lora_proj": round(float(match_kd_epoch.group("lora") or 0.0), 4),
                             "total": round(float(match_kd_epoch.group("total")), 4),
                         })
                         continue
@@ -114,6 +150,7 @@ def parse_training_log(
                             "round": current_round,
                             "box": round(float(match_kd_summary.group("box")), 4),
                             "kl": round(float(match_kd_summary.group("kl")), 4),
+                            "lora_proj": round(float(match_kd_summary.group("lora") or 0.0), 4),
                             "kd_ratio": round(float(match_kd_summary.group("kd_ratio")), 4),
                             "kd_contrib": round(float(match_kd_summary.group("kd_contrib")), 4),
                             "total": round(float(match_kd_summary.group("total")), 4),
@@ -150,7 +187,14 @@ def parse_training_log(
                     "loss": round(box + cls + dfl, 4),
                 })
 
-    return _finalize(log_path, events, kd_events, total_rounds, max_events_per_auv_round)
+    return _finalize(
+        log_path,
+        events,
+        kd_events,
+        total_rounds,
+        max_events_per_auv_round,
+        max_kd_progress_events_per_round,
+    )
 
 
 def _finalize(
@@ -159,6 +203,7 @@ def _finalize(
     kd_events: list[dict[str, Any]],
     total_rounds: int,
     max_events_per_auv_round: int,
+    max_kd_progress_events_per_round: int,
 ) -> dict[str, Any]:
     grouped: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
     for event in events:
@@ -177,6 +222,7 @@ def _finalize(
         compact.extend(selected[: max_events_per_auv_round + 1])
 
     compact.sort(key=lambda item: (item["round"], item["step"]))
+    compact_kd = _compact_kd_events(kd_events, max_kd_progress_events_per_round)
     return {
         "available": bool(compact),
         "source": str(log_path),
@@ -185,5 +231,37 @@ def _finalize(
         "total_rounds": total_rounds,
         "event_count": len(compact),
         "events": compact,
-        "kd_events": kd_events,
+        "kd_events": compact_kd,
     }
+
+
+def _compact_kd_events(
+    kd_events: list[dict[str, Any]],
+    max_progress_per_round: int,
+) -> list[dict[str, Any]]:
+    grouped_progress: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    non_progress: list[dict[str, Any]] = []
+    for event in kd_events:
+        if event.get("type") == "progress":
+            grouped_progress[int(event["round"])].append(event)
+        else:
+            non_progress.append(event)
+
+    compact: list[dict[str, Any]] = []
+    for round_id, items in grouped_progress.items():
+        if len(items) <= max_progress_per_round:
+            compact.extend(items)
+            continue
+        stride = max(1, len(items) // max_progress_per_round)
+        selected = items[::stride]
+        if selected[-1] is not items[-1]:
+            selected.append(items[-1])
+        compact.extend(selected[: max_progress_per_round + 1])
+
+    compact.extend(non_progress)
+    compact.sort(key=lambda item: (
+        int(item.get("round", 0)),
+        int(item.get("step", 10**9)),
+        0 if item.get("type") == "epoch" else 1 if item.get("type") == "progress" else 2,
+    ))
+    return compact

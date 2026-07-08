@@ -617,9 +617,13 @@ function renderScenarioMetrics() {
         metricCard("mAP50-95", `${(Number(metrics.mAP50_95 || 0) * 100).toFixed(2)}%`),
         metricCard("Precision", `${(Number(metrics.precision || 0) * 100).toFixed(2)}%`),
         metricCard("Recall", `${(Number(metrics.recall || 0) * 100).toFixed(2)}%`),
-        metricCard("Energy", metrics.energy_j > 0 ? `${metrics.energy_j.toFixed(0)} J` : "Not modeled"),
-        metricCard("Compressed demo", `${demoDuration.toFixed(1)} s`),
     ];
+    if (activeScenario !== "centralized") {
+        cards.push(
+            metricCard("Energy", metrics.energy_j > 0 ? `${metrics.energy_j.toFixed(0)} J` : "Not modeled"),
+            metricCard("Compressed demo", `${demoDuration.toFixed(1)} s`),
+        );
+    }
     if (activeScenario === "fedkdl") {
         cards.splice(
             13,
@@ -999,7 +1003,7 @@ async function animateGatewayKdPhase(phase, speedScale = 1) {
     clearLinks();
     const gateway = document.getElementById("gateway");
     gateway.classList.add("processing");
-    const delayMs = Math.max(220, Math.round((phase.duration_ms * speedScale) / kdEvents.length));
+    const delayMs = Math.max(90, Math.round((phase.duration_ms * speedScale) / kdEvents.length));
 
     for (const event of kdEvents) {
         if (simulationStopRequested) return false;
@@ -1008,7 +1012,12 @@ async function animateGatewayKdPhase(phase, speedScale = 1) {
             if (simulationStopRequested) return false;
         }
 
-        if (event.type === "summary") {
+        if (event.type === "progress") {
+            setPhaseStatus(
+                `Round ${currentRound}/40 - Gateway KD training`,
+                `batch ${event.batch}/${event.batches}, loss ${Number(event.loss).toFixed(4)} - box/cls/dfl ${Number(event.box_loss).toFixed(4)}/${Number(event.cls_loss).toFixed(4)}/${Number(event.dfl_loss).toFixed(4)}`
+            );
+        } else if (event.type === "summary") {
             setPhaseStatus(
                 `Round ${currentRound}/40 - Gateway KD`,
                 `KD Loss ${Number(event.kd_contrib).toFixed(4)} - Box/KL ${Number(event.box).toFixed(4)}/${Number(event.kl).toFixed(4)}`

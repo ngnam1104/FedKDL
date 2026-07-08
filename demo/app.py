@@ -1195,11 +1195,11 @@ async def _run_detection(file: UploadFile) -> dict[str, Any]:
             cv2.putText(
                 img_bgr,
                 f"{label} {conf:.2f}",
-                (x1, max(15, y1 - 10)),
+                (x1, max(30, y1 - 12)),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
+                1.0,
                 (0, 255, 120),
-                2,
+                3,
             )
             detections.append({"label": label, "confidence": conf, "bbox": [x1, y1, x2, y2]})
     detections.sort(key=lambda item: item["confidence"], reverse=True)
