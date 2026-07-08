@@ -30,13 +30,19 @@ def main():
     # Try running validation
     # Adjust 'data' argument if your dataset yaml is located elsewhere
     try:
-        metrics = model.val()
+        # Sử dụng đường dẫn tường minh thay vì lấy từ model checkpoint (có thể là đường dẫn cũ trên Kaggle)
+        data_yaml = os.path.join(project_root, 'datasets', 'URPC2020.yaml')
+        if not os.path.exists(data_yaml):
+            print(f"Dataset config not found at {data_yaml}. Trying fallback...")
+            data_yaml = os.path.join(project_root, 'datasets', 'URPC2020', 'data.yaml')
+
+        metrics = model.val(data=data_yaml)
         print("Validation metrics:")
         print(f"mAP50: {metrics.box.map50}")
         print(f"mAP50-95: {metrics.box.map}")
     except Exception as e:
         print(f"Error during validation: {e}")
-        print("Note: You might need to specify the data=... argument in model.val(data='your_dataset.yaml')")
+        print("Note: Please make sure the dataset configuration file is present in your datasets folder.")
 
 if __name__ == '__main__':
     main()
