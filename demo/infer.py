@@ -17,8 +17,8 @@ def main():
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    # Trỏ đúng vào model đã finetune trong thư mục runs
-    model_path = os.path.join(project_root, 'runs', 'centralized', 'lora_finetune', 'weights', 'student_lora_best.pt')
+    # Trỏ đúng vào model đã finetune trong thư mục demo (do user đã copy sang)
+    model_path = os.path.join(script_dir, 'student_lora_best.pt')
     # Check if model exists
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found!")
