@@ -11,9 +11,14 @@ from ultralytics import YOLO
 import detection_2d.compat  # Register shims for tasks.detection_2d
 
 def main():
-    # Lấy thư mục chứa file infer.py hiện tại
+    # Thêm thư mục gốc của project vào sys.path để Python nhận diện được package detection_2d
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(script_dir, 'student_lora_best.pt')
+    project_root = os.path.dirname(script_dir)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    # Trỏ đúng vào model đã finetune trong thư mục runs
+    model_path = os.path.join(project_root, 'runs', 'centralized', 'lora_finetune', 'weights', 'student_lora_best.pt')
     # Check if model exists
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found!")
