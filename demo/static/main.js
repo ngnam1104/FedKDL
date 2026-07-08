@@ -899,10 +899,9 @@ async function animateTrainingLogPhase(phase, speedScale = 1) {
         renderTopology();
         document.getElementById(`auv-${auvId}`)?.classList.add("training");
 
-        const metrics = scenarioData.metrics || {};
         setPhaseStatus(
-            `Round ${currentRound}/40 · Training log`,
-            `AUV ${auvId} epoch ${event.epoch}/${event.epochs}, batch ${event.batch}/${event.batches}, local loss ${Number(event.loss).toFixed(4)} · Gateway mAP50 ${(Number(metrics.mAP50 || 0) * 100).toFixed(2)}%`
+            `Round ${currentRound}/40 - Local Training AUV ${auvId}`,
+            `AUV ${auvId} epoch ${event.epoch}/${event.epochs}, batch ${event.batch}/${event.batches}, local loss ${Number(event.loss).toFixed(4)}`
         );
         await sleep(TRAIN_LOG_DELAY_MS);
     }
@@ -948,12 +947,11 @@ async function animateParallelTrainingLogPhase(phase, speedScale = 1) {
             document.getElementById(`auv-${Number(event.auv_id)}`)?.classList.add("training");
         }
 
-        const metrics = scenarioData.metrics || {};
         const firstEvent = step.events[0];
         const avgLoss = activeCount ? lossSum / activeCount : Number(firstEvent?.loss || 0);
         setPhaseStatus(
-            `Round ${currentRound}/40 - Parallel local training`,
-            `${activeCount} AUVs epoch ${firstEvent.epoch}/${firstEvent.epochs}, batch ${firstEvent.batch}/${firstEvent.batches}, avg local loss ${avgLoss.toFixed(4)} - Gateway mAP50 ${(Number(metrics.mAP50 || 0) * 100).toFixed(2)}%`
+            `Round ${currentRound}/40 - PARALLEL LOCAL TRAINING`,
+            `${activeCount} AUVs epoch ${firstEvent.epoch}/${firstEvent.epochs}, batch ${firstEvent.batch}/${firstEvent.batches}, avg local loss ${avgLoss.toFixed(4)}`
         );
         await sleep(TRAIN_LOG_DELAY_MS);
     }
