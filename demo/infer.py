@@ -28,7 +28,9 @@ def main():
     from detection_2d.models.yolo_wrapper import StudentModel
     
     # Sử dụng wrapper StudentModel để load đúng các tham số LoRA
-    student = StudentModel(ckpt=model_path, use_lora=True)
+    # Cung cấp rõ lora_targets=['Conv'] vì tên file 'student_lora_best.pt' 
+    # không chứa chữ '12n', khiến hàm is_nano bị False.
+    student = StudentModel(ckpt=model_path, use_lora=True, lora_targets=['Conv'])
     # Bake LoRA vào base weights TRƯỚC KHI gọi val() để tránh model.fuse() xóa mất LoRA
     print("Baking LoRA weights...")
     student.bake_lora()
