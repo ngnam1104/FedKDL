@@ -29,12 +29,11 @@ def main():
     
     # Sử dụng wrapper StudentModel để load đúng các tham số LoRA
     student = StudentModel(ckpt=model_path, use_lora=True)
-    model = student.yolo
+    # Bake LoRA vào base weights TRƯỚC KHI gọi val() để tránh model.fuse() xóa mất LoRA
+    print("Baking LoRA weights...")
+    student.bake_lora()
     
-    # Disable fuse to test if LoRAConv2d.forward() works better directly
-    print("Disabling model.fuse() instead of baking...")
-    if hasattr(model.model, 'fuse'):
-        model.model.fuse = lambda: model.model
+    model = student.yolo
 
 
     # Assuming the dataset configuration for validation is available.
@@ -51,7 +50,7 @@ def main():
             print(f"Dataset config not found at {data_yaml}. Trying fallback...")
             data_yaml = os.path.join(project_root, 'datasets', 'URPC2020', 'data.yaml')
 
-        metrics = model.val(data=data_yaml)
+        metrics = model.val(data=data_yaml, half=False)
         print("Validation metrics:")
         print(f"mAP50: {metrics.box.map50}")
         print(f"mAP50-95: {metrics.box.map}")
