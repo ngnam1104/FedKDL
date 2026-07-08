@@ -40,6 +40,7 @@ let logReplayLatestEvent = new Map();
 let trainingLogCacheByCase = {};
 let selectedInspectorNode = null;
 let centralizedUploadComplete = false;
+let completedRoundByScenario = {};
 
 function normalizeApiBase(value) {
     const text = String(value || "").trim().replace(/\/+$/, "");
@@ -294,6 +295,41 @@ function compactTrainingEvents(events, targetCount) {
     return selected;
 }
 
+function groupParallelTrainingEvents(events) {
+    const groups = new Map();
+    for (const event of events) {
+        const key = `${event.epoch}:${event.batch}`;
+        if (!groups.has(key)) {
+            groups.set(key, {
+                epoch: Number(event.epoch),
+                batch: Number(event.batch),
+                events: [],
+            });
+        }
+        groups.get(key).events.push(event);
+    }
+    return Array.from(groups.values()).sort((a, b) => {
+        if (a.epoch !== b.epoch) return a.epoch - b.epoch;
+        return a.batch - b.batch;
+    });
+}
+
+function metricsVisibleForCurrentRound() {
+    return Number(completedRoundByScenario[activeScenario] || 0) >= Number(scenarioData?.round || 0);
+}
+
+function zeroedMetrics(metrics) {
+    return {
+        ...metrics,
+        mAP50: 0,
+        mAP50_95: 0,
+        precision: 0,
+        recall: 0,
+        loss: 0,
+        pre_gateway_mAP50: 0,
+    };
+}
+
 function renderScenario() {
     document.getElementById("scenario-title").textContent = scenarioData.title;
     document.getElementById("round-label").textContent = `Round ${scenarioData.round} / 40`;
@@ -512,7 +548,9 @@ function renderTimeline() {
 }
 
 function renderScenarioMetrics() {
-    const metrics = scenarioData.metrics;
+    const metrics = metricsVisibleForCurrentRound()
+        ? scenarioData.metrics
+        : zeroedMetrics(scenarioData.metrics || {});
     const demoDuration = scenarioData.phases.reduce((total, phase) => total + phase.duration_ms, 0) / 1000;
     const accuracy = activeScenario === "centralized"
         ? `${(metrics.mAP50 * 100).toFixed(2)}% upper bound`
@@ -817,6 +855,57 @@ async function animateTrainingLogPhase(phase, speedScale = 1) {
     return true;
 }
 
+async function animateParallelTrainingLogPhase(phase, speedScale = 1) {
+    const replay = await getTrainingLogReplay(activeScenario, getRequestedRounds());
+    const roundEvents = (replay?.events || [])
+        .filter((event) => Number(event.round) === Number(currentRound));
+    if (!roundEvents.length) {
+        return animatePhase(phase, speedScale);
+    }
+
+    clearNodeStates();
+    clearLinks();
+    scenarioData.topology.auvs
+        .filter((auv) => auv.connected)
+        .forEach((auv) => document.getElementById(`auv-${auv.id}`)?.classList.add("training"));
+
+    const parallelSteps = groupParallelTrainingEvents(roundEvents);
+    for (const step of parallelSteps) {
+        if (simulationStopRequested) return false;
+        while (simulationPaused) {
+            await sleep(60);
+            if (simulationStopRequested) return false;
+        }
+
+        let lossSum = 0;
+        let activeCount = 0;
+        for (const event of step.events) {
+            const auvId = Number(event.auv_id);
+            const previous = logReplayLatestLoss.get(auvId);
+            if (Number.isFinite(previous)) logReplayPreviousLoss.set(auvId, previous);
+            logReplayLatestLoss.set(auvId, Number(event.loss));
+            logReplayLatestEvent.set(auvId, event);
+            lossSum += Number(event.loss);
+            activeCount += 1;
+        }
+        renderTopology();
+        for (const event of step.events) {
+            document.getElementById(`auv-${Number(event.auv_id)}`)?.classList.add("training");
+        }
+
+        const metrics = scenarioData.metrics || {};
+        const firstEvent = step.events[0];
+        const avgLoss = activeCount ? lossSum / activeCount : Number(firstEvent?.loss || 0);
+        setPhaseStatus(
+            `Round ${currentRound}/40 - Parallel local training`,
+            `${activeCount} AUVs epoch ${firstEvent.epoch}/${firstEvent.epochs}, batch ${firstEvent.batch}/${firstEvent.batches}, avg local loss ${avgLoss.toFixed(4)} - Gateway mAP50 ${(Number(metrics.mAP50 || 0) * 100).toFixed(2)}%`
+        );
+        await sleep(TRAIN_LOG_DELAY_MS);
+    }
+    clearNodeStates();
+    return true;
+}
+
 async function animateCentralizedTrainingPhase(phase, speedScale = 1) {
     clearNodeStates();
     clearLinks();
@@ -890,7 +979,7 @@ async function playLoadedRound(speedScale = 1) {
             phase.label
         );
         if (phase.id === "train" && activeScenario !== "centralized") {
-            if (!await animateTrainingLogPhase(phase, speedScale)) return false;
+            if (!await animateParallelTrainingLogPhase(phase, speedScale)) return false;
         } else if (phase.id === "gateway_train" && activeScenario === "centralized") {
             if (!await animateCentralizedTrainingPhase(phase, speedScale)) return false;
         } else if (!await animatePhase(phase, speedScale)) {
@@ -999,6 +1088,8 @@ async function runDemoTraining() {
             setSimulationControls(true);
             updateLiveTrainingButton();
             if (!await playLoadedRound(1)) break;
+            completedRoundByScenario[activeScenario] = round;
+            renderScenarioMetrics();
             if (round < requestedRounds) await sleep(ROUND_TRANSITION_DELAY_MS);
         }
 
