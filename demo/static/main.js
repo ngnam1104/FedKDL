@@ -598,7 +598,6 @@ function renderScenarioMetrics() {
     const metrics = metricsVisibleForCurrentRound()
         ? scenarioData.metrics
         : visibleMetricsByScenario[activeScenario] || zeroedMetrics(scenarioData.metrics || {});
-    const demoDuration = scenarioData.phases.reduce((total, phase) => total + phase.duration_ms, 0) / 1000;
     const accuracy = activeScenario === "centralized"
         ? `${(metrics.mAP50 * 100).toFixed(2)}% upper bound`
         : `${(metrics.mAP50 * 100).toFixed(2)}%`;
@@ -621,7 +620,6 @@ function renderScenarioMetrics() {
     if (activeScenario !== "centralized") {
         cards.push(
             metricCard("Energy", metrics.energy_j > 0 ? `${metrics.energy_j.toFixed(0)} J` : "Not modeled"),
-            metricCard("Compressed demo", `${demoDuration.toFixed(1)} s`),
         );
     }
     if (activeScenario === "fedkdl") {
@@ -1003,7 +1001,7 @@ async function animateGatewayKdPhase(phase, speedScale = 1) {
     clearLinks();
     const gateway = document.getElementById("gateway");
     gateway.classList.add("processing");
-    const delayMs = Math.max(90, Math.round((phase.duration_ms * speedScale) / kdEvents.length));
+    const delayMs = Math.max(150, Math.round((phase.duration_ms * speedScale) / kdEvents.length));
 
     for (const event of kdEvents) {
         if (simulationStopRequested) return false;

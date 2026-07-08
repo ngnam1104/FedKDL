@@ -407,6 +407,14 @@ def _metric_value(case_name: str, metric: dict[str, str], key: str, round_id: in
     return _fallback_value(case_name, key, round_id)
 
 
+def _metric_alias(metric: dict[str, str], *keys: str, default: float = 0.0) -> float:
+    for key in keys:
+        value = _safe_float(metric.get(key), default=float("nan"))
+        if np.isfinite(value):
+            return value
+    return default
+
+
 def _fallback_topology() -> dict[str, Any]:
     flat_connected_ids = {1, 2, 3, 12, 13, 15, 20, 21, 24, 27, 28}
     relays = [
@@ -914,8 +922,8 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
                 "energy_j": 0.0,
                 "mAP50": _safe_float(metric.get("mAP50"), _safe_float(metric.get("metrics/mAP50(B)"), 0.0)),
                 "mAP50_95": _safe_float(metric.get("metrics/mAP50-95(B)"), 0.0),
-                "precision": _safe_float(metric.get("metrics/precision(B)"), 0.0),
-                "recall": _safe_float(metric.get("metrics/recall(B)"), 0.0),
+                "precision": _metric_alias(metric, "metrics/precision(B)", "Prec"),
+                "recall": _metric_alias(metric, "metrics/recall(B)", "Rec"),
                 "loss": _safe_float(metric.get("loss"), 0.0),
                 "pre_gateway_mAP50": _safe_float(metric.get("mAP50"), _safe_float(metric.get("metrics/mAP50(B)"), 0.0)),
             },
@@ -968,8 +976,8 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
             "energy_j": _metric_value(case_name, metric, "e_total", round_id),
             "mAP50": _metric_value(case_name, metric, "mAP50", round_id),
             "mAP50_95": _metric_value(case_name, metric, "mAP50-95", round_id),
-            "precision": _safe_float(metric.get("precision"), _safe_float(metric.get("metrics/precision(B)"), 0.0)),
-            "recall": _safe_float(metric.get("recall"), _safe_float(metric.get("metrics/recall(B)"), 0.0)),
+            "precision": _metric_alias(metric, "precision", "metrics/precision(B)", "Prec"),
+            "recall": _metric_alias(metric, "recall", "metrics/recall(B)", "Rec"),
             "loss": _metric_value(case_name, metric, "loss", round_id),
             "pre_gateway_mAP50": _safe_float(
                 metric.get("pre_kd_mAP50"),
