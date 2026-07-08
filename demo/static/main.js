@@ -338,6 +338,12 @@ function zeroedMetrics(metrics) {
         recall: 0,
         loss: 0,
         pre_gateway_mAP50: 0,
+        kd_active: false,
+        kd_total: 0,
+        kd_contrib: 0,
+        kd_box: 0,
+        kd_kl: 0,
+        kd_lora: 0,
     };
 }
 
@@ -528,6 +534,39 @@ function openNodeInspector(nodeType, nodeId, restoring = false) {
             ${factRows(facts)}
             ${sampleImages ? `<div class="sample-images">${sampleImages}</div>` : ""}
         `;
+    } else if (nodeType === "gateway") {
+        const metrics = metricsVisibleForCurrentRound()
+            ? scenarioData.metrics
+            : visibleMetricsByScenario[activeScenario] || zeroedMetrics(scenarioData.metrics || {});
+        const preMap = Number(metrics.pre_gateway_mAP50 || metrics.mAP50 || 0);
+        const postMap = Number(metrics.mAP50 || 0);
+        const kdGain = postMap - preMap;
+        type.textContent = "Surface gateway";
+        title.textContent = `Gateway - round ${scenarioData.round}`;
+        const facts = [
+            ["Scenario", scenarioData.title],
+            ["Global loss", Number(metrics.loss || 0).toFixed(4)],
+            ["mAP50", `${(postMap * 100).toFixed(2)}%`],
+            ["mAP50-95", `${(Number(metrics.mAP50_95 || 0) * 100).toFixed(2)}%`],
+            ["Precision", `${(Number(metrics.precision || 0) * 100).toFixed(2)}%`],
+            ["Recall", `${(Number(metrics.recall || 0) * 100).toFixed(2)}%`],
+        ];
+        if (activeScenario === "fedkdl") {
+            facts.push(
+                ["Pre-Gateway mAP50", `${(preMap * 100).toFixed(2)}%`],
+                ["Post-Gateway mAP50", `${(postMap * 100).toFixed(2)}%`],
+                ["KD gain", `${kdGain >= 0 ? "+" : ""}${(kdGain * 100).toFixed(2)}%`],
+                ["Gateway KD total", Number(metrics.kd_total || 0).toFixed(4)],
+                ["KD contrib", Number(metrics.kd_contrib || 0).toFixed(4)],
+                [
+                    "KD Box/KL/LoRA",
+                    `${Number(metrics.kd_box || 0).toFixed(4)} / `
+                    + `${Number(metrics.kd_kl || 0).toFixed(4)} / `
+                    + `${Number(metrics.kd_lora || 0).toFixed(4)}`,
+                ],
+            );
+        }
+        body.innerHTML = factRows(facts);
     } else {
         const detail = (scenarioData.relay_details || []).find((item) => Number(item.id) === nodeId);
         if (!detail) return;
@@ -584,11 +623,11 @@ function renderScenarioMetrics() {
         metricCard("Energy", metrics.energy_j > 0 ? `${metrics.energy_j.toFixed(0)} J` : "Not modeled"),
         metricCard("Compressed demo", `${demoDuration.toFixed(1)} s`),
     ];
-    if (activeScenario === "fedkdl" && Number(metrics.kd_total || 0) > 0) {
+    if (activeScenario === "fedkdl") {
         cards.splice(
             13,
             0,
-            metricCard("Gateway KD total", Number(metrics.kd_total).toFixed(4)),
+            metricCard("Gateway KD total", Number(metrics.kd_total || 0).toFixed(4)),
             metricCard("KD contrib", Number(metrics.kd_contrib || 0).toFixed(4)),
         );
     }
