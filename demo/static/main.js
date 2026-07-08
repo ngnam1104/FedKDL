@@ -39,6 +39,7 @@ let logReplayPreviousLoss = new Map();
 let logReplayLatestEvent = new Map();
 let trainingLogCacheByCase = {};
 let selectedInspectorNode = null;
+let centralizedUploadComplete = false;
 
 function normalizeApiBase(value) {
     const text = String(value || "").trim().replace(/\/+$/, "");
@@ -303,6 +304,7 @@ function renderScenario() {
     document.getElementById("run-all-simulation").classList.add("hidden");
     document.getElementById("run-log-replay").classList.add("hidden");
     document.getElementById("run-simulation").classList.add("hidden");
+    document.getElementById("stop-simulation").classList.add("hidden");
     const liveButton = document.getElementById("run-live-training");
     const supportsLive = Boolean(liveDemoAvailableByCase[activeScenario])
         || activeScenario === "centralized"
@@ -859,6 +861,7 @@ function setSimulationControls(running) {
         || logReplayRunning
         || !logReplayAvailableByCase[activeScenario];
     pauseButton.disabled = !running;
+    stopButton.classList.toggle("hidden", !running && !logReplayRunning);
     stopButton.disabled = !running && !logReplayRunning;
     liveButton.disabled = running
         || logReplayRunning
@@ -873,6 +876,13 @@ async function playLoadedRound(speedScale = 1) {
     for (let index = 0; index < scenarioData.phases.length; index += 1) {
         if (simulationStopRequested) return false;
         const phase = scenarioData.phases[index];
+        const skipCentralizedUpload = activeScenario === "centralized"
+            && centralizedUploadComplete
+            && phase.id !== "gateway_train";
+        if (skipCentralizedUpload) {
+            setTimelineState(index + 1);
+            continue;
+        }
         setTimelineState(index);
         const roundText = activeScenario === "centralized" ? "" : `Round ${currentRound}/40 - `;
         setPhaseStatus(
@@ -886,6 +896,9 @@ async function playLoadedRound(speedScale = 1) {
         } else if (!await animatePhase(phase, speedScale)) {
             return false;
         }
+    }
+    if (activeScenario === "centralized") {
+        centralizedUploadComplete = true;
     }
     clearNodeStates();
     setTimelineState(scenarioData.phases.length);
@@ -969,6 +982,7 @@ async function runDemoTraining() {
         simulationPaused = false;
         simulationStopRequested = false;
         replayAllRunning = true;
+        centralizedUploadComplete = false;
         logReplayLatestLoss = new Map();
         logReplayPreviousLoss = new Map();
         logReplayLatestEvent = new Map();
@@ -1124,6 +1138,7 @@ function finishSimulation(completed) {
     simulationPaused = false;
     liveTrainingRunning = false;
     replayAllRunning = false;
+    centralizedUploadComplete = false;
     setSimulationControls(false);
     updateLiveTrainingButton();
     if (completed) {
@@ -1161,11 +1176,13 @@ function stopSimulation() {
     if (!simulationRunning) return;
     simulationStopRequested = true;
     simulationPaused = false;
+    setPhaseStatus("Stopping", `Training will stop after the current event`);
 }
 
 async function resetSimulation() {
     if (simulationRunning || liveTrainingRunning || logReplayRunning) return;
     currentRound = 1;
+    centralizedUploadComplete = false;
     clearLinks();
     clearNodeStates();
     await loadScenario();
