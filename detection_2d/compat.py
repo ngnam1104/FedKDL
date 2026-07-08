@@ -31,6 +31,8 @@ Usage
     register()
 """
 
+import importlib.abc
+import importlib.util
 import sys
 import types
 
@@ -54,13 +56,31 @@ _ALIAS_MAP = {
 }
 
 
-class _TasksDetectionFinder:
+class _TasksDetectionFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     """A sys.meta_path finder that redirects ``tasks.detection_2d.*`` imports
     to the real ``detection_2d.*`` package without triggering circular imports.
 
     It does NOT import anything eagerly — resolution happens only when Python
     actually tries to import a matching module name.
     """
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname not in _ALIAS_MAP:
+            return None
+        real_name = _ALIAS_MAP[fullname]
+        real_spec = importlib.util.find_spec(real_name)
+        is_package = bool(real_spec and real_spec.submodule_search_locations is not None)
+        return importlib.util.spec_from_loader(fullname, self, is_package=is_package)
+
+    def create_module(self, spec):
+        real_name = _ALIAS_MAP[spec.name]
+        __import__(real_name)
+        real_mod = sys.modules[real_name]
+        sys.modules[spec.name] = real_mod
+        return real_mod
+
+    def exec_module(self, module):
+        return None
 
     def find_module(self, fullname, path=None):  # Python 3 legacy hook
         if fullname in _ALIAS_MAP:
@@ -95,6 +115,8 @@ def register() -> None:
     # Ensure a 'tasks' stub exists in sys.modules
     if "tasks" not in sys.modules:
         sys.modules["tasks"] = types.ModuleType("tasks")
+    if not hasattr(sys.modules["tasks"], "__path__"):
+        sys.modules["tasks"].__path__ = []
 
     # Alias any already-loaded detection_2d sub-modules right now
     # (without triggering new imports that could cause circular deps).

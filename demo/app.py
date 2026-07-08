@@ -280,6 +280,9 @@ def _load_model(warmup: bool = False) -> Any:
             status_code=503,
             detail="Detection runtime is unavailable; replay and topology APIs remain active.",
         )
+    from detection_2d.compat import register as register_detection_compat
+
+    register_detection_compat()
     _model_path = next((path for path in MODEL_CANDIDATES if path.exists()), MODEL_CANDIDATES[-1])
     print(f"[FedKDL Demo] Loading detector: {_model_path}")
     _model = YOLO(str(_model_path))
