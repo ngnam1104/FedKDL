@@ -91,6 +91,8 @@ CASE_CONFIGS = {
     },
 }
 
+CENTRALIZED_METRICS = DEMO_DIR / "centralized_metrics.csv"
+
 FALLBACK_METRICS = {
     "fedavg_flat": {
         "mAP50": (0.3568, 0.4300, 0.4750),
@@ -127,13 +129,13 @@ SIMULATION_PHASES = {
         {"id": "uplink_a2r", "label": "AUV to Relay: raw images", "duration_ms": 4500},
         {"id": "relay_forward", "label": "Relay forwards image batches", "duration_ms": 500},
         {"id": "uplink_r2g", "label": "Relay to Gateway: raw images", "duration_ms": 4500},
-        {"id": "gateway_store", "label": "Store the centralized dataset", "duration_ms": 500},
+        {"id": "gateway_train", "label": "Gateway centralized training", "duration_ms": 2200},
     ],
     "fedavg_flat": [
         {"id": "train", "label": "Local full-model training", "duration_ms": 1800},
-        {"id": "uplink_direct", "label": "AUV to Gateway: full model", "duration_ms": 3400},
+        {"id": "uplink_direct", "label": "AUV to Gateway: full model", "duration_ms": 2400},
         {"id": "gateway_aggregate", "label": "Gateway FedAvg", "duration_ms": 450},
-        {"id": "downlink_direct", "label": "Gateway broadcasts full model", "duration_ms": 1500},
+        {"id": "downlink_direct", "label": "Gateway broadcasts full model", "duration_ms": 2400},
     ],
     "fedavg_hfl": [
         {"id": "train", "label": "Local full-model training", "duration_ms": 1800},
@@ -141,8 +143,8 @@ SIMULATION_PHASES = {
         {"id": "relay_aggregate", "label": "Relay aggregation", "duration_ms": 450},
         {"id": "uplink_r2g", "label": "Relay to Gateway: full model", "duration_ms": 1800},
         {"id": "gateway_aggregate", "label": "Gateway FedAvg", "duration_ms": 450},
-        {"id": "downlink_g2r", "label": "Broadcast Gateway to Relay", "duration_ms": 800},
-        {"id": "downlink_r2a", "label": "Broadcast Relay to AUV", "duration_ms": 800},
+        {"id": "downlink_g2r", "label": "Broadcast Gateway to Relay", "duration_ms": 1800},
+        {"id": "downlink_r2a", "label": "Broadcast Relay to AUV", "duration_ms": 1800},
     ],
     "fedkdl": [
         {"id": "train", "label": "Local LoRA training", "duration_ms": 800},
@@ -150,9 +152,9 @@ SIMULATION_PHASES = {
         {"id": "relay_aggregate", "label": "Relay SVD aggregation", "duration_ms": 250},
         {"id": "relay_cooperate", "label": "Relay-to-Relay cooperation", "duration_ms": 400},
         {"id": "uplink_r2g", "label": "Relay to Gateway: INT8 LoRA", "duration_ms": 450},
-        {"id": "gateway_kd", "label": "Gateway aggregation and KD", "duration_ms": 450},
-        {"id": "downlink_g2r", "label": "Broadcast Gateway to Relay", "duration_ms": 300},
-        {"id": "downlink_r2a", "label": "Broadcast Relay to AUV", "duration_ms": 300},
+        {"id": "gateway_kd", "label": "Gateway aggregation", "duration_ms": 450},
+        {"id": "downlink_g2r", "label": "Broadcast Gateway to Relay", "duration_ms": 450},
+        {"id": "downlink_r2a", "label": "Broadcast Relay to AUV", "duration_ms": 450},
     ],
 }
 
@@ -298,6 +300,15 @@ def _load_model(warmup: bool = False) -> Any:
 
 
 def _metric_row(case_name: str, round_id: int) -> dict[str, str]:
+    if case_name == "centralized":
+        rows = _read_csv_rows(CENTRALIZED_METRICS)
+        if not rows:
+            return {}
+        candidates = [row for row in rows if _safe_int(row.get("Round")) == round_id]
+        if candidates:
+            return candidates[0]
+        positive_rounds = [row for row in rows if _safe_int(row.get("Round")) > 0]
+        return positive_rounds[min(max(round_id - 1, 0), len(positive_rounds) - 1)] if positive_rounds else rows[0]
     cfg = CASE_CONFIGS[case_name]
     rows = _read_csv_rows(cfg["metrics"])
     if not rows:
@@ -310,6 +321,10 @@ def _metric_row(case_name: str, round_id: int) -> dict[str, str]:
 
 
 def _available_rounds(case_name: str) -> list[int]:
+    if case_name == "centralized":
+        rows = _read_csv_rows(CENTRALIZED_METRICS)
+        rounds = sorted({_safe_int(row.get("Round")) for row in rows if _safe_int(row.get("Round")) > 0})
+        return rounds if rounds else list(range(1, 41))
     rows = _read_csv_rows(CASE_CONFIGS[case_name]["metrics"])
     rounds = sorted({_safe_int(row.get("Round")) for row in rows if _safe_int(row.get("Round")) > 0})
     return rounds if rounds else list(range(1, 41))
@@ -817,6 +832,7 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
     if case_name == "centralized":
         topology = _topology_for_scenario(base_topology, "centralized")
         manifest = _centralized_raw_manifest()
+        metric = _metric_row("centralized", round_id)
         auv_details, relay_details = _network_node_details(
             case_name,
             topology,
@@ -842,7 +858,7 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
         return {
             "case": case_name,
             "title": "Centralized upload through relays",
-            "round": 1,
+            "round": round_id,
             "topology": {**topology, "use_relays": True},
             "auv_details": auv_details,
             "relay_details": relay_details,
@@ -857,18 +873,20 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
             "metrics": {
                 "uplink_payload_kb": raw_payload_kb,
                 "downlink_payload_kb": 0.0,
-                "train_latency_s": 0.0,
+                "train_latency_s": _safe_float(metric.get("time"), 185.0),
                 "tau_a2r": latency["tau_a2r"],
                 "tau_r2r": 0.0,
                 "tau_r2g": latency["tau_r2g"],
                 "tau_svd": 0.0,
                 "communication_latency_s": latency["tau_round"],
-                "round_latency_s": latency["tau_round"],
+                "round_latency_s": latency["tau_round"] + _safe_float(metric.get("time"), 185.0),
                 "energy_j": 0.0,
-                "mAP50": 0.7128,
-                "mAP50_95": 0.0,
-                "loss": 0.0,
-                "pre_gateway_mAP50": 0.7128,
+                "mAP50": _safe_float(metric.get("mAP50"), _safe_float(metric.get("metrics/mAP50(B)"), 0.0)),
+                "mAP50_95": _safe_float(metric.get("metrics/mAP50-95(B)"), 0.0),
+                "precision": _safe_float(metric.get("metrics/precision(B)"), 0.0),
+                "recall": _safe_float(metric.get("metrics/recall(B)"), 0.0),
+                "loss": _safe_float(metric.get("loss"), 0.0),
+                "pre_gateway_mAP50": _safe_float(metric.get("mAP50"), _safe_float(metric.get("metrics/mAP50(B)"), 0.0)),
             },
         }
 
@@ -919,6 +937,8 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
             "energy_j": _metric_value(case_name, metric, "e_total", round_id),
             "mAP50": _metric_value(case_name, metric, "mAP50", round_id),
             "mAP50_95": _metric_value(case_name, metric, "mAP50-95", round_id),
+            "precision": _safe_float(metric.get("precision"), _safe_float(metric.get("metrics/precision(B)"), 0.0)),
+            "recall": _safe_float(metric.get("recall"), _safe_float(metric.get("metrics/recall(B)"), 0.0)),
             "loss": _metric_value(case_name, metric, "loss", round_id),
             "pre_gateway_mAP50": _safe_float(
                 metric.get("pre_kd_mAP50"),
@@ -947,18 +967,31 @@ def get_auvs():
 
 @app.get("/api/demo/summary")
 def demo_summary():
+    cases = {
+        "centralized": {
+            "title": "Centralized",
+            "rounds": _available_rounds("centralized"),
+            "metrics_file": CENTRALIZED_METRICS.name,
+            "loss_file": None,
+            "log_file": None,
+            "log_replay_available": False,
+            "live_demo_available": CENTRALIZED_METRICS.exists(),
+        }
+    }
+    cases.update({
+        name: {
+            "title": cfg["title"],
+            "rounds": _available_rounds(name),
+            "metrics_file": cfg["metrics"].name,
+            "loss_file": cfg["loss"].name if cfg["loss"] is not None else None,
+            "log_file": _case_log_path(name).name if _case_log_path(name) else None,
+            "log_replay_available": _case_log_path(name) is not None,
+            "live_demo_available": _case_log_path(name) is not None,
+        }
+        for name, cfg in CASE_CONFIGS.items()
+    })
     return {
-        "cases": {
-            name: {
-                "title": cfg["title"],
-                "rounds": _available_rounds(name),
-                "metrics_file": cfg["metrics"].name,
-                "loss_file": cfg["loss"].name if cfg["loss"] is not None else None,
-                "log_file": _case_log_path(name).name if _case_log_path(name) else None,
-                "log_replay_available": _case_log_path(name) is not None,
-            }
-            for name, cfg in CASE_CONFIGS.items()
-        },
+        "cases": cases,
         "ml_available": YOLO is not None and torch is not None and cv2 is not None,
         "model_path": str(_model_path or next((p for p in MODEL_CANDIDATES if p.exists()), MODEL_CANDIDATES[-1])),
     }
@@ -1021,7 +1054,7 @@ def cancel_live_round(job_id: str):
 def training_log_replay(case_name: str, max_rounds: int = 10):
     if case_name not in CASE_CONFIGS:
         raise HTTPException(status_code=404, detail=f"Unknown case: {case_name}")
-    max_rounds = min(max(int(max_rounds), 1), 10)
+    max_rounds = min(max(int(max_rounds), 1), 40)
     payload = _training_log_replay(case_name, max_rounds)
     if not payload.get("available"):
         raise HTTPException(

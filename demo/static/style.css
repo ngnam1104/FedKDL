@@ -459,9 +459,23 @@ button {
 }
 
 .round-control.hidden,
+.icon-btn.hidden,
+.primary-btn.hidden,
+.secondary-btn.hidden,
 #run-all-simulation.hidden,
 #run-log-replay.hidden {
     display: none;
+}
+
+.round-control input[type="number"] {
+    width: 64px;
+    min-height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #0d2430;
+    color: var(--text);
+    font-weight: 800;
+    text-align: center;
 }
 
 .round-label {

@@ -119,19 +119,19 @@
                         <div class="simulation-actions">
                             <span id="round-label" class="round-label">Upload cycle</span>
                             <label id="round-control" class="round-control">
-                                <span>Round</span>
-                                <input id="round-slider" type="range" min="1" max="40" value="1">
+                                <span>Rounds</span>
+                                <input id="round-count" type="number" min="1" max="40" value="40">
                             </label>
-                            <button id="reset-simulation" class="icon-btn" type="button" title="Reset simulation">
+                            <button id="reset-simulation" class="icon-btn hidden" type="button" title="Reset simulation">
                                 <i class="fa-solid fa-rotate-left"></i>
                             </button>
-                            <button id="pause-simulation" class="icon-btn" type="button" title="Pause or resume" disabled>
+                            <button id="pause-simulation" class="icon-btn hidden" type="button" title="Pause or resume" disabled>
                                 <i class="fa-solid fa-pause"></i>
                             </button>
-                            <button id="stop-simulation" class="icon-btn stop-btn" type="button" title="Stop replay" disabled>
+                            <button id="stop-simulation" class="icon-btn hidden stop-btn" type="button" title="Stop replay" disabled>
                                 <i class="fa-solid fa-stop"></i>
                             </button>
-                            <button id="run-all-simulation" class="secondary-btn" type="button">
+                            <button id="run-all-simulation" class="secondary-btn hidden" type="button">
                                 <i class="fa-solid fa-forward-fast"></i>
                                 <span>Replay 40</span>
                             </button>
@@ -139,11 +139,11 @@
                                 <i class="fa-solid fa-chart-line"></i>
                                 <span>Replay log</span>
                             </button>
-                            <button id="run-live-training" class="secondary-btn hidden" type="button" disabled>
+                            <button id="run-live-training" class="primary-btn inline" type="button" disabled>
                                 <i class="fa-solid fa-microchip"></i>
                                 <span>Train live</span>
                             </button>
-                            <button id="run-simulation" class="primary-btn inline" type="button">
+                            <button id="run-simulation" class="primary-btn inline hidden" type="button">
                                 <i class="fa-solid fa-play"></i>
                                 <span>Run round</span>
                             </button>
