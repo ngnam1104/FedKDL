@@ -247,6 +247,9 @@ def _bake_lora_for_inference(model: Any) -> int:
         return 0
     from detection_2d.models.lora import LoRAConv2d
 
+    before = sum(1 for module in model.model.modules() if isinstance(module, LoRAConv2d))
+    if before:
+        print(f"[FedKDL Demo] Found {before} LoRAConv2d layers before inference bake.")
     baked = 0
     for parent_module in list(model.model.modules()):
         for child_name, child_module in list(parent_module.named_children()):
@@ -272,6 +275,9 @@ def _bake_lora_for_inference(model: Any) -> int:
                     new_conv.bias.copy_(child_module.bias)
             setattr(parent_module, child_name, new_conv)
             baked += 1
+    after = sum(1 for module in model.model.modules() if isinstance(module, LoRAConv2d))
+    if before:
+        print(f"[FedKDL Demo] LoRAConv2d layers after bake: {after}.")
     return baked
 
 
