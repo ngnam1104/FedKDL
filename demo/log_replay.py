@@ -20,6 +20,26 @@ PROGRESS_PATTERN = re.compile(
     r"\s+(?P<size>\d+):\s+\d+%"
     r".*?\s(?P<batch>\d+)\s*/\s*(?P<batches>\d+)"
 )
+KD_EPOCH_PATTERN = re.compile(
+    r"\[KD Epoch\s+(?P<epoch>\d+)\]\s+"
+    r"Supervised:\s+(?P<supervised>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
+    r"KD Only:\s+(?P<kd_only>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
+    r"Box:\s+(?P<box>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
+    r"KL:\s+(?P<kl>[0-9]+(?:\.[0-9]+)?)\s+\|\s+"
+    r"LoRA_Proj:\s+(?P<lora>[0-9]+(?:\.[0-9]+)?)"
+    r".*?Total:\s+(?P<total>[0-9]+(?:\.[0-9]+)?)",
+    re.IGNORECASE,
+)
+KD_SUMMARY_PATTERN = re.compile(
+    r"\[Gateway KD\]\s+Summary\s+\|\s+"
+    r"Box=(?P<box>[0-9]+(?:\.[0-9]+)?),\s+"
+    r"KL=(?P<kl>[0-9]+(?:\.[0-9]+)?),\s+"
+    r"LoRA_Proj=(?P<lora>[0-9]+(?:\.[0-9]+)?),\s+"
+    r"KD/Sup=(?P<kd_ratio>[0-9]+(?:\.[0-9]+)?),\s+"
+    r"KD Contrib=(?P<kd_contrib>[0-9]+(?:\.[0-9]+)?),\s+"
+    r"Total=(?P<total>[0-9]+(?:\.[0-9]+)?)",
+    re.IGNORECASE,
+)
 
 
 def clean_log_segment(segment: str) -> str:
@@ -45,6 +65,7 @@ def parse_training_log(
         }
 
     events: list[dict[str, Any]] = []
+    kd_events: list[dict[str, Any]] = []
     current_round = 0
     total_rounds = 0
     current_auv: int | None = None
@@ -67,10 +88,41 @@ def parse_training_log(
                             return _finalize(
                                 log_path,
                                 events,
+                                kd_events,
                                 total_rounds,
                                 max_events_per_auv_round,
                             )
                     continue
+
+                if current_round > 0 and current_round <= max_rounds:
+                    match_kd_epoch = KD_EPOCH_PATTERN.search(line)
+                    if match_kd_epoch:
+                        kd_events.append({
+                            "type": "epoch",
+                            "round": current_round,
+                            "epoch": int(match_kd_epoch.group("epoch")),
+                            "supervised": round(float(match_kd_epoch.group("supervised")), 4),
+                            "kd_only": round(float(match_kd_epoch.group("kd_only")), 4),
+                            "box": round(float(match_kd_epoch.group("box")), 4),
+                            "kl": round(float(match_kd_epoch.group("kl")), 4),
+                            "lora_proj": round(float(match_kd_epoch.group("lora")), 4),
+                            "total": round(float(match_kd_epoch.group("total")), 4),
+                        })
+                        continue
+
+                    match_kd_summary = KD_SUMMARY_PATTERN.search(line)
+                    if match_kd_summary:
+                        kd_events.append({
+                            "type": "summary",
+                            "round": current_round,
+                            "box": round(float(match_kd_summary.group("box")), 4),
+                            "kl": round(float(match_kd_summary.group("kl")), 4),
+                            "lora_proj": round(float(match_kd_summary.group("lora")), 4),
+                            "kd_ratio": round(float(match_kd_summary.group("kd_ratio")), 4),
+                            "kd_contrib": round(float(match_kd_summary.group("kd_contrib")), 4),
+                            "total": round(float(match_kd_summary.group("total")), 4),
+                        })
+                        continue
 
                 match_auv = AUV_PATTERN.search(line)
                 if match_auv:
@@ -102,12 +154,13 @@ def parse_training_log(
                     "loss": round(box + cls + dfl, 4),
                 })
 
-    return _finalize(log_path, events, total_rounds, max_events_per_auv_round)
+    return _finalize(log_path, events, kd_events, total_rounds, max_events_per_auv_round)
 
 
 def _finalize(
     log_path: Path,
     events: list[dict[str, Any]],
+    kd_events: list[dict[str, Any]],
     total_rounds: int,
     max_events_per_auv_round: int,
 ) -> dict[str, Any]:
@@ -136,4 +189,5 @@ def _finalize(
         "total_rounds": total_rounds,
         "event_count": len(compact),
         "events": compact,
+        "kd_events": kd_events,
     }

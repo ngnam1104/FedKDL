@@ -315,6 +315,11 @@ function groupParallelTrainingEvents(events) {
     });
 }
 
+function gatewayKdEventsForRound(replay, round) {
+    return (replay?.kd_events || [])
+        .filter((event) => Number(event.round) === Number(round));
+}
+
 function metricsVisibleForCurrentRound() {
     return Number(completedRoundByScenario[activeScenario] || 0) >= Number(scenarioData?.round || 0);
 }
@@ -562,7 +567,7 @@ function renderScenarioMetrics() {
         ? `${(metrics.mAP50 * 100).toFixed(2)}% upper bound`
         : `${(metrics.mAP50 * 100).toFixed(2)}%`;
 
-    document.getElementById("scenario-metrics").innerHTML = [
+    const cards = [
         metricCard("Uplink payload", formatPayload(metrics.uplink_payload_kb)),
         metricCard("Downlink payload", metrics.downlink_payload_kb > 0 ? formatPayload(metrics.downlink_payload_kb) : "None"),
         metricCard("Local training", formatTime(metrics.train_latency_s)),
@@ -578,7 +583,16 @@ function renderScenarioMetrics() {
         metricCard("Recall", `${(Number(metrics.recall || 0) * 100).toFixed(2)}%`),
         metricCard("Energy", metrics.energy_j > 0 ? `${metrics.energy_j.toFixed(0)} J` : "Not modeled"),
         metricCard("Compressed demo", `${demoDuration.toFixed(1)} s`),
-    ].join("");
+    ];
+    if (activeScenario === "fedkdl" && Number(metrics.kd_total || 0) > 0) {
+        cards.splice(
+            13,
+            0,
+            metricCard("Gateway KD total", Number(metrics.kd_total).toFixed(4)),
+            metricCard("KD contrib", Number(metrics.kd_contrib || 0).toFixed(4)),
+        );
+    }
+    document.getElementById("scenario-metrics").innerHTML = cards.join("");
 }
 
 function renderPayloadManifest() {
@@ -941,6 +955,43 @@ async function animateCentralizedTrainingPhase(phase, speedScale = 1) {
     return true;
 }
 
+async function animateGatewayKdPhase(phase, speedScale = 1) {
+    const replay = await getTrainingLogReplay(activeScenario, getRequestedRounds());
+    const kdEvents = gatewayKdEventsForRound(replay, currentRound);
+    if (!kdEvents.length) {
+        return animatePhase(phase, speedScale);
+    }
+
+    clearNodeStates();
+    clearLinks();
+    const gateway = document.getElementById("gateway");
+    gateway.classList.add("processing");
+    const delayMs = Math.max(220, Math.round((phase.duration_ms * speedScale) / kdEvents.length));
+
+    for (const event of kdEvents) {
+        if (simulationStopRequested) return false;
+        while (simulationPaused) {
+            await sleep(60);
+            if (simulationStopRequested) return false;
+        }
+
+        if (event.type === "summary") {
+            setPhaseStatus(
+                `Round ${currentRound}/40 - Gateway KD`,
+                `KD total ${Number(event.total).toFixed(4)} - contrib ${Number(event.kd_contrib).toFixed(4)} - Box/KL/LoRA ${Number(event.box).toFixed(4)}/${Number(event.kl).toFixed(4)}/${Number(event.lora_proj).toFixed(4)}`
+            );
+        } else {
+            setPhaseStatus(
+                `Round ${currentRound}/40 - Gateway KD`,
+                `Epoch ${event.epoch}: supervised ${Number(event.supervised).toFixed(4)} - KD only ${Number(event.kd_only).toFixed(4)} - total ${Number(event.total).toFixed(4)}`
+            );
+        }
+        await sleep(delayMs);
+    }
+    clearNodeStates();
+    return true;
+}
+
 function setSimulationControls(running) {
     const runButton = document.getElementById("run-simulation");
     const resetButton = document.getElementById("reset-simulation");
@@ -988,6 +1039,8 @@ async function playLoadedRound(speedScale = 1) {
             if (!await animateParallelTrainingLogPhase(phase, speedScale)) return false;
         } else if (phase.id === "gateway_train" && activeScenario === "centralized") {
             if (!await animateCentralizedTrainingPhase(phase, speedScale)) return false;
+        } else if (phase.id === "gateway_kd" && activeScenario === "fedkdl") {
+            if (!await animateGatewayKdPhase(phase, speedScale)) return false;
         } else if (!await animatePhase(phase, speedScale)) {
             return false;
         }

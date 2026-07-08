@@ -975,6 +975,12 @@ def _simulation_payload(case_name: str, round_id: int) -> dict[str, Any]:
                 metric.get("pre_kd_mAP50"),
                 _metric_value(case_name, metric, "mAP50", round_id),
             ),
+            "kd_active": str(metric.get("kd_active", "")).strip().lower() == "true",
+            "kd_total": _safe_float(metric.get("kd_total"), 0.0),
+            "kd_contrib": _safe_float(metric.get("kd_contrib"), 0.0),
+            "kd_box": _safe_float(metric.get("kd_box"), 0.0),
+            "kd_kl": _safe_float(metric.get("kd_kl"), 0.0),
+            "kd_lora": _safe_float(metric.get("kd_lora"), 0.0),
         },
     }
 
