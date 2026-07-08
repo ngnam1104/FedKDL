@@ -188,7 +188,7 @@ button {
 }
 
 .detection-layout {
-    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr) 390px;
 }
 
 .viewer,
@@ -295,8 +295,8 @@ button {
 
 .camera-feed {
     position: relative;
-    height: clamp(180px, calc(100vh - 430px), 440px);
-    min-height: 180px;
+    height: clamp(360px, 50vh, 620px);
+    min-height: 360px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -311,6 +311,22 @@ button {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+}
+
+#detect-view .section-title h2,
+#detect-view .result-panel h2 {
+    font-size: 22px;
+}
+
+#detect-view .eyebrow {
+    font-size: 11px;
+}
+
+#detect-view .upload-btn,
+#detect-view .primary-btn {
+    min-height: 46px;
+    padding: 0 18px;
+    font-size: 16px;
 }
 
 .empty-state {
@@ -352,6 +368,11 @@ button {
     border-bottom: 1px solid var(--border);
 }
 
+#detect-view .results-box {
+    min-height: 330px;
+    font-size: 15px;
+}
+
 .detection-item {
     display: flex;
     justify-content: space-between;
@@ -359,10 +380,15 @@ button {
     border-bottom: 1px solid var(--border);
 }
 
+#detect-view .detection-item {
+    padding: 13px 0;
+    font-size: 16px;
+}
+
 .sample-picker {
-    margin-top: 14px;
+    margin-top: 16px;
     min-height: 0;
-    padding: 10px;
+    padding: 12px;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: rgba(7, 19, 29, 0.62);
@@ -387,11 +413,11 @@ button {
 
 .sample-image-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    grid-auto-rows: 64px;
-    gap: 8px;
-    height: clamp(148px, 26vh, 260px);
-    min-height: 148px;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    grid-auto-rows: 88px;
+    gap: 10px;
+    height: clamp(196px, 28vh, 300px);
+    min-height: 196px;
     overflow-y: auto;
     padding-right: 8px;
     overscroll-behavior: contain;
@@ -415,8 +441,8 @@ button {
 
 .sample-image-btn {
     position: relative;
-    height: 64px;
-    min-height: 64px;
+    height: 88px;
+    min-height: 88px;
     overflow: hidden;
     padding: 0;
     border: 1px solid var(--border);
@@ -427,7 +453,7 @@ button {
 .sample-image-btn img {
     display: block;
     width: 100%;
-    height: 64px;
+    height: 88px;
     object-fit: cover;
 }
 
@@ -446,7 +472,7 @@ button {
     border-radius: 4px;
     background: rgba(2, 7, 10, 0.74);
     color: var(--text);
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -464,12 +490,12 @@ button {
     }
 
     .camera-feed {
-        height: 30vh;
-        min-height: 180px;
+        height: 44vh;
+        min-height: 280px;
     }
 
     .sample-image-grid {
-        height: 190px;
+        height: 184px;
     }
 }
 
