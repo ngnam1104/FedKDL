@@ -11,17 +11,32 @@ from ultralytics import YOLO
 import detection_2d.compat  # Registers tasks.detection_2d -> detection_2d shims.
 
 
+def is_lora_conv2d(module):
+    return (
+        module.__class__.__name__ == "LoRAConv2d"
+        and hasattr(module, "lora_A")
+        and hasattr(module, "lora_B")
+        and hasattr(module, "scaling")
+        and hasattr(module, "weight")
+        and hasattr(module, "in_channels")
+        and hasattr(module, "out_channels")
+    )
+
+
+def count_lora_conv2d(model):
+    return sum(1 for module in model.modules() if is_lora_conv2d(module))
+
+
 def bake_lora_for_inference(yolo):
     import torch
-    from detection_2d.models.lora import LoRAConv2d
 
-    before = sum(1 for module in yolo.model.modules() if isinstance(module, LoRAConv2d))
+    before = count_lora_conv2d(yolo.model)
     print(f"YOLO-loaded model has {before} LoRAConv2d layers before bake.")
 
     baked = 0
     for parent_module in list(yolo.model.modules()):
         for child_name, child_module in list(parent_module.named_children()):
-            if not isinstance(child_module, LoRAConv2d):
+            if not is_lora_conv2d(child_module):
                 continue
             with torch.no_grad():
                 lora_weight = (child_module.lora_B @ child_module.lora_A).view(
@@ -44,7 +59,7 @@ def bake_lora_for_inference(yolo):
             setattr(parent_module, child_name, new_conv)
             baked += 1
 
-    after = sum(1 for module in yolo.model.modules() if isinstance(module, LoRAConv2d))
+    after = count_lora_conv2d(yolo.model)
     print(f"Baked {baked} LoRAConv2d layers. Remaining LoRAConv2d: {after}.")
     return baked
 
@@ -57,15 +72,16 @@ def inspect_checkpoint(model_path):
     ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
     model_obj = ckpt.get("ema") or ckpt.get("model")
     conv2d_count = sum(1 for _, mod in model_obj.named_modules() if isinstance(mod, torch.nn.Conv2d))
-    lora_count = sum(1 for _, mod in model_obj.named_modules() if isinstance(mod, lora_mod.LoRAConv2d))
+    lora_count = sum(1 for _, mod in model_obj.named_modules() if is_lora_conv2d(mod))
     print(f"Direct loaded model has {conv2d_count} torch.nn.Conv2d instances.")
-    print(f"Direct loaded model has {lora_count} lora_mod.LoRAConv2d instances.")
+    print(f"Direct loaded model has {lora_count} LoRAConv2d-like instances.")
 
     print("Class of LoRAConv2d in checkpoint:")
     for _, mod in model_obj.named_modules():
         if "LoRAConv2d" in str(type(mod)):
             print(f"  Type: {type(mod)}")
             print(f"  Is lora_mod.LoRAConv2d? {isinstance(mod, lora_mod.LoRAConv2d)}")
+            print(f"  Is LoRAConv2d-like? {is_lora_conv2d(mod)}")
             break
 
 

@@ -242,18 +242,33 @@ def _training_log_replay(case_name: str, max_rounds: int = 10) -> dict[str, Any]
     return payload
 
 
+def _is_lora_conv2d(module: Any) -> bool:
+    return (
+        module.__class__.__name__ == "LoRAConv2d"
+        and hasattr(module, "lora_A")
+        and hasattr(module, "lora_B")
+        and hasattr(module, "scaling")
+        and hasattr(module, "weight")
+        and hasattr(module, "in_channels")
+        and hasattr(module, "out_channels")
+    )
+
+
+def _count_lora_conv2d(model: Any) -> int:
+    return sum(1 for module in model.model.modules() if _is_lora_conv2d(module))
+
+
 def _bake_lora_for_inference(model: Any) -> int:
     if torch is None:
         return 0
-    from detection_2d.models.lora import LoRAConv2d
 
-    before = sum(1 for module in model.model.modules() if isinstance(module, LoRAConv2d))
+    before = _count_lora_conv2d(model)
     if before:
         print(f"[FedKDL Demo] Found {before} LoRAConv2d layers before inference bake.")
     baked = 0
     for parent_module in list(model.model.modules()):
         for child_name, child_module in list(parent_module.named_children()):
-            if not isinstance(child_module, LoRAConv2d):
+            if not _is_lora_conv2d(child_module):
                 continue
             with torch.no_grad():
                 lora_weight = (child_module.lora_B @ child_module.lora_A).view(
@@ -275,7 +290,7 @@ def _bake_lora_for_inference(model: Any) -> int:
                     new_conv.bias.copy_(child_module.bias)
             setattr(parent_module, child_name, new_conv)
             baked += 1
-    after = sum(1 for module in model.model.modules() if isinstance(module, LoRAConv2d))
+    after = _count_lora_conv2d(model)
     if before:
         print(f"[FedKDL Demo] LoRAConv2d layers after bake: {after}.")
     return baked
