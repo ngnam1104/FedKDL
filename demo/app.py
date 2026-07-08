@@ -52,6 +52,9 @@ MODEL_CANDIDATES = [
     Path("yolo12n.pt"),
 ]
 
+DETECTION_CONF_PRIMARY = 0.25
+DETECTION_CONF_FALLBACK = 0.05
+
 TOPOLOGY_CANDIDATES = [
     REPO_ROOT / "environments/2d/topo/N_30/topo_N30_seed1107.pkl",
     REPO_ROOT / "environments/2d/topo/hfl/N_30/topo_hfl_N30_seed1107.pkl",
@@ -1131,13 +1134,23 @@ async def _run_detection(file: UploadFile) -> dict[str, Any]:
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     inference_started_at = time.perf_counter()
+    confidence_threshold = DETECTION_CONF_PRIMARY
     results = model.predict(
         img_np,
         imgsz=640,
-        conf=0.25,
+        conf=confidence_threshold,
         device=_model_device,
         verbose=False,
     )
+    if results and len(results[0].boxes) == 0:
+        confidence_threshold = DETECTION_CONF_FALLBACK
+        results = model.predict(
+            img_np,
+            imgsz=640,
+            conf=confidence_threshold,
+            device=_model_device,
+            verbose=False,
+        )
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     server_inference_ms = (time.perf_counter() - inference_started_at) * 1000.0
@@ -1168,6 +1181,8 @@ async def _run_detection(file: UploadFile) -> dict[str, Any]:
         "detections": detections,
         "image_b64": base64.b64encode(buffer).decode("utf-8"),
         "server_inference_ms": server_inference_ms,
+        "confidence_threshold": confidence_threshold,
+        "fallback_threshold_used": confidence_threshold < DETECTION_CONF_PRIMARY,
     }
 
 

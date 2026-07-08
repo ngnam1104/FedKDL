@@ -227,6 +227,8 @@ async function runDetection() {
             data.model_path,
             data.server_inference_ms,
             endToEndMs,
+            data.confidence_threshold,
+            data.fallback_threshold_used,
         );
         document.getElementById("tel-latency").textContent = `${endToEndMs.toFixed(0)} ms`;
     } catch (error) {
@@ -238,7 +240,7 @@ async function runDetection() {
     }
 }
 
-function renderDetections(detections, modelPath, serverInferenceMs, endToEndMs) {
+function renderDetections(detections, modelPath, serverInferenceMs, endToEndMs, confidenceThreshold = 0.25, fallbackThresholdUsed = false) {
     const rows = detections.length
         ? detections.map((detection) => `
             <div class="detection-item">
@@ -246,10 +248,14 @@ function renderDetections(detections, modelPath, serverInferenceMs, endToEndMs) 
                 <strong>${(detection.confidence * 100).toFixed(1)}%</strong>
             </div>
         `).join("")
-        : `<p class="muted">No object detected at confidence 0.25.</p>`;
+        : `<p class="muted">No object detected at confidence ${Number(confidenceThreshold).toFixed(2)}.</p>`;
+    const fallbackNote = fallbackThresholdUsed
+        ? `<p class="model-note">Display threshold relaxed for demo visibility.</p>`
+        : "";
 
     return `
         ${rows}
+        ${fallbackNote}
         <p class="model-note">GPU inference: ${Number(serverInferenceMs || 0).toFixed(1)} ms</p>
         <p class="model-note">Browser round trip: ${Number(endToEndMs || 0).toFixed(1)} ms</p>
         <p class="model-note">Detector: ${modelPath || "global student model"}</p>
